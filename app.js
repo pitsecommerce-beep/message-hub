@@ -1,4 +1,4 @@
-// MessageHub SaaS - Logica de Aplicacion
+// MessageHub SaaS - Lógica de Aplicación
 
 // ========== ESTADO GLOBAL ==========
 let currentUser = null;
@@ -18,7 +18,7 @@ const FUNNEL_STAGES = [
     { id: 'pago_pendiente', name: 'Pago Pendiente', color: '#EF4444' },
     { id: 'orden_pendiente', name: 'Orden Pendiente', color: '#8B5CF6' },
     { id: 'entregado', name: 'Entregado', color: '#10B981' },
-    { id: 'atencion_inmediata', name: 'Atencion Inmediata', color: '#EC4899' }
+    { id: 'atencion_inmediata', name: 'Atención Inmediata', color: '#EC4899' }
 ];
 
 // ========== FUNCIONES DE NOTIFICACION (MODAL) ==========
@@ -51,29 +51,29 @@ function getFirebaseAuthErrorMessage(error) {
         case 'auth/unauthorized-domain':
             return {
                 title: 'Dominio no autorizado',
-                message: `El dominio actual (${currentDomain}) no esta autorizado para inicio de sesion con OAuth.\n\nPara solucionarlo:\n1. Ve a Firebase Console\n2. Selecciona tu proyecto\n3. Ve a Authentication > Settings > Authorized domains\n4. Agrega: ${currentDomain}\n\nMientras tanto, usa email y contrasena.`
+                message: `El dominio actual (${currentDomain}) no está autorizado para inicio de sesión con OAuth.\n\nPara solucionarlo:\n1. Ve a Firebase Console\n2. Selecciona tu proyecto\n3. Ve a Authentication > Settings > Authorized domains\n4. Agrega: ${currentDomain}\n\nMientras tanto, usa email y contraseña.`
             };
         case 'auth/popup-blocked':
             return { title: 'Ventana bloqueada', message: 'El navegador bloqueo la ventana emergente. Permite ventanas emergentes para este sitio e intenta de nuevo.' };
         case 'auth/popup-closed-by-user':
-            return { title: 'Inicio cancelado', message: 'Se cerro la ventana de inicio de sesion antes de completar el proceso.' };
+            return { title: 'Inicio cancelado', message: 'Se cerró la ventana de inicio de sesión antes de completar el proceso.' };
         case 'auth/account-exists-with-different-credential':
-            return { title: 'Cuenta existente', message: 'Ya existe una cuenta con este email usando otro metodo de inicio de sesion. Intenta con el metodo original.' };
+            return { title: 'Cuenta existente', message: 'Ya existe una cuenta con este email usando otro método de inicio de sesión. Intenta con el método original.' };
         case 'auth/email-already-in-use':
-            return { title: 'Correo ya registrado', message: 'Este correo electronico ya esta registrado. Cambia a "Iniciar Sesion" para acceder a tu cuenta existente.' };
+            return { title: 'Correo ya registrado', message: 'Este correo electrónico ya está registrado. Cambia a "Iniciar Sesión" para acceder a tu cuenta existente.' };
         case 'auth/weak-password':
-            return { title: 'Contrasena debil', message: 'La contrasena debe tener al menos 6 caracteres.' };
+            return { title: 'Contraseña debil', message: 'La contraseña debe tener al menos 6 caracteres.' };
         case 'auth/user-not-found':
             return { title: 'Usuario no encontrado', message: 'No existe una cuenta con este correo. Verifica tu correo o registrate.' };
         case 'auth/wrong-password':
         case 'auth/invalid-credential':
-            return { title: 'Credenciales incorrectas', message: 'El correo o la contrasena son incorrectos. Intenta de nuevo.' };
+            return { title: 'Credenciales incorrectas', message: 'El correo o la contraseña son incorrectos. Intenta de nuevo.' };
         case 'auth/too-many-requests':
             return { title: 'Demasiados intentos', message: 'Has intentado demasiadas veces. Espera unos minutos antes de intentar de nuevo.' };
         case 'auth/cancelled-popup-request':
             return null;
         default:
-            return { title: 'Error de autenticacion', message: error.message };
+            return { title: 'Error de autenticación', message: error.message };
     }
 }
 
@@ -110,7 +110,7 @@ document.getElementById('loginForm')?.addEventListener('submit', async (e) => {
         console.error('Error de login:', error);
         const errorInfo = getFirebaseAuthErrorMessage(error);
         if (errorInfo) showNotification(errorInfo.title, errorInfo.message, 'error');
-        btnText.textContent = 'Iniciar Sesion';
+        btnText.textContent = 'Iniciar Sesión';
         btn.disabled = false;
     }
 });
@@ -129,7 +129,7 @@ document.getElementById('registerForm')?.addEventListener('submit', async (e) =>
         return;
     }
     if (password.length < 6) {
-        showNotification('Contrasena muy corta', 'La contrasena debe tener al menos 6 caracteres.', 'warning');
+        showNotification('Contraseña muy corta', 'La contraseña debe tener al menos 6 caracteres.', 'warning');
         return;
     }
 
@@ -184,17 +184,17 @@ async function handleFacebookAuth() {
 function handleForgotPassword() {
     const email = document.getElementById('loginEmail').value;
     if (!email) {
-        showNotification('Correo requerido', 'Ingresa tu correo electronico en el campo de email y luego haz clic en "Olvidaste tu contrasena?".', 'info');
+        showNotification('Correo requerido', 'Ingresa tu correo electrónico en el campo de email y luego haz clic en "Olvidaste tu contraseña?".', 'info');
         return;
     }
     window.firebaseAuth.sendPasswordResetEmail(window.auth, email).then(() => {
-        showNotification('Correo enviado', `Se ha enviado un enlace de recuperacion a ${email}. Revisa tu bandeja de entrada y carpeta de spam.`, 'success');
+        showNotification('Correo enviado', `Se ha enviado un enlace de recuperación a ${email}. Revisa tu bandeja de entrada y carpeta de spam.`, 'success');
     }).catch((error) => {
-        console.error('Error al enviar recuperacion:', error);
+        console.error('Error al enviar recuperación:', error);
         if (error.code === 'auth/user-not-found') {
-            showNotification('Usuario no encontrado', 'No existe una cuenta con este correo electronico.', 'error');
+            showNotification('Usuario no encontrado', 'No existe una cuenta con este correo electrónico.', 'error');
         } else {
-            showNotification('Error', 'No se pudo enviar el correo de recuperacion. Intenta de nuevo.', 'error');
+            showNotification('Error', 'No se pudo enviar el correo de recuperación. Intenta de nuevo.', 'error');
         }
     });
 }
@@ -220,8 +220,8 @@ async function confirmLogout() {
         pendingRegistration = null;
         window.suppressAuthRedirect = false;
     } catch (error) {
-        console.error('Error al cerrar sesion:', error);
-        showNotification('Error', 'No se pudo cerrar sesion. Intenta de nuevo.', 'error');
+        console.error('Error al cerrar sesión:', error);
+        showNotification('Error', 'No se pudo cerrar sesión. Intenta de nuevo.', 'error');
     }
 }
 
@@ -233,7 +233,7 @@ function cancelOnboarding() {
         window.suppressAuthRedirect = false;
         showAuthPage();
     } else if (currentUser) {
-        // Usuario ya existe, cerrar sesion
+        // Usuario ya existe, cerrar sesión
         handleLogout();
     } else {
         showAuthPage();
@@ -294,14 +294,14 @@ async function createPendingUser() {
     }
 }
 
-// Crear organizacion (Gerente)
+// Crear organización (Gerente)
 document.getElementById('orgForm')?.addEventListener('submit', async (e) => {
     e.preventDefault();
     const orgName = document.getElementById('orgName').value.trim();
     const orgIndustry = document.getElementById('orgIndustry').value.trim();
     const btnText = document.getElementById('orgBtnText');
     if (!orgName) {
-        showNotification('Campo requerido', 'Ingresa el nombre de tu organizacion.', 'warning');
+        showNotification('Campo requerido', 'Ingresa el nombre de tu organización.', 'warning');
         return;
     }
     btnText.innerHTML = '<span class="spinner"></span>';
@@ -346,26 +346,26 @@ document.getElementById('orgForm')?.addEventListener('submit', async (e) => {
         window.suppressAuthRedirect = false;
 
         showNotification(
-            'Organizacion creada',
-            `Tu organizacion "${orgName}" fue creada exitosamente.\n\nCodigo de invitacion: ${inviteCode}\n\nComparte este codigo con tu equipo para que se unan.`,
+            'Organización creada',
+            `Tu organización "${orgName}" fue creada exitosamente.\n\nCódigo de invitación: ${inviteCode}\n\nComparte este código con tu equipo para que se unan.`,
             'success'
         );
         await loadApp(currentUser.uid);
     } catch (error) {
-        console.error('Error al crear organizacion:', error);
+        console.error('Error al crear organización:', error);
         const errorInfo = getFirebaseAuthErrorMessage(error);
         if (errorInfo) {
             showNotification(errorInfo.title, errorInfo.message, 'error');
         } else {
-            showNotification('Error', 'No se pudo crear la organizacion: ' + error.message, 'error');
+            showNotification('Error', 'No se pudo crear la organización: ' + error.message, 'error');
         }
-        btnText.textContent = 'Crear Organizacion';
+        btnText.textContent = 'Crear Organización';
         pendingRegistration = null;
         window.suppressAuthRedirect = false;
     }
 });
 
-// Unirse a organizacion (Agente) - Valida codigo ANTES de crear usuario
+// Unirse a organización (Agente) - Valida código ANTES de crear usuario
 document.getElementById('joinForm')?.addEventListener('submit', async (e) => {
     e.preventDefault();
     const rawCode = document.getElementById('inviteCode').value.trim();
@@ -373,21 +373,21 @@ document.getElementById('joinForm')?.addEventListener('submit', async (e) => {
     const btnText = document.getElementById('joinBtnText');
 
     if (!inviteCode || inviteCode.length < 5) {
-        showNotification('Codigo invalido', 'Ingresa un codigo de invitacion valido (formato XXXXX-XXXXX).', 'warning');
+        showNotification('Código inválido', 'Ingresa un código de invitación válido (formato XXXXX-XXXXX).', 'warning');
         return;
     }
 
     btnText.innerHTML = '<span class="spinner"></span>';
 
     try {
-        // PRIMERO: validar codigo de invitacion
+        // PRIMERO: validar código de invitación
         const orgsRef = window.firestore.collection(window.db, 'organizations');
         const orgsQuery = window.firestore.query(orgsRef, window.firestore.where('inviteCode', '==', inviteCode));
         const orgsSnapshot = await window.firestore.getDocs(orgsQuery);
 
         if (orgsSnapshot.empty) {
-            showNotification('Codigo no encontrado', 'El codigo de invitacion ingresado no corresponde a ninguna organizacion. Verifica el codigo con tu gerente.', 'error');
-            btnText.textContent = 'Unirse a la Organizacion';
+            showNotification('Código no encontrado', 'El código de invitación ingresado no corresponde a ninguna organización. Verifica el código con tu gerente.', 'error');
+            btnText.textContent = 'Unirse a la Organización';
             return;
         }
 
@@ -402,7 +402,7 @@ document.getElementById('joinForm')?.addEventListener('submit', async (e) => {
 
         // Verificar si el usuario ya es miembro
         if (orgData.members && orgData.members.includes(currentUser.uid)) {
-            showNotification('Ya eres miembro', 'Ya perteneces a esta organizacion.', 'info');
+            showNotification('Ya eres miembro', 'Ya perteneces a esta organización.', 'info');
             await window.firestore.setDoc(
                 window.firestore.doc(window.db, 'users', currentUser.uid),
                 {
@@ -420,7 +420,7 @@ document.getElementById('joinForm')?.addEventListener('submit', async (e) => {
             return;
         }
 
-        // Agregar usuario a la organizacion
+        // Agregar usuario a la organización
         const updatedMembers = orgData.members ? [...orgData.members, currentUser.uid] : [currentUser.uid];
         await window.firestore.updateDoc(
             window.firestore.doc(window.db, 'organizations', orgId),
@@ -452,9 +452,9 @@ document.getElementById('joinForm')?.addEventListener('submit', async (e) => {
         if (errorInfo) {
             showNotification(errorInfo.title, errorInfo.message, 'error');
         } else {
-            showNotification('Error', 'No se pudo unir a la organizacion. Intenta de nuevo.\n\nDetalle: ' + error.message, 'error');
+            showNotification('Error', 'No se pudo unir a la organización. Intenta de nuevo.\n\nDetalle: ' + error.message, 'error');
         }
-        btnText.textContent = 'Unirse a la Organizacion';
+        btnText.textContent = 'Unirse a la Organización';
         pendingRegistration = null;
         window.suppressAuthRedirect = false;
     }
@@ -498,7 +498,7 @@ function showAuthPage() {
     document.getElementById('appLayout').classList.remove('active');
     document.getElementById('loginEmail').value = '';
     document.getElementById('loginPassword').value = '';
-    document.getElementById('loginBtnText').textContent = 'Iniciar Sesion';
+    document.getElementById('loginBtnText').textContent = 'Iniciar Sesión';
     document.getElementById('loginBtn').disabled = false;
 }
 
@@ -529,7 +529,7 @@ async function loadApp(userId) {
 
         const orgDoc = await window.firestore.getDoc(window.firestore.doc(window.db, 'organizations', userData.organizationId));
         if (!orgDoc.exists()) {
-            showNotification('Error', 'No se encontro la organizacion. Contacta al administrador.', 'error');
+            showNotification('Error', 'No se encontró la organización. Contacta al administrador.', 'error');
             return;
         }
         currentOrganization = { id: orgDoc.id, ...orgDoc.data() };
@@ -553,7 +553,7 @@ async function loadApp(userId) {
         showPageDirect('dashboard');
     } catch (error) {
         console.error('Error al cargar la app:', error);
-        showNotification('Error', 'No se pudo cargar la aplicacion. Intenta recargar la pagina.', 'error');
+        showNotification('Error', 'No se pudo cargar la aplicación. Intenta recargar la página.', 'error');
     }
 }
 
@@ -586,7 +586,7 @@ async function loadTeamMembers() {
                     <div class="team-name">${member.name || 'Sin nombre'}${isCurrentUser ? ' (Tu)' : ''}</div>
                     <div class="team-role">${role}</div>
                 </div>
-                <div class="team-status" title="En linea"></div>
+                <div class="team-status" title="En línea"></div>
             </div>
         `;
     }).join('');
@@ -615,12 +615,12 @@ function showPage(page) {
     });
 
     const titles = {
-        dashboard: { title: 'Panel Principal', subtitle: 'Resumen de tu actividad de mensajeria' },
+        dashboard: { title: 'Panel Principal', subtitle: 'Resumen de tu actividad de mensajería' },
         conversations: { title: 'Conversaciones', subtitle: 'Gestiona todas tus conversaciones y funnel de ventas' },
         contacts: { title: 'Contactos', subtitle: 'Directorio de contactos enriquecido' },
         team: { title: 'Equipo', subtitle: 'Gestiona los miembros de tu equipo' },
-        integrations: { title: 'Integraciones', subtitle: 'Conecta plataformas de mensajeria y pasarelas de pago' },
-        settings: { title: 'Configuracion', subtitle: 'Preferencias de la organizacion' }
+        integrations: { title: 'Integraciónes', subtitle: 'Conecta plataformas de mensajería y pasarelas de pago' },
+        settings: { title: 'Configuración', subtitle: 'Preferencias de la organización' }
     };
 
     if (titles[page]) {
@@ -809,7 +809,7 @@ function renderContactsTable() {
                 <td colspan="7">
                     <div class="contacts-empty-state">
                         <span>📇</span>
-                        <p>No hay contactos aun. Agrega tu primer contacto.</p>
+                        <p>No hay contactos aún. Agrega tu primer contacto.</p>
                     </div>
                 </td>
             </tr>
@@ -1000,7 +1000,7 @@ function copyInviteCode() {
     navigator.clipboard.writeText(code).then(() => {
         document.getElementById('copyIcon').textContent = '✅';
         setTimeout(() => { document.getElementById('copyIcon').textContent = '📋'; }, 2000);
-        addAppNotification('Codigo copiado', 'El codigo de invitacion fue copiado al portapapeles.', 'success');
+        addAppNotification('Código copiado', 'El código de invitación fue copiado al portapapeles.', 'success');
     }).catch(() => {
         const textarea = document.createElement('textarea');
         textarea.value = code;
@@ -1154,8 +1154,8 @@ function handleSearch(query) {
         { name: 'Funnel de Ventas', page: 'conversations', icon: '📊' },
         { name: 'Contactos', page: 'contacts', icon: '👥' },
         { name: 'Equipo', page: 'team', icon: '👨‍💼' },
-        { name: 'Integraciones', page: 'integrations', icon: '🔌' },
-        { name: 'Configuracion', page: 'settings', icon: '⚙️' },
+        { name: 'Integraciónes', page: 'integrations', icon: '🔌' },
+        { name: 'Configuración', page: 'settings', icon: '⚙️' },
     ];
 
     pages.forEach(p => {
@@ -1182,7 +1182,7 @@ function handleSearch(query) {
     const actions = [
         { name: 'Invitar Miembro', action: 'openInviteModal()', icon: '➕' },
         { name: 'Agregar Contacto', action: 'openContactModal()', icon: '📇' },
-        { name: 'Cerrar Sesion', action: 'handleLogout()', icon: '🚪' },
+        { name: 'Cerrar Sesión', action: 'handleLogout()', icon: '🚪' },
         { name: 'Ayuda', action: 'openHelpModal()', icon: '❓' },
         { name: 'Mi Perfil', action: 'openProfileModal()', icon: '👤' },
         { name: 'WhatsApp', action: "connectIntegration('whatsapp')", icon: '📱' },
@@ -1246,7 +1246,7 @@ function updateSettingsPage(userData) {
 function copySettingsInviteCode() {
     if (!currentOrganization || !currentOrganization.inviteCode) return;
     navigator.clipboard.writeText(currentOrganization.inviteCode).then(() => {
-        addAppNotification('Codigo copiado', 'Codigo de invitacion copiado al portapapeles.', 'success');
+        addAppNotification('Código copiado', 'Código de invitación copiado al portapapeles.', 'success');
     }).catch(() => {
         const ta = document.createElement('textarea');
         ta.value = currentOrganization.inviteCode;
@@ -1254,7 +1254,7 @@ function copySettingsInviteCode() {
         ta.select();
         document.execCommand('copy');
         document.body.removeChild(ta);
-        addAppNotification('Codigo copiado', 'Codigo de invitacion copiado al portapapeles.', 'success');
+        addAppNotification('Código copiado', 'Código de invitación copiado al portapapeles.', 'success');
     });
 }
 
@@ -1265,7 +1265,7 @@ function connectIntegration(platform) {
     const name = names[platform] || platform;
     showNotification(
         'Conectar ' + name,
-        `Para conectar ${name} necesitas:\n\n1. Una cuenta de Meta Business Suite\n2. Configurar la API de ${name}\n3. Obtener el token de acceso\n4. Configurar el webhook en Firebase Cloud Functions\n\nConsulta la Guia de Integracion Meta incluida en el proyecto.`,
+        `Para conectar ${name} necesitas:\n\n1. Una cuenta de Meta Business Suite\n2. Configurar la API de ${name}\n3. Obtener el token de acceso\n4. Configurar el webhook en Firebase Cloud Functions\n\nConsulta la Guía de Integración Meta incluida en el proyecto.`,
         'info'
     );
 }
@@ -1279,13 +1279,13 @@ function connectPayment(gateway) {
     if (gateway === 'stripe') {
         showNotification(
             'Conectar Stripe',
-            `Para conectar Stripe necesitas:\n\n1. Crear una cuenta en stripe.com\n2. Obtener tus API Keys (Publishable + Secret)\n3. Configurar las keys en Firebase Cloud Functions\n4. Crear un endpoint para generar Payment Links\n\nLa Secret Key se almacena solo en el backend (Cloud Functions), nunca en el frontend.\n\nUna vez conectado, podras generar ligas de pago desde cualquier conversacion.`,
+            `Para conectar Stripe necesitas:\n\n1. Crear una cuenta en stripe.com\n2. Obtener tus API Keys (Publishable + Secret)\n3. Configurar las keys en Firebase Cloud Functions\n4. Crear un endpoint para generar Payment Links\n\nLa Secret Key se almacena solo en el backend (Cloud Functions), nunca en el frontend.\n\nUna vez conectado, podrás generar ligas de pago desde cualquier conversación.`,
             'info'
         );
     } else if (gateway === 'mercadopago') {
         showNotification(
             'Conectar MercadoPago',
-            `Para conectar MercadoPago necesitas:\n\n1. Crear una cuenta en mercadopago.com.mx\n2. Crear una aplicacion en el panel de desarrolladores\n3. Obtener tu Access Token y Public Key\n4. Configurar las credenciales en Firebase Cloud Functions\n\nEl Access Token se almacena solo en el backend (Cloud Functions).\n\nUna vez conectado, podras generar ligas de pago con OXXO, transferencia y tarjeta.`,
+            `Para conectar MercadoPago necesitas:\n\n1. Crear una cuenta en mercadopago.com.mx\n2. Crear una aplicación en el panel de desarrolladores\n3. Obtener tu Access Token y Public Key\n4. Configurar las credenciales en Firebase Cloud Functions\n\nEl Access Token se almacena solo en el backend (Cloud Functions).\n\nUna vez conectado, podrás generar ligas de pago con OXXO, transferencia y tarjeta.`,
             'info'
         );
     }
