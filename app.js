@@ -5,6 +5,67 @@ let currentUser = null;
 let currentOrganization = null;
 let selectedRole = null;
 
+// ========== NOTIFICATION FUNCTIONS ==========
+
+function showNotification(title, message, type = 'error') {
+    const overlay = document.getElementById('notificationOverlay');
+    const box = document.getElementById('notificationBox');
+    const iconEl = document.getElementById('notificationIcon');
+    const titleEl = document.getElementById('notificationTitle');
+    const messageEl = document.getElementById('notificationMessage');
+
+    iconEl.textContent = type === 'error' ? '⚠️' : 'ℹ️';
+    titleEl.textContent = title;
+    messageEl.textContent = message;
+
+    box.className = 'notification-box ' + type;
+    overlay.classList.remove('hidden');
+}
+
+function closeNotification() {
+    document.getElementById('notificationOverlay').classList.add('hidden');
+}
+
+function getFirebaseAuthErrorMessage(error) {
+    const currentDomain = window.location.hostname || window.location.href;
+
+    switch (error.code) {
+        case 'auth/unauthorized-domain':
+            return {
+                title: 'Dominio no autorizado',
+                message: `El dominio actual (${currentDomain}) no está autorizado para inicio de sesión con OAuth (Google/Facebook).\n\n` +
+                    `Para solucionarlo:\n` +
+                    `1. Ve a Firebase Console:\n   https://console.firebase.google.com\n` +
+                    `2. Selecciona tu proyecto\n` +
+                    `3. Ve a Authentication → Settings → Authorized domains\n` +
+                    `4. Haz clic en "Add domain" y agrega:\n   ${currentDomain}\n\n` +
+                    `Mientras tanto, puedes iniciar sesión con email y contraseña.`
+            };
+        case 'auth/popup-blocked':
+            return {
+                title: 'Ventana bloqueada',
+                message: 'El navegador bloqueó la ventana emergente de inicio de sesión.\n\nPor favor, permite ventanas emergentes para este sitio e intenta de nuevo.'
+            };
+        case 'auth/popup-closed-by-user':
+            return {
+                title: 'Inicio de sesión cancelado',
+                message: 'Se cerró la ventana de inicio de sesión antes de completar el proceso.'
+            };
+        case 'auth/account-exists-with-different-credential':
+            return {
+                title: 'Cuenta existente',
+                message: 'Ya existe una cuenta con este email usando otro método de inicio de sesión. Intenta con el método original.'
+            };
+        case 'auth/cancelled-popup-request':
+            return null; // Ignore silently
+        default:
+            return {
+                title: 'Error de autenticación',
+                message: error.message
+            };
+    }
+}
+
 // ========== AUTH FUNCTIONS ==========
 
 function switchAuthTab(tab) {
@@ -41,7 +102,10 @@ document.getElementById('loginForm')?.addEventListener('submit', async (e) => {
         await window.firebaseAuth.signInWithEmailAndPassword(window.auth, email, password);
     } catch (error) {
         console.error('Login error:', error);
-        alert('Error: ' + error.message);
+        const errorInfo = getFirebaseAuthErrorMessage(error);
+        if (errorInfo) {
+            showNotification(errorInfo.title, errorInfo.message, 'error');
+        }
         btnText.textContent = 'Sign In';
         btn.disabled = false;
     }
@@ -86,7 +150,10 @@ document.getElementById('registerForm')?.addEventListener('submit', async (e) =>
         );
     } catch (error) {
         console.error('Registration error:', error);
-        alert('Error: ' + error.message);
+        const errorInfo = getFirebaseAuthErrorMessage(error);
+        if (errorInfo) {
+            showNotification(errorInfo.title, errorInfo.message, 'error');
+        }
         btnText.textContent = 'Create Account';
         btn.disabled = false;
     }
@@ -96,11 +163,11 @@ async function handleGoogleAuth() {
     try {
         const provider = new window.firebaseAuth.GoogleAuthProvider();
         const result = await window.firebaseAuth.signInWithPopup(window.auth, provider);
-        
+
         const userDoc = await window.firestore.getDoc(
             window.firestore.doc(window.db, 'users', result.user.uid)
         );
-        
+
         if (!userDoc.exists()) {
             await window.firestore.setDoc(
                 window.firestore.doc(window.db, 'users', result.user.uid),
@@ -114,7 +181,10 @@ async function handleGoogleAuth() {
         }
     } catch (error) {
         console.error('Google auth error:', error);
-        alert('Error: ' + error.message);
+        const errorInfo = getFirebaseAuthErrorMessage(error);
+        if (errorInfo) {
+            showNotification(errorInfo.title, errorInfo.message, 'error');
+        }
     }
 }
 
@@ -122,11 +192,11 @@ async function handleFacebookAuth() {
     try {
         const provider = new window.firebaseAuth.FacebookAuthProvider();
         const result = await window.firebaseAuth.signInWithPopup(window.auth, provider);
-        
+
         const userDoc = await window.firestore.getDoc(
             window.firestore.doc(window.db, 'users', result.user.uid)
         );
-        
+
         if (!userDoc.exists()) {
             await window.firestore.setDoc(
                 window.firestore.doc(window.db, 'users', result.user.uid),
@@ -140,7 +210,10 @@ async function handleFacebookAuth() {
         }
     } catch (error) {
         console.error('Facebook auth error:', error);
-        alert('Error: ' + error.message);
+        const errorInfo = getFirebaseAuthErrorMessage(error);
+        if (errorInfo) {
+            showNotification(errorInfo.title, errorInfo.message, 'error');
+        }
     }
 }
 
