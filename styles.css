@@ -1911,3 +1911,438 @@ body {
         text-align: center;
     }
 }
+
+/* ========== AUTH HINT ========== */
+.auth-hint {
+    text-align: center;
+    margin-top: 12px;
+    color: var(--text-tertiary);
+    font-size: 13px;
+}
+
+/* ========== CONVERSATION VIEW TOGGLE ========== */
+.conv-view-toggle {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 20px;
+    background: var(--bg-card);
+    padding: 6px;
+    border-radius: 12px;
+    border: 1px solid var(--border);
+}
+
+.conv-view-btn {
+    flex: 1;
+    padding: 12px 20px;
+    background: transparent;
+    border: none;
+    border-radius: 8px;
+    color: var(--text-secondary);
+    font-size: 14px;
+    font-weight: 600;
+    font-family: 'Outfit', sans-serif;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    text-align: center;
+}
+
+.conv-view-btn.active {
+    background: var(--gradient-primary);
+    color: white;
+    box-shadow: var(--shadow-sm);
+}
+
+.conv-view-btn:hover:not(.active) {
+    background: var(--bg-elevated);
+    color: var(--text-primary);
+}
+
+/* ========== FUNNEL BOARD (KANBAN) ========== */
+.funnel-board {
+    display: flex;
+    gap: 16px;
+    overflow-x: auto;
+    padding-bottom: 16px;
+    min-height: calc(100vh - 260px);
+}
+
+.funnel-board::-webkit-scrollbar {
+    height: 8px;
+}
+
+.funnel-board::-webkit-scrollbar-track {
+    background: var(--bg-elevated);
+    border-radius: 4px;
+}
+
+.funnel-board::-webkit-scrollbar-thumb {
+    background: var(--border-light);
+    border-radius: 4px;
+}
+
+.funnel-column {
+    min-width: 280px;
+    max-width: 320px;
+    flex: 1;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.funnel-column-header {
+    padding: 16px 20px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border-bottom: 2px solid;
+}
+
+.funnel-header-info {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.funnel-stage-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+
+.funnel-stage-name {
+    font-weight: 700;
+    font-size: 14px;
+}
+
+.funnel-stage-count {
+    background: var(--bg-elevated);
+    padding: 2px 10px;
+    border-radius: 12px;
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--text-secondary);
+}
+
+/* Funnel stage colors */
+.funnel-header-curioso { border-color: #3B82F6; }
+.funnel-header-curioso .funnel-stage-dot { background: #3B82F6; }
+.funnel-header-cotizando { border-color: #F59E0B; }
+.funnel-header-cotizando .funnel-stage-dot { background: #F59E0B; }
+.funnel-header-pago_pendiente { border-color: #EF4444; }
+.funnel-header-pago_pendiente .funnel-stage-dot { background: #EF4444; }
+.funnel-header-orden_pendiente { border-color: #8B5CF6; }
+.funnel-header-orden_pendiente .funnel-stage-dot { background: #8B5CF6; }
+.funnel-header-entregado { border-color: #10B981; }
+.funnel-header-entregado .funnel-stage-dot { background: #10B981; }
+.funnel-header-atencion_inmediata { border-color: #EC4899; }
+.funnel-header-atencion_inmediata .funnel-stage-dot { background: #EC4899; }
+
+.funnel-column-body {
+    flex: 1;
+    padding: 12px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    min-height: 120px;
+    transition: background 0.2s;
+}
+
+.funnel-column-body.drag-over {
+    background: rgba(99, 102, 241, 0.08);
+    border: 2px dashed var(--primary);
+    border-radius: 0 0 14px 14px;
+}
+
+.funnel-empty {
+    text-align: center;
+    color: var(--text-tertiary);
+    font-size: 13px;
+    padding: 40px 12px;
+    font-style: italic;
+}
+
+/* Funnel Cards */
+.funnel-card {
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 14px 16px;
+    cursor: grab;
+    transition: all 0.2s ease;
+    position: relative;
+}
+
+.funnel-card:hover {
+    border-color: var(--primary);
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-sm);
+}
+
+.funnel-card.dragging {
+    opacity: 0.5;
+    transform: rotate(3deg);
+}
+
+.funnel-card-name {
+    font-weight: 700;
+    font-size: 14px;
+    margin-bottom: 4px;
+}
+
+.funnel-card-company {
+    font-size: 12px;
+    color: var(--text-secondary);
+    margin-bottom: 2px;
+}
+
+.funnel-card-phone {
+    font-size: 12px;
+    color: var(--text-tertiary);
+    margin-bottom: 6px;
+}
+
+.funnel-card-time {
+    font-size: 11px;
+    color: var(--primary-light);
+    font-weight: 600;
+    background: rgba(99, 102, 241, 0.1);
+    padding: 2px 8px;
+    border-radius: 6px;
+    display: inline-block;
+}
+
+.funnel-card-actions {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+}
+
+.funnel-card-btn {
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-size: 14px;
+    padding: 2px;
+    opacity: 0.5;
+    transition: opacity 0.2s;
+}
+
+.funnel-card:hover .funnel-card-btn {
+    opacity: 1;
+}
+
+/* ========== CONTACTS PAGE ========== */
+.contacts-header {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    margin-bottom: 20px;
+}
+
+.contacts-search-wrapper {
+    flex: 1;
+}
+
+.contacts-search-input {
+    max-width: 500px;
+}
+
+.contacts-table-wrapper {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    overflow: hidden;
+    overflow-x: auto;
+}
+
+.contacts-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 14px;
+}
+
+.contacts-table thead {
+    background: var(--bg-elevated);
+}
+
+.contacts-table th {
+    padding: 14px 16px;
+    text-align: left;
+    font-weight: 700;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-secondary);
+    border-bottom: 1px solid var(--border);
+    white-space: nowrap;
+}
+
+.contacts-table td {
+    padding: 14px 16px;
+    border-bottom: 1px solid rgba(55, 65, 81, 0.2);
+    color: var(--text-primary);
+    max-width: 200px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.contacts-table tr:hover td {
+    background: var(--bg-hover);
+}
+
+.contacts-table tr:last-child td {
+    border-bottom: none;
+}
+
+.contacts-empty-row td {
+    padding: 0 !important;
+}
+
+.contacts-empty-row:hover td {
+    background: transparent !important;
+}
+
+.contacts-empty-state {
+    text-align: center;
+    padding: 60px 20px;
+    color: var(--text-tertiary);
+}
+
+.contacts-empty-state span {
+    font-size: 48px;
+    display: block;
+    margin-bottom: 12px;
+    opacity: 0.4;
+}
+
+.contacts-empty-state p {
+    font-size: 14px;
+}
+
+.contacts-actions {
+    display: flex;
+    gap: 6px;
+    white-space: nowrap;
+}
+
+.btn-table-action {
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 6px 10px;
+    cursor: pointer;
+    font-size: 14px;
+    transition: all 0.2s;
+}
+
+.btn-table-action:hover {
+    background: var(--primary);
+    border-color: var(--primary);
+    transform: scale(1.1);
+}
+
+.btn-table-delete:hover {
+    background: var(--error);
+    border-color: var(--error);
+}
+
+/* Stage Badges */
+.stage-badge {
+    padding: 4px 10px;
+    border-radius: 12px;
+    font-size: 11px;
+    font-weight: 700;
+    white-space: nowrap;
+}
+
+.stage-curioso { background: rgba(59, 130, 246, 0.15); color: #3B82F6; }
+.stage-cotizando { background: rgba(245, 158, 11, 0.15); color: #F59E0B; }
+.stage-pago_pendiente { background: rgba(239, 68, 68, 0.15); color: #EF4444; }
+.stage-orden_pendiente { background: rgba(139, 92, 246, 0.15); color: #8B5CF6; }
+.stage-entregado { background: rgba(16, 185, 129, 0.15); color: #10B981; }
+.stage-atencion_inmediata { background: rgba(236, 72, 153, 0.15); color: #EC4899; }
+
+/* ========== CONTACT MODAL FORM LAYOUT ========== */
+.modal-box.modal-lg {
+    max-width: 640px;
+}
+
+.form-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+}
+
+.form-select {
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath d='M6 8L1 3h10z' fill='%239CA3AF'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 14px center;
+    padding-right: 36px;
+}
+
+.form-textarea {
+    resize: vertical;
+    min-height: 80px;
+    font-family: 'Outfit', sans-serif;
+}
+
+/* ========== INTEGRATIONS SECTION TITLE ========== */
+.integrations-section-title {
+    margin-bottom: 16px;
+}
+
+.integrations-section-title h3 {
+    font-size: 18px;
+    font-weight: 700;
+    margin-bottom: 4px;
+}
+
+.integrations-section-title p {
+    color: var(--text-secondary);
+    font-size: 14px;
+}
+
+/* Payment integration icons */
+.integration-stripe { background: rgba(99, 91, 255, 0.15); }
+.integration-mp { background: rgba(0, 158, 227, 0.15); }
+
+/* ========== RESPONSIVE ADDITIONS ========== */
+@media (max-width: 1024px) {
+    .funnel-board {
+        min-height: auto;
+    }
+
+    .funnel-column {
+        min-width: 260px;
+    }
+}
+
+@media (max-width: 640px) {
+    .form-row {
+        grid-template-columns: 1fr;
+    }
+
+    .contacts-header {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .contacts-search-input {
+        max-width: 100%;
+    }
+
+    .funnel-column {
+        min-width: 240px;
+    }
+
+    .conv-view-toggle {
+        flex-direction: column;
+    }
+}
