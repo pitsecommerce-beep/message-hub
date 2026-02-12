@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>MessageHub - Plataforma de Mensajeria Unificada</title>
+    <title>MessageHub - Plataforma de Mensajería Unificada</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -30,19 +30,19 @@
         </div>
     </div>
 
-    <!-- Modal de Confirmar Cerrar Sesion -->
+    <!-- Modal de Confirmar Cerrar Sesión -->
     <div class="modal-overlay hidden" id="logoutModal">
         <div class="modal-box modal-sm">
             <div class="modal-header">
-                <h3 class="modal-title">Cerrar Sesion</h3>
+                <h3 class="modal-title">Cerrar Sesión</h3>
                 <button class="modal-close" onclick="closeLogoutModal()">&times;</button>
             </div>
             <div class="modal-body">
-                <p class="modal-text">Estas seguro de que deseas cerrar sesion?</p>
+                <p class="modal-text">¿Estás seguro de que deseas cerrar sesión?</p>
             </div>
             <div class="modal-footer">
                 <button class="btn-secondary" onclick="closeLogoutModal()">Cancelar</button>
-                <button class="btn-primary btn-danger" style="max-width:180px" onclick="confirmLogout()">Si, Cerrar Sesion</button>
+                <button class="btn-primary btn-danger" style="max-width:180px" onclick="confirmLogout()">Si, Cerrar Sesión</button>
             </div>
         </div>
     </div>
@@ -55,14 +55,14 @@
                 <button class="modal-close" onclick="closeInviteModal()">&times;</button>
             </div>
             <div class="modal-body">
-                <p class="modal-text">Comparte este codigo de invitacion con tu equipo para que se unan a tu organizacion:</p>
+                <p class="modal-text">Comparte este código de invitación con tu equipo para que se unan a tu organización:</p>
                 <div class="invite-code-display">
                     <span id="inviteCodeText">-----</span>
-                    <button class="copy-btn" onclick="copyInviteCode()" title="Copiar codigo">
+                    <button class="copy-btn" onclick="copyInviteCode()" title="Copiar código">
                         <span id="copyIcon">📋</span>
                     </button>
                 </div>
-                <p class="modal-hint">El miembro puede usar este codigo al registrarse y seleccionar "Unirse como Agente".</p>
+                <p class="modal-hint">El miembro puede usar este código al registrarse y seleccionar "Unirse como Agente".</p>
             </div>
             <div class="modal-footer">
                 <button class="btn-secondary" onclick="closeInviteModal()">Cerrar</button>
@@ -81,47 +81,47 @@
                 <div class="help-section">
                     <div class="help-item" onclick="toggleHelpItem(this)">
                         <div class="help-question">
-                            <span>Como invito miembros a mi equipo?</span>
+                            <span>¿Cómo invito miembros a mi equipo?</span>
                             <span class="help-arrow">&#9660;</span>
                         </div>
                         <div class="help-answer hidden">
-                            Ve al Panel Principal o a la seccion de Equipo y haz clic en "Invitar Miembro". Comparte el codigo de invitacion con tus colegas para que se unan.
+                            Ve al Panel Principal o a la sección de Equipo y haz clic en "Invitar Miembro". Comparte el código de invitación con tus colegas para que se unan.
                         </div>
                     </div>
                     <div class="help-item" onclick="toggleHelpItem(this)">
                         <div class="help-question">
-                            <span>Como conecto mis plataformas de mensajeria?</span>
+                            <span>¿Cómo conecto mis plataformas de mensajería?</span>
                             <span class="help-arrow">&#9660;</span>
                         </div>
                         <div class="help-answer hidden">
-                            Ve a la seccion de Integraciones desde el menu lateral. Ahi podras conectar WhatsApp Business, Instagram y Messenger siguiendo los pasos de cada plataforma.
+                            Ve a la sección de Integraciones desde el menú lateral. Ahí podrás conectar WhatsApp Business, Instagram y Messenger siguiendo los pasos de cada plataforma.
                         </div>
                     </div>
                     <div class="help-item" onclick="toggleHelpItem(this)">
                         <div class="help-question">
-                            <span>Que roles existen en la plataforma?</span>
+                            <span>¿Qué roles existen en la plataforma?</span>
                             <span class="help-arrow">&#9660;</span>
                         </div>
                         <div class="help-answer hidden">
-                            Existen tres roles: Administrador (dueno del SaaS), Gerente (gerente de sucursal que crea y gestiona equipos) y Agente (miembro del equipo que atiende conversaciones).
+                            Existen tres roles: Administrador (dueño del SaaS), Gerente (gerente de sucursal que crea y gestiona equipos) y Agente (miembro del equipo que atiende conversaciones).
                         </div>
                     </div>
                     <div class="help-item" onclick="toggleHelpItem(this)">
                         <div class="help-question">
-                            <span>Como cierro sesion?</span>
+                            <span>¿Cómo cierro sesión?</span>
                             <span class="help-arrow">&#9660;</span>
                         </div>
                         <div class="help-answer hidden">
-                            Haz clic en tu perfil en la barra lateral izquierda y selecciona "Cerrar Sesion", o usa el icono de puerta en la seccion de tu perfil.
+                            Haz clic en tu perfil en la barra lateral izquierda y selecciona "Cerrar Sesión", o usa el icono de puerta en la sección de tu perfil.
                         </div>
                     </div>
                     <div class="help-item" onclick="toggleHelpItem(this)">
                         <div class="help-question">
-                            <span>Como funciona el Funnel de Ventas?</span>
+                            <span>¿Cómo funciona el Funnel de Ventas?</span>
                             <span class="help-arrow">&#9660;</span>
                         </div>
                         <div class="help-answer hidden">
-                            En la seccion de Conversaciones, cambia a la vista "Funnel de Ventas" para ver tus contactos organizados por etapa. Arrastra las tarjetas entre columnas para mover un contacto de etapa. Las etapas son: Curioso, Cotizando, Pago Pendiente, Orden Pendiente, Entregado y Atencion Inmediata.
+                            En la sección de Conversaciones, cambia a la vista "Funnel de Ventas" para ver tus contactos organizados por etapa. Arrastra las tarjetas entre columnas para mover un contacto de etapa. Las etapas son: Curioso, Cotizando, Pago Pendiente, Orden Pendiente, Entregado y Atención Inmediata.
                         </div>
                     </div>
                 </div>
@@ -156,7 +156,7 @@
                             <span class="profile-value" id="profileRole">--</span>
                         </div>
                         <div class="profile-detail-row">
-                            <span class="profile-label">Organizacion</span>
+                            <span class="profile-label">Organización</span>
                             <span class="profile-value" id="profileOrg">--</span>
                         </div>
                     </div>
@@ -164,7 +164,7 @@
             </div>
             <div class="modal-footer">
                 <button class="btn-secondary" onclick="closeProfileModal()">Cerrar</button>
-                <button class="btn-primary btn-danger" style="max-width:180px" onclick="handleLogout()">Cerrar Sesion</button>
+                <button class="btn-primary btn-danger" style="max-width:180px" onclick="handleLogout()">Cerrar Sesión</button>
             </div>
         </div>
     </div>
@@ -195,7 +195,7 @@
                             <input type="tel" class="form-input" id="contactPhone" placeholder="+52 55 1234 5678">
                         </div>
                         <div class="form-group">
-                            <label class="form-label">Correo electronico</label>
+                            <label class="form-label">Correo electrónico</label>
                             <input type="email" class="form-input" id="contactEmailField" placeholder="juan@empresa.com">
                         </div>
                     </div>
@@ -205,7 +205,7 @@
                             <input type="text" class="form-input" id="contactRFC" placeholder="XAXX010101000">
                         </div>
                         <div class="form-group">
-                            <label class="form-label">Direccion</label>
+                            <label class="form-label">Dirección</label>
                             <input type="text" class="form-input" id="contactAddress" placeholder="Calle, Colonia, Ciudad, CP">
                         </div>
                     </div>
@@ -217,7 +217,7 @@
                             <option value="pago_pendiente">Pago Pendiente</option>
                             <option value="orden_pendiente">Orden Pendiente</option>
                             <option value="entregado">Entregado</option>
-                            <option value="atencion_inmediata">Atencion Inmediata</option>
+                            <option value="atencion_inmediata">Atención Inmediata</option>
                         </select>
                     </div>
                     <div class="form-group">
@@ -242,22 +242,22 @@
             </div>
 
             <div class="auth-tabs">
-                <button class="auth-tab active" onclick="switchAuthTab('login')">Iniciar Sesion</button>
+                <button class="auth-tab active" onclick="switchAuthTab('login')">Iniciar Sesión</button>
                 <button class="auth-tab" onclick="switchAuthTab('register')">Registrarse</button>
             </div>
 
             <!-- Login Form -->
             <form id="loginForm">
                 <div class="form-group">
-                    <label class="form-label">Correo electronico</label>
+                    <label class="form-label">Correo electrónico</label>
                     <input type="email" class="form-input" id="loginEmail" placeholder="tu@empresa.com" required>
                 </div>
                 <div class="form-group">
-                    <label class="form-label">Contrasena</label>
+                    <label class="form-label">Contraseña</label>
                     <input type="password" class="form-input" id="loginPassword" placeholder="••••••••" required>
                 </div>
                 <button type="submit" class="btn-primary" id="loginBtn">
-                    <span id="loginBtnText">Iniciar Sesion</span>
+                    <span id="loginBtnText">Iniciar Sesión</span>
                 </button>
             </form>
 
@@ -268,17 +268,17 @@
                     <input type="text" class="form-input" id="registerName" placeholder="Juan Perez" required>
                 </div>
                 <div class="form-group">
-                    <label class="form-label">Correo electronico</label>
+                    <label class="form-label">Correo electrónico</label>
                     <input type="email" class="form-input" id="registerEmail" placeholder="tu@empresa.com" required>
                 </div>
                 <div class="form-group">
-                    <label class="form-label">Contrasena</label>
-                    <input type="password" class="form-input" id="registerPassword" placeholder="Minimo 6 caracteres" required>
+                    <label class="form-label">Contraseña</label>
+                    <input type="password" class="form-input" id="registerPassword" placeholder="Mínimo 6 caracteres" required>
                 </div>
                 <button type="submit" class="btn-primary" id="registerBtn">
                     <span id="registerBtnText">Crear Cuenta</span>
                 </button>
-                <div class="auth-hint">Ya tienes cuenta? Cambia a "Iniciar Sesion" arriba.</div>
+                <div class="auth-hint">¿Ya tienes cuenta? Cambia a "Iniciar Sesión" arriba.</div>
             </form>
 
             <div class="divider">
@@ -295,7 +295,7 @@
             </div>
 
             <div class="link-text">
-                <a href="#" onclick="handleForgotPassword(); return false;">Olvidaste tu contrasena?</a>
+                <a href="#" onclick="handleForgotPassword(); return false;">¿Olvidaste tu contraseña?</a>
             </div>
         </div>
     </div>
@@ -311,8 +311,8 @@
             <!-- Step 1: Choose Role -->
             <div id="onboardingStep1">
                 <div class="onboarding-header">
-                    <h2 class="onboarding-title">Bienvenido! Empecemos</h2>
-                    <p class="onboarding-subtitle">Como deseas usar MessageHub?</p>
+                    <h2 class="onboarding-title">¡Bienvenido! Empecemos</h2>
+                    <p class="onboarding-subtitle">¿Cómo deseas usar MessageHub?</p>
                 </div>
 
                 <div class="role-selection">
@@ -320,14 +320,14 @@
                         <div class="role-icon">👑</div>
                         <div class="role-title">Crear Equipo (Gerente)</div>
                         <div class="role-description">
-                            Crea una nueva organizacion como gerente de sucursal. Podras gestionar tu equipo, invitar agentes y controlar la configuracion.
+                            Crea una nueva organización como gerente de sucursal. Podrás gestionar tu equipo, invitar agentes y controlar la configuración.
                         </div>
                     </div>
                     <div class="role-card" onclick="selectRole('agente')">
                         <div class="role-icon">💼</div>
                         <div class="role-title">Unirse como Agente</div>
                         <div class="role-description">
-                            Unete a una organizacion existente con un codigo de invitacion y comienza a atender conversaciones.
+                            Únete a una organización existente con un código de invitación y comienza a atender conversaciones.
                         </div>
                     </div>
                 </div>
@@ -337,7 +337,7 @@
                 </button>
 
                 <div class="onboarding-back-link">
-                    <a href="#" onclick="cancelOnboarding(); return false;">Cerrar sesion y volver</a>
+                    <a href="#" onclick="cancelOnboarding(); return false;">Cerrar sesión y volver</a>
                 </div>
             </div>
 
@@ -346,13 +346,13 @@
                 <!-- For Gerente -->
                 <div id="adminSetup" class="hidden">
                     <div class="onboarding-header">
-                        <h2 class="onboarding-title">Crea Tu Organizacion</h2>
+                        <h2 class="onboarding-title">Crea Tu Organización</h2>
                         <p class="onboarding-subtitle">Configura tu espacio de trabajo</p>
                     </div>
 
                     <form id="orgForm">
                         <div class="form-group">
-                            <label class="form-label">Nombre de la Organizacion</label>
+                            <label class="form-label">Nombre de la Organización</label>
                             <input type="text" class="form-input" id="orgName" placeholder="Mi Empresa S.A." required>
                         </div>
                         <div class="form-group">
@@ -360,7 +360,7 @@
                             <input type="text" class="form-input" id="orgIndustry" placeholder="E-commerce, Retail, Servicios, etc.">
                         </div>
                         <button type="submit" class="btn-primary">
-                            <span id="orgBtnText">Crear Organizacion</span>
+                            <span id="orgBtnText">Crear Organización</span>
                         </button>
                     </form>
 
@@ -372,17 +372,17 @@
                 <!-- For Agent -->
                 <div id="agentSetup" class="hidden">
                     <div class="onboarding-header">
-                        <h2 class="onboarding-title">Unirse a Organizacion</h2>
-                        <p class="onboarding-subtitle">Ingresa el codigo de invitacion que te compartio tu gerente</p>
+                        <h2 class="onboarding-title">Unirse a Organización</h2>
+                        <p class="onboarding-subtitle">Ingresa el código de invitación que te compartio tu gerente</p>
                     </div>
 
                     <form id="joinForm">
                         <div class="form-group">
-                            <label class="form-label">Codigo de Invitacion</label>
+                            <label class="form-label">Código de Invitacion</label>
                             <input type="text" class="form-input" id="inviteCode" placeholder="XXXXX-XXXXX" required>
                         </div>
                         <button type="submit" class="btn-primary">
-                            <span id="joinBtnText">Unirse a la Organizacion</span>
+                            <span id="joinBtnText">Unirse a la Organización</span>
                         </button>
                     </form>
 
@@ -391,7 +391,7 @@
                     </div>
 
                     <div class="link-text" style="margin-top: 8px;">
-                        No tienes un codigo? <a href="#" onclick="showNotification('Contactar Gerente', 'Solicita un codigo de invitacion al gerente de tu organizacion para poder unirte.', 'info'); return false;">Contacta a tu gerente</a>
+                        ¿No tienes un código? <a href="#" onclick="showNotification('Contactar Gerente', 'Solicita un código de invitación al gerente de tu organización para poder unirte.', 'info'); return false;">Contacta a tu gerente</a>
                     </div>
                 </div>
             </div>
@@ -429,7 +429,7 @@
                 </div>
 
                 <div class="nav-section">
-                    <div class="nav-section-title">Organizacion</div>
+                    <div class="nav-section-title">Organización</div>
                     <div class="nav-item" data-page="team" onclick="showPage('team')">
                         <span class="nav-icon">👨‍💼</span>
                         <span>Equipo</span>
@@ -440,7 +440,7 @@
                     </div>
                     <div class="nav-item" data-page="settings" onclick="showPage('settings')">
                         <span class="nav-icon">⚙️</span>
-                        <span>Configuracion</span>
+                        <span>Configuración</span>
                     </div>
                 </div>
             </nav>
@@ -452,7 +452,7 @@
                         <div class="user-name" id="userName">Usuario</div>
                         <div class="user-role" id="userRole">Gerente</div>
                     </div>
-                    <button class="logout-btn" onclick="event.stopPropagation(); handleLogout()" title="Cerrar Sesion">🚪</button>
+                    <button class="logout-btn" onclick="event.stopPropagation(); handleLogout()" title="Cerrar Sesión">🚪</button>
                 </div>
             </div>
         </aside>
@@ -553,7 +553,7 @@
                         <div class="conversations-layout">
                             <div class="conv-list-panel">
                                 <div class="conv-list-header">
-                                    <input type="text" class="conv-search" placeholder="Buscar conversacion..." oninput="filterConversations(this.value)">
+                                    <input type="text" class="conv-search" placeholder="Buscar conversación..." oninput="filterConversations(this.value)">
                                     <div class="conv-filters">
                                         <button class="conv-filter active" data-filter="all" onclick="setConvFilter('all', this)">Todas</button>
                                         <button class="conv-filter" data-filter="whatsapp" onclick="setConvFilter('whatsapp', this)">WA</button>
@@ -564,7 +564,7 @@
                                 <div class="conv-list-body" id="convListBody">
                                     <div class="conv-empty-list">
                                         <span>💬</span>
-                                        <p>No hay conversaciones aun</p>
+                                        <p>No hay conversaciones aún</p>
                                         <p class="conv-empty-hint">Conecta tus plataformas desde Integraciones para empezar a recibir mensajes</p>
                                     </div>
                                 </div>
@@ -572,8 +572,8 @@
                             <div class="conv-detail-panel" id="convDetailPanel">
                                 <div class="conv-detail-empty">
                                     <div class="conv-detail-empty-icon">💬</div>
-                                    <h3>Selecciona una conversacion</h3>
-                                    <p>Elige una conversacion de la lista para ver los mensajes</p>
+                                    <h3>Selecciona una conversación</h3>
+                                    <p>Elige una conversación de la lista para ver los mensajes</p>
                                 </div>
                             </div>
                         </div>
@@ -651,7 +651,7 @@
                                 <div class="funnel-column-header funnel-header-atencion_inmediata">
                                     <div class="funnel-header-info">
                                         <span class="funnel-stage-dot"></span>
-                                        <span class="funnel-stage-name">Atencion Inmediata</span>
+                                        <span class="funnel-stage-name">Atención Inmediata</span>
                                     </div>
                                     <span class="funnel-stage-count" id="countAtencion_inmediata">0</span>
                                 </div>
@@ -668,7 +668,7 @@
                 <div id="contactsPage" class="hidden">
                     <div class="contacts-header">
                         <div class="contacts-search-wrapper">
-                            <input type="text" class="form-input contacts-search-input" placeholder="Buscar contacto por nombre, empresa, telefono..." oninput="filterContacts(this.value)">
+                            <input type="text" class="form-input contacts-search-input" placeholder="Buscar contacto por nombre, empresa, teléfono..." oninput="filterContacts(this.value)">
                         </div>
                         <button class="btn-primary btn-sm" onclick="openContactModal()">+ Agregar Contacto</button>
                     </div>
@@ -690,7 +690,7 @@
                                     <td colspan="7">
                                         <div class="contacts-empty-state">
                                             <span>📇</span>
-                                            <p>No hay contactos aun. Agrega tu primer contacto.</p>
+                                            <p>No hay contactos aún. Agrega tu primer contacto.</p>
                                         </div>
                                     </td>
                                 </tr>
@@ -717,8 +717,8 @@
                 <!-- Integrations Page -->
                 <div id="integrationsPage" class="hidden">
                     <div class="integrations-section-title">
-                        <h3>Plataformas de Mensajeria</h3>
-                        <p>Conecta tus canales de comunicacion</p>
+                        <h3>Plataformas de Mensajería</h3>
+                        <p>Conecta tus canales de comunicación</p>
                     </div>
                     <div class="integrations-grid">
                         <div class="integration-card">
@@ -747,7 +747,7 @@
                             <div class="integration-icon integration-msg">💬</div>
                             <div class="integration-info">
                                 <h3 class="integration-name">Messenger</h3>
-                                <p class="integration-desc">Gestiona los mensajes de tu pagina de Facebook directamente desde MessageHub.</p>
+                                <p class="integration-desc">Gestiona los mensajes de tu página de Facebook directamente desde MessageHub.</p>
                             </div>
                             <div class="integration-status" id="msgStatus">
                                 <span class="status-badge status-disconnected">Desconectado</span>
@@ -786,8 +786,8 @@
                     </div>
 
                     <div class="integration-help">
-                        <h4>Necesitas ayuda para conectar?</h4>
-                        <p>Consulta la guia de integracion o contacta al administrador del sistema para obtener las credenciales necesarias.</p>
+                        <h4>¿Necesitas ayuda para conectar?</h4>
+                        <p>Consulta la guía de integración o contacta al administrador del sistema para obtener las credenciales necesarias.</p>
                         <button class="btn-secondary" onclick="openHelpModal()">Ver Ayuda</button>
                     </div>
                 </div>
@@ -806,7 +806,7 @@
                                 </div>
                                 <div class="settings-row">
                                     <div class="settings-row-info">
-                                        <span class="settings-row-label">Correo electronico</span>
+                                        <span class="settings-row-label">Correo electrónico</span>
                                         <span class="settings-row-value" id="settingsEmail">--</span>
                                     </div>
                                 </div>
@@ -819,17 +819,17 @@
                             </div>
                         </div>
                         <div class="settings-section">
-                            <h3 class="settings-section-title">Organizacion</h3>
+                            <h3 class="settings-section-title">Organización</h3>
                             <div class="settings-card">
                                 <div class="settings-row">
                                     <div class="settings-row-info">
-                                        <span class="settings-row-label">Nombre de la organizacion</span>
+                                        <span class="settings-row-label">Nombre de la organización</span>
                                         <span class="settings-row-value" id="settingsOrgName">--</span>
                                     </div>
                                 </div>
                                 <div class="settings-row" id="settingsInviteRow">
                                     <div class="settings-row-info">
-                                        <span class="settings-row-label">Codigo de invitacion</span>
+                                        <span class="settings-row-label">Código de invitación</span>
                                         <span class="settings-row-value" id="settingsInviteCode">--</span>
                                     </div>
                                     <button class="btn-secondary btn-sm" onclick="copySettingsInviteCode()">Copiar</button>
@@ -841,21 +841,21 @@
                             <div class="settings-card">
                                 <div class="settings-row">
                                     <div class="settings-row-info">
-                                        <span class="settings-row-label">Configuracion de Firebase</span>
+                                        <span class="settings-row-label">Configuración de Firebase</span>
                                         <span class="settings-row-desc">Las claves de Firebase son publicas por diseno. La seguridad esta en las Firestore Security Rules y restricciones de dominio en Google Cloud Console.</span>
                                     </div>
                                 </div>
                             </div>
                         </div>
                         <div class="settings-section">
-                            <h3 class="settings-section-title">Sesion</h3>
+                            <h3 class="settings-section-title">Sesión</h3>
                             <div class="settings-card">
                                 <div class="settings-row">
                                     <div class="settings-row-info">
-                                        <span class="settings-row-label">Cerrar sesion</span>
-                                        <span class="settings-row-desc">Cierra tu sesion actual en este dispositivo</span>
+                                        <span class="settings-row-label">Cerrar sesión</span>
+                                        <span class="settings-row-desc">Cierra tu sesión actual en este dispositivo</span>
                                     </div>
-                                    <button class="btn-primary btn-danger btn-sm" onclick="handleLogout()">Cerrar Sesion</button>
+                                    <button class="btn-primary btn-danger btn-sm" onclick="handleLogout()">Cerrar Sesión</button>
                                 </div>
                             </div>
                         </div>
@@ -867,7 +867,7 @@
 
     <!--
         NOTA DE SEGURIDAD - Firebase Config:
-        Las claves de configuracion de Firebase son identificadores publicos, NO secretos.
+        Las claves de configuración de Firebase son identificadores publicos, NO secretos.
         La seguridad real viene de:
         1. Firestore Security Rules (firestore.rules)
         2. Restricciones de dominio en Google Cloud Console (APIs & Services > Credentials)
