@@ -115,6 +115,15 @@
                             Haz clic en tu perfil en la barra lateral izquierda y selecciona "Cerrar Sesion", o usa el icono de puerta en la seccion de tu perfil.
                         </div>
                     </div>
+                    <div class="help-item" onclick="toggleHelpItem(this)">
+                        <div class="help-question">
+                            <span>Como funciona el Funnel de Ventas?</span>
+                            <span class="help-arrow">&#9660;</span>
+                        </div>
+                        <div class="help-answer hidden">
+                            En la seccion de Conversaciones, cambia a la vista "Funnel de Ventas" para ver tus contactos organizados por etapa. Arrastra las tarjetas entre columnas para mover un contacto de etapa. Las etapas son: Curioso, Cotizando, Pago Pendiente, Orden Pendiente, Entregado y Atencion Inmediata.
+                        </div>
+                    </div>
                 </div>
             </div>
             <div class="modal-footer">
@@ -156,6 +165,70 @@
             <div class="modal-footer">
                 <button class="btn-secondary" onclick="closeProfileModal()">Cerrar</button>
                 <button class="btn-primary btn-danger" style="max-width:180px" onclick="handleLogout()">Cerrar Sesion</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal de Agregar/Editar Contacto -->
+    <div class="modal-overlay hidden" id="contactModal">
+        <div class="modal-box modal-lg">
+            <div class="modal-header">
+                <h3 class="modal-title" id="contactModalTitle">Agregar Contacto</h3>
+                <button class="modal-close" onclick="closeContactModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <form id="contactForm" onsubmit="return false;">
+                    <input type="hidden" id="contactEditId" value="">
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label class="form-label">Nombre de la persona *</label>
+                            <input type="text" class="form-input" id="contactName" placeholder="Juan Perez" required>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Empresa</label>
+                            <input type="text" class="form-input" id="contactCompany" placeholder="Empresa S.A. de C.V.">
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label class="form-label">Celular</label>
+                            <input type="tel" class="form-input" id="contactPhone" placeholder="+52 55 1234 5678">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Correo electronico</label>
+                            <input type="email" class="form-input" id="contactEmailField" placeholder="juan@empresa.com">
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label class="form-label">RFC</label>
+                            <input type="text" class="form-input" id="contactRFC" placeholder="XAXX010101000">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Direccion</label>
+                            <input type="text" class="form-input" id="contactAddress" placeholder="Calle, Colonia, Ciudad, CP">
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Etapa del funnel</label>
+                        <select class="form-input form-select" id="contactStage">
+                            <option value="curioso">Curioso</option>
+                            <option value="cotizando">Cotizando</option>
+                            <option value="pago_pendiente">Pago Pendiente</option>
+                            <option value="orden_pendiente">Orden Pendiente</option>
+                            <option value="entregado">Entregado</option>
+                            <option value="atencion_inmediata">Atencion Inmediata</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Notas</label>
+                        <textarea class="form-input form-textarea" id="contactNotes" placeholder="Notas adicionales sobre este contacto..." rows="3"></textarea>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary" onclick="closeContactModal()">Cancelar</button>
+                <button class="btn-primary" style="max-width:200px" onclick="saveContact()">Guardar Contacto</button>
             </div>
         </div>
     </div>
@@ -205,6 +278,7 @@
                 <button type="submit" class="btn-primary" id="registerBtn">
                     <span id="registerBtnText">Crear Cuenta</span>
                 </button>
+                <div class="auth-hint">Ya tienes cuenta? Cambia a "Iniciar Sesion" arriba.</div>
             </form>
 
             <div class="divider">
@@ -263,7 +337,7 @@
                 </button>
 
                 <div class="onboarding-back-link">
-                    <a href="#" onclick="handleLogout(); return false;">Cerrar sesion y volver</a>
+                    <a href="#" onclick="cancelOnboarding(); return false;">Cerrar sesion y volver</a>
                 </div>
             </div>
 
@@ -435,13 +509,13 @@
                             <div class="stat-value" id="statConversations">0</div>
                             <div class="stat-change">Sin chats activos</div>
                         </div>
-                        <div class="stat-card">
+                        <div class="stat-card" onclick="showPage('contacts')">
                             <div class="stat-header">
-                                <span class="stat-label">Tiempo de Respuesta</span>
-                                <div class="stat-icon accent">⚡</div>
+                                <span class="stat-label">Contactos</span>
+                                <div class="stat-icon accent">📇</div>
                             </div>
-                            <div class="stat-value">--</div>
-                            <div class="stat-change">No disponible</div>
+                            <div class="stat-value" id="statContacts">0</div>
+                            <div class="stat-change">En directorio</div>
                         </div>
                         <div class="stat-card" onclick="showPage('team')">
                             <div class="stat-header">
@@ -468,32 +542,123 @@
 
                 <!-- Conversations Page -->
                 <div id="conversationsPage" class="hidden">
-                    <div class="conversations-layout">
-                        <!-- Conversations List -->
-                        <div class="conv-list-panel">
-                            <div class="conv-list-header">
-                                <input type="text" class="conv-search" placeholder="Buscar conversacion..." oninput="filterConversations(this.value)">
-                                <div class="conv-filters">
-                                    <button class="conv-filter active" data-filter="all" onclick="setConvFilter('all', this)">Todas</button>
-                                    <button class="conv-filter" data-filter="whatsapp" onclick="setConvFilter('whatsapp', this)">WA</button>
-                                    <button class="conv-filter" data-filter="instagram" onclick="setConvFilter('instagram', this)">IG</button>
-                                    <button class="conv-filter" data-filter="messenger" onclick="setConvFilter('messenger', this)">MSG</button>
+                    <!-- View Toggle -->
+                    <div class="conv-view-toggle">
+                        <button class="conv-view-btn active" data-view="chat" onclick="setConvView('chat')">💬 Conversaciones</button>
+                        <button class="conv-view-btn" data-view="funnel" onclick="setConvView('funnel')">📊 Funnel de Ventas</button>
+                    </div>
+
+                    <!-- Chat View -->
+                    <div id="chatView">
+                        <div class="conversations-layout">
+                            <div class="conv-list-panel">
+                                <div class="conv-list-header">
+                                    <input type="text" class="conv-search" placeholder="Buscar conversacion..." oninput="filterConversations(this.value)">
+                                    <div class="conv-filters">
+                                        <button class="conv-filter active" data-filter="all" onclick="setConvFilter('all', this)">Todas</button>
+                                        <button class="conv-filter" data-filter="whatsapp" onclick="setConvFilter('whatsapp', this)">WA</button>
+                                        <button class="conv-filter" data-filter="instagram" onclick="setConvFilter('instagram', this)">IG</button>
+                                        <button class="conv-filter" data-filter="messenger" onclick="setConvFilter('messenger', this)">MSG</button>
+                                    </div>
+                                </div>
+                                <div class="conv-list-body" id="convListBody">
+                                    <div class="conv-empty-list">
+                                        <span>💬</span>
+                                        <p>No hay conversaciones aun</p>
+                                        <p class="conv-empty-hint">Conecta tus plataformas desde Integraciones para empezar a recibir mensajes</p>
+                                    </div>
                                 </div>
                             </div>
-                            <div class="conv-list-body" id="convListBody">
-                                <div class="conv-empty-list">
-                                    <span>💬</span>
-                                    <p>No hay conversaciones aun</p>
-                                    <p class="conv-empty-hint">Conecta tus plataformas desde Integraciones para empezar a recibir mensajes</p>
+                            <div class="conv-detail-panel" id="convDetailPanel">
+                                <div class="conv-detail-empty">
+                                    <div class="conv-detail-empty-icon">💬</div>
+                                    <h3>Selecciona una conversacion</h3>
+                                    <p>Elige una conversacion de la lista para ver los mensajes</p>
                                 </div>
                             </div>
                         </div>
-                        <!-- Conversation Detail -->
-                        <div class="conv-detail-panel" id="convDetailPanel">
-                            <div class="conv-detail-empty">
-                                <div class="conv-detail-empty-icon">💬</div>
-                                <h3>Selecciona una conversacion</h3>
-                                <p>Elige una conversacion de la lista para ver los mensajes</p>
+                    </div>
+
+                    <!-- Funnel View -->
+                    <div id="funnelView" class="hidden">
+                        <div class="funnel-board">
+                            <div class="funnel-column" data-stage="curioso">
+                                <div class="funnel-column-header funnel-header-curioso">
+                                    <div class="funnel-header-info">
+                                        <span class="funnel-stage-dot"></span>
+                                        <span class="funnel-stage-name">Curioso</span>
+                                    </div>
+                                    <span class="funnel-stage-count" id="countCurioso">0</span>
+                                </div>
+                                <div class="funnel-column-body" id="funnelCurioso"
+                                     ondragover="handleDragOver(event)" ondragleave="handleDragLeave(event)"
+                                     ondrop="handleDrop(event, 'curioso')">
+                                </div>
+                            </div>
+                            <div class="funnel-column" data-stage="cotizando">
+                                <div class="funnel-column-header funnel-header-cotizando">
+                                    <div class="funnel-header-info">
+                                        <span class="funnel-stage-dot"></span>
+                                        <span class="funnel-stage-name">Cotizando</span>
+                                    </div>
+                                    <span class="funnel-stage-count" id="countCotizando">0</span>
+                                </div>
+                                <div class="funnel-column-body" id="funnelCotizando"
+                                     ondragover="handleDragOver(event)" ondragleave="handleDragLeave(event)"
+                                     ondrop="handleDrop(event, 'cotizando')">
+                                </div>
+                            </div>
+                            <div class="funnel-column" data-stage="pago_pendiente">
+                                <div class="funnel-column-header funnel-header-pago_pendiente">
+                                    <div class="funnel-header-info">
+                                        <span class="funnel-stage-dot"></span>
+                                        <span class="funnel-stage-name">Pago Pendiente</span>
+                                    </div>
+                                    <span class="funnel-stage-count" id="countPago_pendiente">0</span>
+                                </div>
+                                <div class="funnel-column-body" id="funnelPago_pendiente"
+                                     ondragover="handleDragOver(event)" ondragleave="handleDragLeave(event)"
+                                     ondrop="handleDrop(event, 'pago_pendiente')">
+                                </div>
+                            </div>
+                            <div class="funnel-column" data-stage="orden_pendiente">
+                                <div class="funnel-column-header funnel-header-orden_pendiente">
+                                    <div class="funnel-header-info">
+                                        <span class="funnel-stage-dot"></span>
+                                        <span class="funnel-stage-name">Orden Pendiente</span>
+                                    </div>
+                                    <span class="funnel-stage-count" id="countOrden_pendiente">0</span>
+                                </div>
+                                <div class="funnel-column-body" id="funnelOrden_pendiente"
+                                     ondragover="handleDragOver(event)" ondragleave="handleDragLeave(event)"
+                                     ondrop="handleDrop(event, 'orden_pendiente')">
+                                </div>
+                            </div>
+                            <div class="funnel-column" data-stage="entregado">
+                                <div class="funnel-column-header funnel-header-entregado">
+                                    <div class="funnel-header-info">
+                                        <span class="funnel-stage-dot"></span>
+                                        <span class="funnel-stage-name">Entregado</span>
+                                    </div>
+                                    <span class="funnel-stage-count" id="countEntregado">0</span>
+                                </div>
+                                <div class="funnel-column-body" id="funnelEntregado"
+                                     ondragover="handleDragOver(event)" ondragleave="handleDragLeave(event)"
+                                     ondrop="handleDrop(event, 'entregado')">
+                                </div>
+                            </div>
+                            <div class="funnel-column" data-stage="atencion_inmediata">
+                                <div class="funnel-column-header funnel-header-atencion_inmediata">
+                                    <div class="funnel-header-info">
+                                        <span class="funnel-stage-dot"></span>
+                                        <span class="funnel-stage-name">Atencion Inmediata</span>
+                                    </div>
+                                    <span class="funnel-stage-count" id="countAtencion_inmediata">0</span>
+                                </div>
+                                <div class="funnel-column-body" id="funnelAtencion_inmediata"
+                                     ondragover="handleDragOver(event)" ondragleave="handleDragLeave(event)"
+                                     ondrop="handleDrop(event, 'atencion_inmediata')">
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -501,12 +666,36 @@
 
                 <!-- Contacts Page -->
                 <div id="contactsPage" class="hidden">
-                    <div class="empty-state">
-                        <div class="empty-icon">👥</div>
-                        <div class="empty-title">Aun no hay contactos</div>
-                        <div class="empty-text">
-                            Tus contactos apareceran aqui automaticamente una vez que empieces a recibir mensajes desde tus plataformas conectadas.
+                    <div class="contacts-header">
+                        <div class="contacts-search-wrapper">
+                            <input type="text" class="form-input contacts-search-input" placeholder="Buscar contacto por nombre, empresa, telefono..." oninput="filterContacts(this.value)">
                         </div>
+                        <button class="btn-primary btn-sm" onclick="openContactModal()">+ Agregar Contacto</button>
+                    </div>
+                    <div class="contacts-table-wrapper">
+                        <table class="contacts-table">
+                            <thead>
+                                <tr>
+                                    <th>Nombre</th>
+                                    <th>Empresa</th>
+                                    <th>Celular</th>
+                                    <th>Email</th>
+                                    <th>RFC</th>
+                                    <th>Etapa</th>
+                                    <th>Acciones</th>
+                                </tr>
+                            </thead>
+                            <tbody id="contactsTableBody">
+                                <tr class="contacts-empty-row">
+                                    <td colspan="7">
+                                        <div class="contacts-empty-state">
+                                            <span>📇</span>
+                                            <p>No hay contactos aun. Agrega tu primer contacto.</p>
+                                        </div>
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
                     </div>
                 </div>
 
@@ -527,6 +716,10 @@
 
                 <!-- Integrations Page -->
                 <div id="integrationsPage" class="hidden">
+                    <div class="integrations-section-title">
+                        <h3>Plataformas de Mensajeria</h3>
+                        <p>Conecta tus canales de comunicacion</p>
+                    </div>
                     <div class="integrations-grid">
                         <div class="integration-card">
                             <div class="integration-icon integration-wa">📱</div>
@@ -562,9 +755,39 @@
                             <button class="btn-primary btn-sm" onclick="connectIntegration('messenger')">Conectar</button>
                         </div>
                     </div>
+
+                    <div class="integrations-section-title" style="margin-top:32px">
+                        <h3>Pasarelas de Pago</h3>
+                        <p>Genera ligas de pago para enviar a tus clientes por chat</p>
+                    </div>
+                    <div class="integrations-grid">
+                        <div class="integration-card">
+                            <div class="integration-icon integration-stripe">💳</div>
+                            <div class="integration-info">
+                                <h3 class="integration-name">Stripe</h3>
+                                <p class="integration-desc">Acepta pagos internacionales con tarjeta de credito/debito. Genera ligas de pago personalizadas para enviar por chat.</p>
+                            </div>
+                            <div class="integration-status" id="stripeStatus">
+                                <span class="status-badge status-disconnected">Desconectado</span>
+                            </div>
+                            <button class="btn-primary btn-sm" onclick="connectPayment('stripe')">Conectar</button>
+                        </div>
+                        <div class="integration-card">
+                            <div class="integration-icon integration-mp">🏦</div>
+                            <div class="integration-info">
+                                <h3 class="integration-name">MercadoPago</h3>
+                                <p class="integration-desc">Pagos en Mexico y Latinoamerica. Acepta transferencias, OXXO, tarjetas y mas. Ideal para clientes locales.</p>
+                            </div>
+                            <div class="integration-status" id="mpStatus">
+                                <span class="status-badge status-disconnected">Desconectado</span>
+                            </div>
+                            <button class="btn-primary btn-sm" onclick="connectPayment('mercadopago')">Conectar</button>
+                        </div>
+                    </div>
+
                     <div class="integration-help">
                         <h4>Necesitas ayuda para conectar?</h4>
-                        <p>Consulta la guia de integracion o contacta al administrador del sistema para obtener las credenciales necesarias de Meta Business.</p>
+                        <p>Consulta la guia de integracion o contacta al administrador del sistema para obtener las credenciales necesarias.</p>
                         <button class="btn-secondary" onclick="openHelpModal()">Ver Ayuda</button>
                     </div>
                 </div>
@@ -614,6 +837,17 @@
                             </div>
                         </div>
                         <div class="settings-section">
+                            <h3 class="settings-section-title">Seguridad</h3>
+                            <div class="settings-card">
+                                <div class="settings-row">
+                                    <div class="settings-row-info">
+                                        <span class="settings-row-label">Configuracion de Firebase</span>
+                                        <span class="settings-row-desc">Las claves de Firebase son publicas por diseno. La seguridad esta en las Firestore Security Rules y restricciones de dominio en Google Cloud Console.</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="settings-section">
                             <h3 class="settings-section-title">Sesion</h3>
                             <div class="settings-card">
                                 <div class="settings-row">
@@ -631,6 +865,17 @@
         </main>
     </div>
 
+    <!--
+        NOTA DE SEGURIDAD - Firebase Config:
+        Las claves de configuracion de Firebase son identificadores publicos, NO secretos.
+        La seguridad real viene de:
+        1. Firestore Security Rules (firestore.rules)
+        2. Restricciones de dominio en Google Cloud Console (APIs & Services > Credentials)
+        3. Firebase App Check (recomendado para produccion)
+        Los secretos reales (tokens de Meta API, claves de Stripe/MercadoPago) NUNCA van en el frontend.
+        Esos se manejan via Firebase Cloud Functions (backend seguro).
+    -->
+
     <!-- Firebase SDK -->
     <script type="module">
         import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js';
@@ -638,7 +883,7 @@
                  signInWithPopup, GoogleAuthProvider, FacebookAuthProvider,
                  onAuthStateChanged, signOut, updateProfile, sendPasswordResetEmail } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js';
         import { getFirestore, collection, addDoc, query, where, orderBy, onSnapshot,
-                 serverTimestamp, doc, setDoc, getDoc, getDocs, updateDoc } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js';
+                 serverTimestamp, doc, setDoc, getDoc, getDocs, updateDoc, deleteDoc } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js';
 
         const firebaseConfig = {
           apiKey: "AIzaSyC9_TIJFPQvF9M1pWHcXaACYAwxaS5q5-Y",
@@ -678,10 +923,13 @@
             setDoc,
             getDoc,
             getDocs,
-            updateDoc
+            updateDoc,
+            deleteDoc
         };
 
         onAuthStateChanged(auth, async (user) => {
+            // Suprimir durante registro diferido
+            if (window.suppressAuthRedirect) return;
             if (user) {
                 await handleUserLogin(user);
             } else {

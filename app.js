@@ -7,6 +7,19 @@ let currentOrganization = null;
 let selectedRole = null;
 let appNotifications = [];
 let teamMembers = [];
+let contacts = [];
+let pendingRegistration = null; // Para registro diferido
+window.suppressAuthRedirect = false;
+
+// Etapas del funnel de ventas
+const FUNNEL_STAGES = [
+    { id: 'curioso', name: 'Curioso', color: '#3B82F6' },
+    { id: 'cotizando', name: 'Cotizando', color: '#F59E0B' },
+    { id: 'pago_pendiente', name: 'Pago Pendiente', color: '#EF4444' },
+    { id: 'orden_pendiente', name: 'Orden Pendiente', color: '#8B5CF6' },
+    { id: 'entregado', name: 'Entregado', color: '#10B981' },
+    { id: 'atencion_inmediata', name: 'Atencion Inmediata', color: '#EC4899' }
+];
 
 // ========== FUNCIONES DE NOTIFICACION (MODAL) ==========
 
@@ -47,7 +60,7 @@ function getFirebaseAuthErrorMessage(error) {
         case 'auth/account-exists-with-different-credential':
             return { title: 'Cuenta existente', message: 'Ya existe una cuenta con este email usando otro metodo de inicio de sesion. Intenta con el metodo original.' };
         case 'auth/email-already-in-use':
-            return { title: 'Correo en uso', message: 'Este correo electronico ya esta registrado. Intenta iniciar sesion o usa otro correo.' };
+            return { title: 'Correo ya registrado', message: 'Este correo electronico ya esta registrado. Cambia a "Iniciar Sesion" para acceder a tu cuenta existente.' };
         case 'auth/weak-password':
             return { title: 'Contrasena debil', message: 'La contrasena debe tener al menos 6 caracteres.' };
         case 'auth/user-not-found':
@@ -102,34 +115,34 @@ document.getElementById('loginForm')?.addEventListener('submit', async (e) => {
     }
 });
 
-// Registro
+// Registro - DIFERIDO: no crea usuario hasta completar onboarding
 document.getElementById('registerForm')?.addEventListener('submit', async (e) => {
     e.preventDefault();
-    const name = document.getElementById('registerName').value;
-    const email = document.getElementById('registerEmail').value;
+    const name = document.getElementById('registerName').value.trim();
+    const email = document.getElementById('registerEmail').value.trim();
     const password = document.getElementById('registerPassword').value;
     const btnText = document.getElementById('registerBtnText');
     const btn = document.getElementById('registerBtn');
+
+    if (!name) {
+        showNotification('Campo requerido', 'Ingresa tu nombre completo.', 'warning');
+        return;
+    }
     if (password.length < 6) {
         showNotification('Contrasena muy corta', 'La contrasena debe tener al menos 6 caracteres.', 'warning');
         return;
     }
+
     btnText.innerHTML = '<span class="spinner"></span>';
     btn.disabled = true;
-    try {
-        const userCredential = await window.firebaseAuth.createUserWithEmailAndPassword(window.auth, email, password);
-        await window.firebaseAuth.updateProfile(userCredential.user, { displayName: name });
-        await window.firestore.setDoc(
-            window.firestore.doc(window.db, 'users', userCredential.user.uid),
-            { name: name, email: email, createdAt: window.firestore.serverTimestamp(), onboarded: false }
-        );
-    } catch (error) {
-        console.error('Error de registro:', error);
-        const errorInfo = getFirebaseAuthErrorMessage(error);
-        if (errorInfo) showNotification(errorInfo.title, errorInfo.message, 'error');
-        btnText.textContent = 'Crear Cuenta';
-        btn.disabled = false;
-    }
+
+    // Guardar datos para crear usuario despues del onboarding
+    pendingRegistration = { name, email, password };
+
+    // Mostrar onboarding sin crear usuario aun
+    showOnboardingPage();
+    btnText.textContent = 'Crear Cuenta';
+    btn.disabled = false;
 });
 
 async function handleGoogleAuth() {
@@ -203,9 +216,27 @@ async function confirmLogout() {
         currentOrganization = null;
         appNotifications = [];
         teamMembers = [];
+        contacts = [];
+        pendingRegistration = null;
+        window.suppressAuthRedirect = false;
     } catch (error) {
         console.error('Error al cerrar sesion:', error);
         showNotification('Error', 'No se pudo cerrar sesion. Intenta de nuevo.', 'error');
+    }
+}
+
+// Cancelar onboarding (volver a auth)
+function cancelOnboarding() {
+    if (pendingRegistration) {
+        // No hay usuario creado, solo limpiar y volver
+        pendingRegistration = null;
+        window.suppressAuthRedirect = false;
+        showAuthPage();
+    } else if (currentUser) {
+        // Usuario ya existe, cerrar sesion
+        handleLogout();
+    } else {
+        showAuthPage();
     }
 }
 
@@ -246,6 +277,23 @@ function goBackToStep1() {
     document.getElementById('roleNextBtn').disabled = true;
 }
 
+// Funcion auxiliar: crear usuario Firebase desde pendingRegistration
+async function createPendingUser() {
+    if (!pendingRegistration) return null;
+    window.suppressAuthRedirect = true;
+    try {
+        const cred = await window.firebaseAuth.createUserWithEmailAndPassword(
+            window.auth, pendingRegistration.email, pendingRegistration.password
+        );
+        await window.firebaseAuth.updateProfile(cred.user, { displayName: pendingRegistration.name });
+        currentUser = cred.user;
+        return cred.user;
+    } catch (error) {
+        window.suppressAuthRedirect = false;
+        throw error;
+    }
+}
+
 // Crear organizacion (Gerente)
 document.getElementById('orgForm')?.addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -258,8 +306,16 @@ document.getElementById('orgForm')?.addEventListener('submit', async (e) => {
     }
     btnText.innerHTML = '<span class="spinner"></span>';
     try {
+        // Si hay registro pendiente, crear usuario primero
+        if (pendingRegistration) {
+            await createPendingUser();
+        }
+
         const orgId = generateOrgId();
         const inviteCode = generateInviteCode();
+        const userName = pendingRegistration ? pendingRegistration.name : (currentUserData?.name || currentUser.displayName || currentUser.email.split('@')[0]);
+        const userEmail = pendingRegistration ? pendingRegistration.email : currentUser.email;
+
         await window.firestore.setDoc(
             window.firestore.doc(window.db, 'organizations', orgId),
             {
@@ -269,13 +325,26 @@ document.getElementById('orgForm')?.addEventListener('submit', async (e) => {
                 inviteCode: inviteCode,
                 createdAt: window.firestore.serverTimestamp(),
                 members: [currentUser.uid],
-                integrations: { whatsapp: false, instagram: false, messenger: false }
+                integrations: { whatsapp: false, instagram: false, messenger: false, stripe: false, mercadopago: false }
             }
         );
-        await window.firestore.updateDoc(
+
+        // Crear o actualizar documento del usuario
+        await window.firestore.setDoc(
             window.firestore.doc(window.db, 'users', currentUser.uid),
-            { organizationId: orgId, role: 'gerente', onboarded: true }
+            {
+                name: userName,
+                email: userEmail,
+                organizationId: orgId,
+                role: 'gerente',
+                onboarded: true,
+                createdAt: window.firestore.serverTimestamp()
+            }
         );
+
+        pendingRegistration = null;
+        window.suppressAuthRedirect = false;
+
         showNotification(
             'Organizacion creada',
             `Tu organizacion "${orgName}" fue creada exitosamente.\n\nCodigo de invitacion: ${inviteCode}\n\nComparte este codigo con tu equipo para que se unan.`,
@@ -284,12 +353,19 @@ document.getElementById('orgForm')?.addEventListener('submit', async (e) => {
         await loadApp(currentUser.uid);
     } catch (error) {
         console.error('Error al crear organizacion:', error);
-        showNotification('Error', 'No se pudo crear la organizacion: ' + error.message, 'error');
+        const errorInfo = getFirebaseAuthErrorMessage(error);
+        if (errorInfo) {
+            showNotification(errorInfo.title, errorInfo.message, 'error');
+        } else {
+            showNotification('Error', 'No se pudo crear la organizacion: ' + error.message, 'error');
+        }
         btnText.textContent = 'Crear Organizacion';
+        pendingRegistration = null;
+        window.suppressAuthRedirect = false;
     }
 });
 
-// Unirse a organizacion (Agente) - FIX del codigo de invitacion
+// Unirse a organizacion (Agente) - Valida codigo ANTES de crear usuario
 document.getElementById('joinForm')?.addEventListener('submit', async (e) => {
     e.preventDefault();
     const rawCode = document.getElementById('inviteCode').value.trim();
@@ -304,7 +380,7 @@ document.getElementById('joinForm')?.addEventListener('submit', async (e) => {
     btnText.innerHTML = '<span class="spinner"></span>';
 
     try {
-        // Buscar organizacion por codigo de invitacion
+        // PRIMERO: validar codigo de invitacion
         const orgsRef = window.firestore.collection(window.db, 'organizations');
         const orgsQuery = window.firestore.query(orgsRef, window.firestore.where('inviteCode', '==', inviteCode));
         const orgsSnapshot = await window.firestore.getDocs(orgsQuery);
@@ -319,13 +395,27 @@ document.getElementById('joinForm')?.addEventListener('submit', async (e) => {
         const orgData = orgDoc.data();
         const orgId = orgDoc.id;
 
+        // SEGUNDO: crear usuario si hay registro pendiente
+        if (pendingRegistration) {
+            await createPendingUser();
+        }
+
         // Verificar si el usuario ya es miembro
         if (orgData.members && orgData.members.includes(currentUser.uid)) {
             showNotification('Ya eres miembro', 'Ya perteneces a esta organizacion.', 'info');
-            await window.firestore.updateDoc(
+            await window.firestore.setDoc(
                 window.firestore.doc(window.db, 'users', currentUser.uid),
-                { organizationId: orgId, role: 'agente', onboarded: true }
+                {
+                    name: currentUser.displayName || currentUser.email.split('@')[0],
+                    email: currentUser.email,
+                    organizationId: orgId,
+                    role: 'agente',
+                    onboarded: true,
+                    createdAt: window.firestore.serverTimestamp()
+                }
             );
+            pendingRegistration = null;
+            window.suppressAuthRedirect = false;
             await loadApp(currentUser.uid);
             return;
         }
@@ -337,18 +427,36 @@ document.getElementById('joinForm')?.addEventListener('submit', async (e) => {
             { members: updatedMembers }
         );
 
-        // Actualizar documento del usuario
-        await window.firestore.updateDoc(
+        // Crear documento del usuario
+        const userName = pendingRegistration ? pendingRegistration.name : (currentUser.displayName || currentUser.email.split('@')[0]);
+        await window.firestore.setDoc(
             window.firestore.doc(window.db, 'users', currentUser.uid),
-            { organizationId: orgId, role: 'agente', onboarded: true }
+            {
+                name: userName,
+                email: currentUser.email,
+                organizationId: orgId,
+                role: 'agente',
+                onboarded: true,
+                createdAt: window.firestore.serverTimestamp()
+            }
         );
+
+        pendingRegistration = null;
+        window.suppressAuthRedirect = false;
 
         showNotification('Te uniste exitosamente', `Ahora eres parte de "${orgData.name}". Bienvenido al equipo!`, 'success');
         await loadApp(currentUser.uid);
     } catch (error) {
         console.error('Error al unirse:', error);
-        showNotification('Error', 'No se pudo unir a la organizacion. Intenta de nuevo.\n\nDetalle: ' + error.message, 'error');
+        const errorInfo = getFirebaseAuthErrorMessage(error);
+        if (errorInfo) {
+            showNotification(errorInfo.title, errorInfo.message, 'error');
+        } else {
+            showNotification('Error', 'No se pudo unir a la organizacion. Intenta de nuevo.\n\nDetalle: ' + error.message, 'error');
+        }
         btnText.textContent = 'Unirse a la Organizacion';
+        pendingRegistration = null;
+        window.suppressAuthRedirect = false;
     }
 });
 
@@ -359,7 +467,6 @@ async function handleUserLogin(user) {
     try {
         const userDoc = await window.firestore.getDoc(window.firestore.doc(window.db, 'users', user.uid));
         if (!userDoc.exists()) {
-            // Crear documento de usuario si no existe (por si viene de OAuth)
             await window.firestore.setDoc(
                 window.firestore.doc(window.db, 'users', user.uid),
                 {
@@ -389,7 +496,6 @@ function showAuthPage() {
     document.getElementById('authPage').style.display = 'flex';
     document.getElementById('onboardingPage').classList.add('hidden');
     document.getElementById('appLayout').classList.remove('active');
-    // Reset forms
     document.getElementById('loginEmail').value = '';
     document.getElementById('loginPassword').value = '';
     document.getElementById('loginBtnText').textContent = 'Iniciar Sesion';
@@ -400,7 +506,6 @@ function showOnboardingPage() {
     document.getElementById('authPage').style.display = 'none';
     document.getElementById('onboardingPage').classList.remove('hidden');
     document.getElementById('appLayout').classList.remove('active');
-    // Reset onboarding state
     goBackToStep1();
 }
 
@@ -429,7 +534,6 @@ async function loadApp(userId) {
         }
         currentOrganization = { id: orgDoc.id, ...orgDoc.data() };
 
-        // Actualizar UI del sidebar
         const userName = userData.name || currentUser.email.split('@')[0];
         const userInitial = userName.charAt(0).toUpperCase();
         const roleDisplay = getRoleDisplayName(userData.role);
@@ -439,19 +543,13 @@ async function loadApp(userId) {
         document.getElementById('userAvatar').textContent = userInitial;
         document.getElementById('orgNameDisplay').textContent = currentOrganization.name;
 
-        // Cargar miembros del equipo
         await loadTeamMembers();
-
-        // Actualizar pagina de configuracion
+        await loadContacts();
         updateSettingsPage(userData);
 
-        // Agregar notificacion de bienvenida
         addAppNotification('Bienvenido', `Hola ${userName}, bienvenido a MessageHub.`, 'info');
 
-        // Mostrar app
         document.getElementById('appLayout').classList.add('active');
-
-        // Mostrar dashboard por defecto
         showPageDirect('dashboard');
     } catch (error) {
         console.error('Error al cargar la app:', error);
@@ -510,20 +608,18 @@ function showPage(page) {
     const target = document.getElementById(page + 'Page');
     if (target) target.classList.remove('hidden');
 
-    // Actualizar navegacion
     const navItems = document.querySelectorAll('.nav-item');
     navItems.forEach(item => {
         item.classList.remove('active');
         if (item.dataset.page === page) item.classList.add('active');
     });
 
-    // Actualizar titulo de pagina
     const titles = {
         dashboard: { title: 'Panel Principal', subtitle: 'Resumen de tu actividad de mensajeria' },
-        conversations: { title: 'Conversaciones', subtitle: 'Gestiona todas tus conversaciones' },
-        contacts: { title: 'Contactos', subtitle: 'Tu directorio de contactos' },
+        conversations: { title: 'Conversaciones', subtitle: 'Gestiona todas tus conversaciones y funnel de ventas' },
+        contacts: { title: 'Contactos', subtitle: 'Directorio de contactos enriquecido' },
         team: { title: 'Equipo', subtitle: 'Gestiona los miembros de tu equipo' },
-        integrations: { title: 'Integraciones', subtitle: 'Conecta tus plataformas de mensajeria' },
+        integrations: { title: 'Integraciones', subtitle: 'Conecta plataformas de mensajeria y pasarelas de pago' },
         settings: { title: 'Configuracion', subtitle: 'Preferencias de la organizacion' }
     };
 
@@ -532,12 +628,15 @@ function showPage(page) {
         document.getElementById('pageSubtitle').textContent = titles[page].subtitle;
     }
 
-    // Cerrar sidebar en mobile
+    // Refrescar funnel si se va a conversaciones
+    if (page === 'conversations') {
+        renderFunnel();
+    }
+
     const sidebar = document.getElementById('sidebar');
     if (sidebar) sidebar.classList.remove('mobile-open');
 }
 
-// Version directa sin depender del event
 function showPageDirect(page) {
     showPage(page);
 }
@@ -547,9 +646,343 @@ function toggleMobileSidebar() {
     sidebar.classList.toggle('mobile-open');
 }
 
+// ========== VISTA DE CONVERSACIONES / FUNNEL ==========
+
+function setConvView(view) {
+    const chatView = document.getElementById('chatView');
+    const funnelView = document.getElementById('funnelView');
+    const btns = document.querySelectorAll('.conv-view-btn');
+
+    btns.forEach(btn => {
+        btn.classList.remove('active');
+        if (btn.dataset.view === view) btn.classList.add('active');
+    });
+
+    if (view === 'chat') {
+        chatView.classList.remove('hidden');
+        funnelView.classList.add('hidden');
+    } else {
+        chatView.classList.add('hidden');
+        funnelView.classList.remove('hidden');
+        renderFunnel();
+    }
+}
+
+// ========== FUNNEL DE VENTAS (KANBAN) ==========
+
+let draggedContactId = null;
+
+function renderFunnel() {
+    FUNNEL_STAGES.forEach(stage => {
+        const body = document.getElementById('funnel' + capitalize(stage.id));
+        const countEl = document.getElementById('count' + capitalize(stage.id));
+        if (!body) return;
+
+        const stageContacts = contacts.filter(c => c.funnelStage === stage.id);
+        countEl.textContent = stageContacts.length;
+
+        if (stageContacts.length === 0) {
+            body.innerHTML = '<div class="funnel-empty">Arrastra contactos aqui</div>';
+            return;
+        }
+
+        body.innerHTML = stageContacts.map(contact => {
+            const timeInStage = contact.stageChangedAt ? getTimeInStage(contact.stageChangedAt) : '--';
+            return `
+                <div class="funnel-card" draggable="true"
+                     ondragstart="handleDragStart(event, '${contact.id}')"
+                     data-contact-id="${contact.id}">
+                    <div class="funnel-card-name">${escapeHtml(contact.name)}</div>
+                    ${contact.company ? `<div class="funnel-card-company">${escapeHtml(contact.company)}</div>` : ''}
+                    ${contact.phone ? `<div class="funnel-card-phone">${escapeHtml(contact.phone)}</div>` : ''}
+                    <div class="funnel-card-time">${timeInStage}</div>
+                    <div class="funnel-card-actions">
+                        <button class="funnel-card-btn" onclick="editContactFromFunnel('${contact.id}')" title="Editar">✏️</button>
+                    </div>
+                </div>
+            `;
+        }).join('');
+    });
+}
+
+function capitalize(str) {
+    return str.charAt(0).toUpperCase() + str.slice(1);
+}
+
+function getTimeInStage(timestamp) {
+    if (!timestamp) return '--';
+    const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
+    const now = new Date();
+    const diff = Math.floor((now - date) / 1000);
+    if (diff < 60) return 'Hace unos segundos';
+    if (diff < 3600) return `${Math.floor(diff / 60)} min`;
+    if (diff < 86400) return `${Math.floor(diff / 3600)} h`;
+    const days = Math.floor(diff / 86400);
+    if (days === 1) return '1 dia';
+    return `${days} dias`;
+}
+
+function handleDragStart(event, contactId) {
+    draggedContactId = contactId;
+    event.dataTransfer.effectAllowed = 'move';
+    event.dataTransfer.setData('text/plain', contactId);
+    event.target.classList.add('dragging');
+}
+
+function handleDragOver(event) {
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'move';
+    event.currentTarget.classList.add('drag-over');
+}
+
+function handleDragLeave(event) {
+    event.currentTarget.classList.remove('drag-over');
+}
+
+async function handleDrop(event, newStage) {
+    event.preventDefault();
+    event.currentTarget.classList.remove('drag-over');
+    const contactId = event.dataTransfer.getData('text/plain') || draggedContactId;
+    if (!contactId) return;
+
+    const contact = contacts.find(c => c.id === contactId);
+    if (!contact || contact.funnelStage === newStage) {
+        draggedContactId = null;
+        return;
+    }
+
+    try {
+        await window.firestore.updateDoc(
+            window.firestore.doc(window.db, 'organizations', currentOrganization.id, 'contacts', contactId),
+            { funnelStage: newStage, stageChangedAt: window.firestore.serverTimestamp() }
+        );
+        contact.funnelStage = newStage;
+        contact.stageChangedAt = new Date();
+        renderFunnel();
+        renderContactsTable();
+        addAppNotification('Contacto movido', `${contact.name} movido a "${getStageName(newStage)}"`, 'success');
+    } catch (error) {
+        console.error('Error al mover contacto:', error);
+        showNotification('Error', 'No se pudo mover el contacto. Intenta de nuevo.', 'error');
+    }
+    draggedContactId = null;
+}
+
+function getStageName(stageId) {
+    const stage = FUNNEL_STAGES.find(s => s.id === stageId);
+    return stage ? stage.name : stageId;
+}
+
+function editContactFromFunnel(contactId) {
+    const contact = contacts.find(c => c.id === contactId);
+    if (contact) openContactModal(contact);
+}
+
+// ========== CONTACTOS CRUD ==========
+
+async function loadContacts() {
+    if (!currentOrganization) return;
+
+    try {
+        const contactsRef = window.firestore.collection(window.db, 'organizations', currentOrganization.id, 'contacts');
+        const snapshot = await window.firestore.getDocs(contactsRef);
+        contacts = [];
+        snapshot.forEach(doc => {
+            contacts.push({ id: doc.id, ...doc.data() });
+        });
+
+        document.getElementById('statContacts').textContent = contacts.length;
+        renderContactsTable();
+        renderFunnel();
+    } catch (error) {
+        console.error('Error cargando contactos:', error);
+    }
+}
+
+function renderContactsTable() {
+    const tbody = document.getElementById('contactsTableBody');
+    if (!tbody) return;
+
+    if (contacts.length === 0) {
+        tbody.innerHTML = `
+            <tr class="contacts-empty-row">
+                <td colspan="7">
+                    <div class="contacts-empty-state">
+                        <span>📇</span>
+                        <p>No hay contactos aun. Agrega tu primer contacto.</p>
+                    </div>
+                </td>
+            </tr>
+        `;
+        return;
+    }
+
+    tbody.innerHTML = contacts.map(contact => {
+        const stageName = getStageName(contact.funnelStage || 'curioso');
+        const stageClass = 'stage-badge stage-' + (contact.funnelStage || 'curioso');
+        return `
+            <tr>
+                <td><strong>${escapeHtml(contact.name)}</strong></td>
+                <td>${escapeHtml(contact.company || '--')}</td>
+                <td>${escapeHtml(contact.phone || '--')}</td>
+                <td>${escapeHtml(contact.email || '--')}</td>
+                <td>${escapeHtml(contact.rfc || '--')}</td>
+                <td><span class="${stageClass}">${stageName}</span></td>
+                <td class="contacts-actions">
+                    <button class="btn-table-action" onclick="openContactModal(contacts.find(c=>c.id==='${contact.id}'))" title="Editar">✏️</button>
+                    <button class="btn-table-action btn-table-delete" onclick="deleteContact('${contact.id}')" title="Eliminar">🗑️</button>
+                </td>
+            </tr>
+        `;
+    }).join('');
+}
+
+function filterContacts(query) {
+    const tbody = document.getElementById('contactsTableBody');
+    if (!query || !query.trim()) {
+        renderContactsTable();
+        return;
+    }
+    const q = query.toLowerCase().trim();
+    const filtered = contacts.filter(c =>
+        (c.name && c.name.toLowerCase().includes(q)) ||
+        (c.company && c.company.toLowerCase().includes(q)) ||
+        (c.phone && c.phone.includes(q)) ||
+        (c.email && c.email.toLowerCase().includes(q)) ||
+        (c.rfc && c.rfc.toLowerCase().includes(q))
+    );
+
+    if (filtered.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;padding:40px;color:var(--text-tertiary)">Sin resultados para "${escapeHtml(query)}"</td></tr>`;
+        return;
+    }
+
+    tbody.innerHTML = filtered.map(contact => {
+        const stageName = getStageName(contact.funnelStage || 'curioso');
+        const stageClass = 'stage-badge stage-' + (contact.funnelStage || 'curioso');
+        return `
+            <tr>
+                <td><strong>${escapeHtml(contact.name)}</strong></td>
+                <td>${escapeHtml(contact.company || '--')}</td>
+                <td>${escapeHtml(contact.phone || '--')}</td>
+                <td>${escapeHtml(contact.email || '--')}</td>
+                <td>${escapeHtml(contact.rfc || '--')}</td>
+                <td><span class="${stageClass}">${stageName}</span></td>
+                <td class="contacts-actions">
+                    <button class="btn-table-action" onclick="openContactModal(contacts.find(c=>c.id==='${contact.id}'))" title="Editar">✏️</button>
+                    <button class="btn-table-action btn-table-delete" onclick="deleteContact('${contact.id}')" title="Eliminar">🗑️</button>
+                </td>
+            </tr>
+        `;
+    }).join('');
+}
+
+function openContactModal(contact = null) {
+    const modal = document.getElementById('contactModal');
+    const title = document.getElementById('contactModalTitle');
+
+    if (contact) {
+        title.textContent = 'Editar Contacto';
+        document.getElementById('contactEditId').value = contact.id;
+        document.getElementById('contactName').value = contact.name || '';
+        document.getElementById('contactCompany').value = contact.company || '';
+        document.getElementById('contactPhone').value = contact.phone || '';
+        document.getElementById('contactEmailField').value = contact.email || '';
+        document.getElementById('contactRFC').value = contact.rfc || '';
+        document.getElementById('contactAddress').value = contact.address || '';
+        document.getElementById('contactStage').value = contact.funnelStage || 'curioso';
+        document.getElementById('contactNotes').value = contact.notes || '';
+    } else {
+        title.textContent = 'Agregar Contacto';
+        document.getElementById('contactEditId').value = '';
+        document.getElementById('contactForm').reset();
+        document.getElementById('contactStage').value = 'curioso';
+    }
+
+    modal.classList.remove('hidden');
+}
+
+function closeContactModal() {
+    document.getElementById('contactModal').classList.add('hidden');
+}
+
+async function saveContact() {
+    const name = document.getElementById('contactName').value.trim();
+    if (!name) {
+        showNotification('Campo requerido', 'El nombre del contacto es obligatorio.', 'warning');
+        return;
+    }
+
+    const contactData = {
+        name: name,
+        company: document.getElementById('contactCompany').value.trim(),
+        phone: document.getElementById('contactPhone').value.trim(),
+        email: document.getElementById('contactEmailField').value.trim(),
+        rfc: document.getElementById('contactRFC').value.trim().toUpperCase(),
+        address: document.getElementById('contactAddress').value.trim(),
+        funnelStage: document.getElementById('contactStage').value,
+        notes: document.getElementById('contactNotes').value.trim(),
+        updatedAt: window.firestore.serverTimestamp()
+    };
+
+    const editId = document.getElementById('contactEditId').value;
+
+    try {
+        if (editId) {
+            await window.firestore.updateDoc(
+                window.firestore.doc(window.db, 'organizations', currentOrganization.id, 'contacts', editId),
+                contactData
+            );
+            const idx = contacts.findIndex(c => c.id === editId);
+            if (idx !== -1) {
+                contacts[idx] = { ...contacts[idx], ...contactData, updatedAt: new Date() };
+            }
+            showNotification('Contacto actualizado', `${name} fue actualizado correctamente.`, 'success');
+        } else {
+            contactData.createdAt = window.firestore.serverTimestamp();
+            contactData.stageChangedAt = window.firestore.serverTimestamp();
+            contactData.createdBy = currentUser.uid;
+            const docRef = await window.firestore.addDoc(
+                window.firestore.collection(window.db, 'organizations', currentOrganization.id, 'contacts'),
+                contactData
+            );
+            contacts.push({ id: docRef.id, ...contactData, stageChangedAt: new Date(), createdAt: new Date() });
+            showNotification('Contacto agregado', `${name} fue agregado al directorio.`, 'success');
+        }
+
+        document.getElementById('statContacts').textContent = contacts.length;
+        renderContactsTable();
+        renderFunnel();
+        closeContactModal();
+    } catch (error) {
+        console.error('Error al guardar contacto:', error);
+        showNotification('Error', 'No se pudo guardar el contacto: ' + error.message, 'error');
+    }
+}
+
+async function deleteContact(contactId) {
+    const contact = contacts.find(c => c.id === contactId);
+    if (!contact) return;
+
+    if (!confirm(`Eliminar a "${contact.name}" del directorio?`)) return;
+
+    try {
+        await window.firestore.deleteDoc(
+            window.firestore.doc(window.db, 'organizations', currentOrganization.id, 'contacts', contactId)
+        );
+        contacts = contacts.filter(c => c.id !== contactId);
+        document.getElementById('statContacts').textContent = contacts.length;
+        renderContactsTable();
+        renderFunnel();
+        showNotification('Contacto eliminado', `${contact.name} fue eliminado del directorio.`, 'success');
+    } catch (error) {
+        console.error('Error al eliminar contacto:', error);
+        showNotification('Error', 'No se pudo eliminar el contacto.', 'error');
+    }
+}
+
 // ========== MODALES ==========
 
-// Invitar Miembro
 function openInviteModal() {
     if (currentOrganization && currentOrganization.inviteCode) {
         document.getElementById('inviteCodeText').textContent = currentOrganization.inviteCode;
@@ -569,7 +1002,6 @@ function copyInviteCode() {
         setTimeout(() => { document.getElementById('copyIcon').textContent = '📋'; }, 2000);
         addAppNotification('Codigo copiado', 'El codigo de invitacion fue copiado al portapapeles.', 'success');
     }).catch(() => {
-        // Fallback
         const textarea = document.createElement('textarea');
         textarea.value = code;
         document.body.appendChild(textarea);
@@ -581,7 +1013,6 @@ function copyInviteCode() {
     });
 }
 
-// Ayuda
 function openHelpModal() {
     document.getElementById('helpModal').classList.remove('hidden');
 }
@@ -599,7 +1030,6 @@ function toggleHelpItem(el) {
     }
 }
 
-// Perfil
 function openProfileModal() {
     if (currentUserData) {
         const name = currentUserData.name || currentUser.email.split('@')[0];
@@ -616,7 +1046,6 @@ function closeProfileModal() {
     document.getElementById('profileModal').classList.add('hidden');
 }
 
-// Cerrar modales al hacer clic fuera
 document.addEventListener('click', (e) => {
     if (e.target.classList.contains('modal-overlay')) {
         e.target.classList.add('hidden');
@@ -642,7 +1071,6 @@ function addAppNotification(title, message, type = 'info') {
 function toggleNotificationsPanel() {
     const panel = document.getElementById('notificationsPanel');
     panel.classList.toggle('hidden');
-    // Cerrar al hacer clic fuera
     if (!panel.classList.contains('hidden')) {
         setTimeout(() => {
             document.addEventListener('click', closeNotifPanelOnClickOutside);
@@ -664,11 +1092,8 @@ function updateNotificationsPanel() {
     const dot = document.getElementById('notifDot');
     const unread = appNotifications.filter(n => !n.read).length;
 
-    if (unread > 0) {
-        dot.classList.remove('hidden');
-    } else {
-        dot.classList.add('hidden');
-    }
+    if (unread > 0) dot.classList.remove('hidden');
+    else dot.classList.add('hidden');
 
     if (appNotifications.length === 0) {
         body.innerHTML = '<div class="notif-empty">No hay notificaciones</div>';
@@ -723,10 +1148,10 @@ function handleSearch(query) {
     const q = query.toLowerCase().trim();
     const results = [];
 
-    // Buscar en paginas
     const pages = [
         { name: 'Panel Principal', page: 'dashboard', icon: '📊' },
         { name: 'Conversaciones', page: 'conversations', icon: '💬' },
+        { name: 'Funnel de Ventas', page: 'conversations', icon: '📊' },
         { name: 'Contactos', page: 'contacts', icon: '👥' },
         { name: 'Equipo', page: 'team', icon: '👨‍💼' },
         { name: 'Integraciones', page: 'integrations', icon: '🔌' },
@@ -739,7 +1164,6 @@ function handleSearch(query) {
         }
     });
 
-    // Buscar en miembros del equipo
     teamMembers.forEach(member => {
         if ((member.name && member.name.toLowerCase().includes(q)) ||
             (member.email && member.email.toLowerCase().includes(q))) {
@@ -747,15 +1171,25 @@ function handleSearch(query) {
         }
     });
 
-    // Buscar acciones
+    contacts.forEach(contact => {
+        if ((contact.name && contact.name.toLowerCase().includes(q)) ||
+            (contact.company && contact.company.toLowerCase().includes(q)) ||
+            (contact.phone && contact.phone.includes(q))) {
+            results.push({ type: 'contact', name: contact.name, icon: '📇', detail: contact.company || contact.phone || '' });
+        }
+    });
+
     const actions = [
         { name: 'Invitar Miembro', action: 'openInviteModal()', icon: '➕' },
+        { name: 'Agregar Contacto', action: 'openContactModal()', icon: '📇' },
         { name: 'Cerrar Sesion', action: 'handleLogout()', icon: '🚪' },
         { name: 'Ayuda', action: 'openHelpModal()', icon: '❓' },
         { name: 'Mi Perfil', action: 'openProfileModal()', icon: '👤' },
         { name: 'WhatsApp', action: "connectIntegration('whatsapp')", icon: '📱' },
         { name: 'Instagram', action: "connectIntegration('instagram')", icon: '📷' },
         { name: 'Messenger', action: "connectIntegration('messenger')", icon: '💬' },
+        { name: 'Stripe', action: "connectPayment('stripe')", icon: '💳' },
+        { name: 'MercadoPago', action: "connectPayment('mercadopago')", icon: '🏦' },
     ];
 
     actions.forEach(a => {
@@ -765,7 +1199,7 @@ function handleSearch(query) {
     });
 
     if (results.length === 0) {
-        resultsEl.innerHTML = '<div class="search-result-empty">Sin resultados para "' + query + '"</div>';
+        resultsEl.innerHTML = '<div class="search-result-empty">Sin resultados para "' + escapeHtml(query) + '"</div>';
     } else {
         resultsEl.innerHTML = results.slice(0, 8).map(r => {
             if (r.type === 'page') {
@@ -775,6 +1209,10 @@ function handleSearch(query) {
             } else if (r.type === 'member') {
                 return `<div class="search-result-item" onmousedown="showPage('team'); closeSearchResults();">
                     <span>${r.icon}</span><span>${r.name}</span><span class="search-result-type">${r.role}</span>
+                </div>`;
+            } else if (r.type === 'contact') {
+                return `<div class="search-result-item" onmousedown="showPage('contacts'); closeSearchResults();">
+                    <span>${r.icon}</span><span>${r.name}</span><span class="search-result-type">${r.detail}</span>
                 </div>`;
             } else {
                 return `<div class="search-result-item" onmousedown="${r.action}; closeSearchResults();">
@@ -820,16 +1258,37 @@ function copySettingsInviteCode() {
     });
 }
 
-// ========== INTEGRACIONES ==========
+// ========== INTEGRACIONES DE MENSAJERIA ==========
 
 function connectIntegration(platform) {
     const names = { whatsapp: 'WhatsApp Business', instagram: 'Instagram Direct', messenger: 'Messenger' };
     const name = names[platform] || platform;
     showNotification(
         'Conectar ' + name,
-        `Para conectar ${name} necesitas:\n\n1. Una cuenta de Meta Business Suite\n2. Configurar la API de ${name}\n3. Obtener el token de acceso\n4. Configurar el webhook\n\nContacta al administrador del sistema para completar la configuracion.`,
+        `Para conectar ${name} necesitas:\n\n1. Una cuenta de Meta Business Suite\n2. Configurar la API de ${name}\n3. Obtener el token de acceso\n4. Configurar el webhook en Firebase Cloud Functions\n\nConsulta la Guia de Integracion Meta incluida en el proyecto.`,
         'info'
     );
+}
+
+// ========== INTEGRACIONES DE PAGO ==========
+
+function connectPayment(gateway) {
+    const names = { stripe: 'Stripe', mercadopago: 'MercadoPago' };
+    const name = names[gateway] || gateway;
+
+    if (gateway === 'stripe') {
+        showNotification(
+            'Conectar Stripe',
+            `Para conectar Stripe necesitas:\n\n1. Crear una cuenta en stripe.com\n2. Obtener tus API Keys (Publishable + Secret)\n3. Configurar las keys en Firebase Cloud Functions\n4. Crear un endpoint para generar Payment Links\n\nLa Secret Key se almacena solo en el backend (Cloud Functions), nunca en el frontend.\n\nUna vez conectado, podras generar ligas de pago desde cualquier conversacion.`,
+            'info'
+        );
+    } else if (gateway === 'mercadopago') {
+        showNotification(
+            'Conectar MercadoPago',
+            `Para conectar MercadoPago necesitas:\n\n1. Crear una cuenta en mercadopago.com.mx\n2. Crear una aplicacion en el panel de desarrolladores\n3. Obtener tu Access Token y Public Key\n4. Configurar las credenciales en Firebase Cloud Functions\n\nEl Access Token se almacena solo en el backend (Cloud Functions).\n\nUna vez conectado, podras generar ligas de pago con OXXO, transferencia y tarjeta.`,
+            'info'
+        );
+    }
 }
 
 // ========== CONVERSACIONES ==========
@@ -837,7 +1296,6 @@ function connectIntegration(platform) {
 let currentConvFilter = 'all';
 
 function filterConversations(query) {
-    // Se implementara cuando haya conversaciones reales
     console.log('Filtrar conversaciones:', query);
 }
 
@@ -863,6 +1321,13 @@ function generateInviteCode() {
     return code;
 }
 
+function escapeHtml(str) {
+    if (!str) return '';
+    const div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
+}
+
 // Cerrar paneles al presionar Escape
 document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
@@ -870,6 +1335,7 @@ document.addEventListener('keydown', (e) => {
         closeInviteModal();
         closeHelpModal();
         closeProfileModal();
+        closeContactModal();
         closeLogoutModal();
         closeSearchResults();
         document.getElementById('notificationsPanel')?.classList.add('hidden');
