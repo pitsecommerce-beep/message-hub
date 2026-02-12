@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>MessageHub - Unified Messaging Platform</title>
+    <title>MessageHub - Plataforma de Mensajeria Unificada</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -30,55 +30,185 @@
         </div>
     </div>
 
+    <!-- Modal de Confirmar Cerrar Sesion -->
+    <div class="modal-overlay hidden" id="logoutModal">
+        <div class="modal-box modal-sm">
+            <div class="modal-header">
+                <h3 class="modal-title">Cerrar Sesion</h3>
+                <button class="modal-close" onclick="closeLogoutModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p class="modal-text">Estas seguro de que deseas cerrar sesion?</p>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary" onclick="closeLogoutModal()">Cancelar</button>
+                <button class="btn-primary btn-danger" style="max-width:180px" onclick="confirmLogout()">Si, Cerrar Sesion</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal de Invitar Miembro -->
+    <div class="modal-overlay hidden" id="inviteModal">
+        <div class="modal-box">
+            <div class="modal-header">
+                <h3 class="modal-title">Invitar Miembro</h3>
+                <button class="modal-close" onclick="closeInviteModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p class="modal-text">Comparte este codigo de invitacion con tu equipo para que se unan a tu organizacion:</p>
+                <div class="invite-code-display">
+                    <span id="inviteCodeText">-----</span>
+                    <button class="copy-btn" onclick="copyInviteCode()" title="Copiar codigo">
+                        <span id="copyIcon">📋</span>
+                    </button>
+                </div>
+                <p class="modal-hint">El miembro puede usar este codigo al registrarse y seleccionar "Unirse como Agente".</p>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary" onclick="closeInviteModal()">Cerrar</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal de Ayuda -->
+    <div class="modal-overlay hidden" id="helpModal">
+        <div class="modal-box">
+            <div class="modal-header">
+                <h3 class="modal-title">Centro de Ayuda</h3>
+                <button class="modal-close" onclick="closeHelpModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="help-section">
+                    <div class="help-item" onclick="toggleHelpItem(this)">
+                        <div class="help-question">
+                            <span>Como invito miembros a mi equipo?</span>
+                            <span class="help-arrow">&#9660;</span>
+                        </div>
+                        <div class="help-answer hidden">
+                            Ve al Panel Principal o a la seccion de Equipo y haz clic en "Invitar Miembro". Comparte el codigo de invitacion con tus colegas para que se unan.
+                        </div>
+                    </div>
+                    <div class="help-item" onclick="toggleHelpItem(this)">
+                        <div class="help-question">
+                            <span>Como conecto mis plataformas de mensajeria?</span>
+                            <span class="help-arrow">&#9660;</span>
+                        </div>
+                        <div class="help-answer hidden">
+                            Ve a la seccion de Integraciones desde el menu lateral. Ahi podras conectar WhatsApp Business, Instagram y Messenger siguiendo los pasos de cada plataforma.
+                        </div>
+                    </div>
+                    <div class="help-item" onclick="toggleHelpItem(this)">
+                        <div class="help-question">
+                            <span>Que roles existen en la plataforma?</span>
+                            <span class="help-arrow">&#9660;</span>
+                        </div>
+                        <div class="help-answer hidden">
+                            Existen tres roles: Administrador (dueno del SaaS), Gerente (gerente de sucursal que crea y gestiona equipos) y Agente (miembro del equipo que atiende conversaciones).
+                        </div>
+                    </div>
+                    <div class="help-item" onclick="toggleHelpItem(this)">
+                        <div class="help-question">
+                            <span>Como cierro sesion?</span>
+                            <span class="help-arrow">&#9660;</span>
+                        </div>
+                        <div class="help-answer hidden">
+                            Haz clic en tu perfil en la barra lateral izquierda y selecciona "Cerrar Sesion", o usa el icono de puerta en la seccion de tu perfil.
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary" onclick="closeHelpModal()">Cerrar</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal de Perfil de Usuario -->
+    <div class="modal-overlay hidden" id="profileModal">
+        <div class="modal-box">
+            <div class="modal-header">
+                <h3 class="modal-title">Mi Perfil</h3>
+                <button class="modal-close" onclick="closeProfileModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="profile-card">
+                    <div class="profile-avatar-large" id="profileAvatarLarge">U</div>
+                    <div class="profile-details">
+                        <div class="profile-detail-row">
+                            <span class="profile-label">Nombre</span>
+                            <span class="profile-value" id="profileName">--</span>
+                        </div>
+                        <div class="profile-detail-row">
+                            <span class="profile-label">Correo</span>
+                            <span class="profile-value" id="profileEmail">--</span>
+                        </div>
+                        <div class="profile-detail-row">
+                            <span class="profile-label">Rol</span>
+                            <span class="profile-value" id="profileRole">--</span>
+                        </div>
+                        <div class="profile-detail-row">
+                            <span class="profile-label">Organizacion</span>
+                            <span class="profile-value" id="profileOrg">--</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary" onclick="closeProfileModal()">Cerrar</button>
+                <button class="btn-primary btn-danger" style="max-width:180px" onclick="handleLogout()">Cerrar Sesion</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Auth Page -->
     <div class="auth-container" id="authPage">
         <div class="auth-box">
             <div class="logo-section">
                 <div class="logo">MessageHub</div>
-                <div class="tagline">Unified messaging platform for your business</div>
+                <div class="tagline">Plataforma de mensajeria unificada para tu negocio</div>
             </div>
 
             <div class="auth-tabs">
-                <button class="auth-tab active" onclick="switchAuthTab('login')">Sign In</button>
-                <button class="auth-tab" onclick="switchAuthTab('register')">Sign Up</button>
+                <button class="auth-tab active" onclick="switchAuthTab('login')">Iniciar Sesion</button>
+                <button class="auth-tab" onclick="switchAuthTab('register')">Registrarse</button>
             </div>
 
             <!-- Login Form -->
             <form id="loginForm">
                 <div class="form-group">
-                    <label class="form-label">Email</label>
-                    <input type="email" class="form-input" id="loginEmail" placeholder="you@company.com" required>
+                    <label class="form-label">Correo electronico</label>
+                    <input type="email" class="form-input" id="loginEmail" placeholder="tu@empresa.com" required>
                 </div>
                 <div class="form-group">
-                    <label class="form-label">Password</label>
+                    <label class="form-label">Contrasena</label>
                     <input type="password" class="form-input" id="loginPassword" placeholder="••••••••" required>
                 </div>
                 <button type="submit" class="btn-primary" id="loginBtn">
-                    <span id="loginBtnText">Sign In</span>
+                    <span id="loginBtnText">Iniciar Sesion</span>
                 </button>
             </form>
 
             <!-- Register Form -->
             <form id="registerForm" class="hidden">
                 <div class="form-group">
-                    <label class="form-label">Full Name</label>
-                    <input type="text" class="form-input" id="registerName" placeholder="John Doe" required>
+                    <label class="form-label">Nombre completo</label>
+                    <input type="text" class="form-input" id="registerName" placeholder="Juan Perez" required>
                 </div>
                 <div class="form-group">
-                    <label class="form-label">Email</label>
-                    <input type="email" class="form-input" id="registerEmail" placeholder="you@company.com" required>
+                    <label class="form-label">Correo electronico</label>
+                    <input type="email" class="form-input" id="registerEmail" placeholder="tu@empresa.com" required>
                 </div>
                 <div class="form-group">
-                    <label class="form-label">Password</label>
-                    <input type="password" class="form-input" id="registerPassword" placeholder="••••••••" required>
+                    <label class="form-label">Contrasena</label>
+                    <input type="password" class="form-input" id="registerPassword" placeholder="Minimo 6 caracteres" required>
                 </div>
                 <button type="submit" class="btn-primary" id="registerBtn">
-                    <span id="registerBtnText">Create Account</span>
+                    <span id="registerBtnText">Crear Cuenta</span>
                 </button>
             </form>
 
             <div class="divider">
-                <span class="divider-text">or continue with</span>
+                <span class="divider-text">o continuar con</span>
             </div>
 
             <div class="social-buttons">
@@ -91,7 +221,7 @@
             </div>
 
             <div class="link-text">
-                <a href="#" onclick="alert('Coming soon!')">Forgot password?</a>
+                <a href="#" onclick="handleForgotPassword(); return false;">Olvidaste tu contrasena?</a>
             </div>
         </div>
     </div>
@@ -107,75 +237,87 @@
             <!-- Step 1: Choose Role -->
             <div id="onboardingStep1">
                 <div class="onboarding-header">
-                    <h2 class="onboarding-title">Welcome! Let's get started</h2>
-                    <p class="onboarding-subtitle">How do you want to use MessageHub?</p>
+                    <h2 class="onboarding-title">Bienvenido! Empecemos</h2>
+                    <p class="onboarding-subtitle">Como deseas usar MessageHub?</p>
                 </div>
 
                 <div class="role-selection">
-                    <div class="role-card" onclick="selectRole('admin')">
+                    <div class="role-card" onclick="selectRole('gerente')">
                         <div class="role-icon">👑</div>
-                        <div class="role-title">Create Organization</div>
+                        <div class="role-title">Crear Equipo (Gerente)</div>
                         <div class="role-description">
-                            Start a new organization, manage team members, and control all settings.
+                            Crea una nueva organizacion como gerente de sucursal. Podras gestionar tu equipo, invitar agentes y controlar la configuracion.
                         </div>
                     </div>
-                    <div class="role-card" onclick="selectRole('agent')">
+                    <div class="role-card" onclick="selectRole('agente')">
                         <div class="role-icon">💼</div>
-                        <div class="role-title">Join as Agent</div>
+                        <div class="role-title">Unirse como Agente</div>
                         <div class="role-description">
-                            Join an existing organization and start managing conversations.
+                            Unete a una organizacion existente con un codigo de invitacion y comienza a atender conversaciones.
                         </div>
                     </div>
                 </div>
 
                 <button class="btn-primary" id="roleNextBtn" disabled onclick="proceedToStep2()">
-                    <span>Continue</span>
+                    <span>Continuar</span>
                 </button>
+
+                <div class="onboarding-back-link">
+                    <a href="#" onclick="handleLogout(); return false;">Cerrar sesion y volver</a>
+                </div>
             </div>
 
             <!-- Step 2: Organization/Join Details -->
             <div id="onboardingStep2" class="hidden">
-                <!-- For Admin -->
+                <!-- For Gerente -->
                 <div id="adminSetup" class="hidden">
                     <div class="onboarding-header">
-                        <h2 class="onboarding-title">Create Your Organization</h2>
-                        <p class="onboarding-subtitle">Set up your workspace</p>
+                        <h2 class="onboarding-title">Crea Tu Organizacion</h2>
+                        <p class="onboarding-subtitle">Configura tu espacio de trabajo</p>
                     </div>
 
                     <form id="orgForm">
                         <div class="form-group">
-                            <label class="form-label">Organization Name</label>
-                            <input type="text" class="form-input" id="orgName" placeholder="Acme Inc." required>
+                            <label class="form-label">Nombre de la Organizacion</label>
+                            <input type="text" class="form-input" id="orgName" placeholder="Mi Empresa S.A." required>
                         </div>
                         <div class="form-group">
-                            <label class="form-label">Industry</label>
-                            <input type="text" class="form-input" id="orgIndustry" placeholder="E-commerce, SaaS, etc.">
+                            <label class="form-label">Industria</label>
+                            <input type="text" class="form-input" id="orgIndustry" placeholder="E-commerce, Retail, Servicios, etc.">
                         </div>
                         <button type="submit" class="btn-primary">
-                            <span id="orgBtnText">Create Organization</span>
+                            <span id="orgBtnText">Crear Organizacion</span>
                         </button>
                     </form>
+
+                    <div class="onboarding-back-link">
+                        <a href="#" onclick="goBackToStep1(); return false;">Volver al paso anterior</a>
+                    </div>
                 </div>
 
                 <!-- For Agent -->
                 <div id="agentSetup" class="hidden">
                     <div class="onboarding-header">
-                        <h2 class="onboarding-title">Join Organization</h2>
-                        <p class="onboarding-subtitle">Enter the invite code from your admin</p>
+                        <h2 class="onboarding-title">Unirse a Organizacion</h2>
+                        <p class="onboarding-subtitle">Ingresa el codigo de invitacion que te compartio tu gerente</p>
                     </div>
 
                     <form id="joinForm">
                         <div class="form-group">
-                            <label class="form-label">Invite Code</label>
+                            <label class="form-label">Codigo de Invitacion</label>
                             <input type="text" class="form-input" id="inviteCode" placeholder="XXXXX-XXXXX" required>
                         </div>
                         <button type="submit" class="btn-primary">
-                            <span id="joinBtnText">Join Organization</span>
+                            <span id="joinBtnText">Unirse a la Organizacion</span>
                         </button>
                     </form>
 
-                    <div class="link-text" style="margin-top: 16px;">
-                        Don't have a code? <a href="#" onclick="alert('Contact your organization admin for an invite code.')">Contact admin</a>
+                    <div class="onboarding-back-link">
+                        <a href="#" onclick="goBackToStep1(); return false;">Volver al paso anterior</a>
+                    </div>
+
+                    <div class="link-text" style="margin-top: 8px;">
+                        No tienes un codigo? <a href="#" onclick="showNotification('Contactar Gerente', 'Solicita un codigo de invitacion al gerente de tu organizacion para poder unirte.', 'info'); return false;">Contacta a tu gerente</a>
                     </div>
                 </div>
             </div>
@@ -190,53 +332,53 @@
                 <div class="sidebar-logo">MessageHub</div>
                 <div class="org-badge" id="orgBadge">
                     <span class="org-badge-icon"></span>
-                    <span id="orgNameDisplay">Loading...</span>
+                    <span id="orgNameDisplay">Cargando...</span>
                 </div>
             </div>
 
             <nav class="sidebar-nav">
                 <div class="nav-section">
-                    <div class="nav-section-title">Main</div>
-                    <div class="nav-item active" onclick="showPage('dashboard')">
+                    <div class="nav-section-title">Principal</div>
+                    <div class="nav-item active" data-page="dashboard" onclick="showPage('dashboard')">
                         <span class="nav-icon">📊</span>
-                        <span>Dashboard</span>
+                        <span>Panel Principal</span>
                     </div>
-                    <div class="nav-item" onclick="showPage('conversations')">
+                    <div class="nav-item" data-page="conversations" onclick="showPage('conversations')">
                         <span class="nav-icon">💬</span>
-                        <span>Conversations</span>
-                        <span class="nav-badge">3</span>
+                        <span>Conversaciones</span>
+                        <span class="nav-badge" id="convBadge">0</span>
                     </div>
-                    <div class="nav-item" onclick="showPage('contacts')">
+                    <div class="nav-item" data-page="contacts" onclick="showPage('contacts')">
                         <span class="nav-icon">👥</span>
-                        <span>Contacts</span>
+                        <span>Contactos</span>
                     </div>
                 </div>
 
                 <div class="nav-section">
-                    <div class="nav-section-title">Organization</div>
-                    <div class="nav-item" onclick="showPage('team')">
+                    <div class="nav-section-title">Organizacion</div>
+                    <div class="nav-item" data-page="team" onclick="showPage('team')">
                         <span class="nav-icon">👨‍💼</span>
-                        <span>Team</span>
+                        <span>Equipo</span>
                     </div>
-                    <div class="nav-item" onclick="showPage('integrations')">
+                    <div class="nav-item" data-page="integrations" onclick="showPage('integrations')">
                         <span class="nav-icon">🔌</span>
-                        <span>Integrations</span>
+                        <span>Integraciones</span>
                     </div>
-                    <div class="nav-item" onclick="showPage('settings')">
+                    <div class="nav-item" data-page="settings" onclick="showPage('settings')">
                         <span class="nav-icon">⚙️</span>
-                        <span>Settings</span>
+                        <span>Configuracion</span>
                     </div>
                 </div>
             </nav>
 
             <div class="sidebar-footer">
-                <div class="user-profile">
+                <div class="user-profile" onclick="openProfileModal()">
                     <div class="user-avatar" id="userAvatar">U</div>
                     <div class="user-info">
-                        <div class="user-name" id="userName">User</div>
-                        <div class="user-role" id="userRole">Admin</div>
+                        <div class="user-name" id="userName">Usuario</div>
+                        <div class="user-role" id="userRole">Gerente</div>
                     </div>
-                    <button class="logout-btn" onclick="handleLogout()" title="Logout">🚪</button>
+                    <button class="logout-btn" onclick="event.stopPropagation(); handleLogout()" title="Cerrar Sesion">🚪</button>
                 </div>
             </div>
         </aside>
@@ -244,17 +386,32 @@
         <!-- Main Content -->
         <main class="main-content">
             <div class="top-bar">
+                <button class="btn-icon mobile-menu-btn hidden" id="mobileMenuBtn" onclick="toggleMobileSidebar()">☰</button>
                 <div class="page-header">
-                    <h1 id="pageTitle">Dashboard</h1>
-                    <div class="page-subtitle" id="pageSubtitle">Overview of your messaging activity</div>
+                    <h1 id="pageTitle">Panel Principal</h1>
+                    <div class="page-subtitle" id="pageSubtitle">Resumen de tu actividad de mensajeria</div>
                 </div>
                 <div class="top-bar-actions">
                     <div class="search-box">
                         <span class="search-icon">🔍</span>
-                        <input type="text" class="search-input" placeholder="Search...">
+                        <input type="text" class="search-input" id="searchInput" placeholder="Buscar..." oninput="handleSearch(this.value)" onfocus="handleSearch(this.value)" onblur="setTimeout(()=>closeSearchResults(),200)">
+                        <div class="search-results hidden" id="searchResults"></div>
                     </div>
-                    <button class="btn-icon" title="Notifications">🔔</button>
-                    <button class="btn-icon" title="Help">❓</button>
+                    <div class="notification-wrapper">
+                        <button class="btn-icon" title="Notificaciones" onclick="toggleNotificationsPanel()">
+                            🔔
+                            <span class="notification-dot hidden" id="notifDot"></span>
+                        </button>
+                        <div class="notifications-panel hidden" id="notificationsPanel">
+                            <div class="notif-panel-header">
+                                <span class="notif-panel-title">Notificaciones</span>
+                                <button class="notif-clear-btn" onclick="clearAllNotifications()">Limpiar todo</button>
+                            </div>
+                            <div class="notif-panel-body" id="notifPanelBody">
+                            </div>
+                        </div>
+                    </div>
+                    <button class="btn-icon" title="Ayuda" onclick="openHelpModal()">❓</button>
                 </div>
             </div>
 
@@ -262,109 +419,211 @@
                 <!-- Dashboard Page -->
                 <div id="dashboardPage">
                     <div class="stats-grid">
-                        <div class="stat-card">
+                        <div class="stat-card" onclick="showPage('conversations')">
                             <div class="stat-header">
-                                <span class="stat-label">Total Messages</span>
+                                <span class="stat-label">Total de Mensajes</span>
                                 <div class="stat-icon primary">💬</div>
                             </div>
-                            <div class="stat-value">0</div>
-                            <div class="stat-change">Ready to start</div>
+                            <div class="stat-value" id="statMessages">0</div>
+                            <div class="stat-change">Listo para empezar</div>
                         </div>
-                        <div class="stat-card">
+                        <div class="stat-card" onclick="showPage('conversations')">
                             <div class="stat-header">
-                                <span class="stat-label">Active Conversations</span>
+                                <span class="stat-label">Conversaciones Activas</span>
                                 <div class="stat-icon secondary">🔥</div>
                             </div>
-                            <div class="stat-value">0</div>
-                            <div class="stat-change">No active chats</div>
+                            <div class="stat-value" id="statConversations">0</div>
+                            <div class="stat-change">Sin chats activos</div>
                         </div>
                         <div class="stat-card">
                             <div class="stat-header">
-                                <span class="stat-label">Response Time</span>
+                                <span class="stat-label">Tiempo de Respuesta</span>
                                 <div class="stat-icon accent">⚡</div>
                             </div>
                             <div class="stat-value">--</div>
-                            <div class="stat-change">Not available</div>
+                            <div class="stat-change">No disponible</div>
                         </div>
-                        <div class="stat-card">
+                        <div class="stat-card" onclick="showPage('team')">
                             <div class="stat-header">
-                                <span class="stat-label">Team Members</span>
+                                <span class="stat-label">Miembros del Equipo</span>
                                 <div class="stat-icon success">👥</div>
                             </div>
                             <div class="stat-value" id="teamCount">1</div>
-                            <div class="stat-change">All active</div>
+                            <div class="stat-change">Todos activos</div>
                         </div>
                     </div>
 
                     <div class="team-section">
                         <div class="section-header">
-                            <h3 class="section-title">Team Members</h3>
-                            <button class="btn-secondary" onclick="inviteTeamMember()">
+                            <h3 class="section-title">Miembros del Equipo</h3>
+                            <button class="btn-secondary" onclick="openInviteModal()">
                                 <span>➕</span>
-                                <span>Invite Member</span>
+                                <span>Invitar Miembro</span>
                             </button>
                         </div>
                         <div class="team-grid" id="teamGrid">
-                            <!-- Team members will be loaded here -->
                         </div>
                     </div>
                 </div>
 
-                <!-- Other Pages (hidden by default) -->
+                <!-- Conversations Page -->
                 <div id="conversationsPage" class="hidden">
-                    <div class="empty-state">
-                        <div class="empty-icon">💬</div>
-                        <div class="empty-title">No conversations yet</div>
-                        <div class="empty-text">
-                            Connect your messaging platforms to start receiving conversations
+                    <div class="conversations-layout">
+                        <!-- Conversations List -->
+                        <div class="conv-list-panel">
+                            <div class="conv-list-header">
+                                <input type="text" class="conv-search" placeholder="Buscar conversacion..." oninput="filterConversations(this.value)">
+                                <div class="conv-filters">
+                                    <button class="conv-filter active" data-filter="all" onclick="setConvFilter('all', this)">Todas</button>
+                                    <button class="conv-filter" data-filter="whatsapp" onclick="setConvFilter('whatsapp', this)">WA</button>
+                                    <button class="conv-filter" data-filter="instagram" onclick="setConvFilter('instagram', this)">IG</button>
+                                    <button class="conv-filter" data-filter="messenger" onclick="setConvFilter('messenger', this)">MSG</button>
+                                </div>
+                            </div>
+                            <div class="conv-list-body" id="convListBody">
+                                <div class="conv-empty-list">
+                                    <span>💬</span>
+                                    <p>No hay conversaciones aun</p>
+                                    <p class="conv-empty-hint">Conecta tus plataformas desde Integraciones para empezar a recibir mensajes</p>
+                                </div>
+                            </div>
                         </div>
-                        <button class="btn-primary" style="max-width: 200px; margin: 0 auto;" onclick="showPage('integrations')">
-                            Setup Integrations
-                        </button>
+                        <!-- Conversation Detail -->
+                        <div class="conv-detail-panel" id="convDetailPanel">
+                            <div class="conv-detail-empty">
+                                <div class="conv-detail-empty-icon">💬</div>
+                                <h3>Selecciona una conversacion</h3>
+                                <p>Elige una conversacion de la lista para ver los mensajes</p>
+                            </div>
+                        </div>
                     </div>
                 </div>
 
+                <!-- Contacts Page -->
                 <div id="contactsPage" class="hidden">
                     <div class="empty-state">
                         <div class="empty-icon">👥</div>
-                        <div class="empty-title">No contacts yet</div>
+                        <div class="empty-title">Aun no hay contactos</div>
                         <div class="empty-text">
-                            Your contacts will appear here once you start receiving messages
+                            Tus contactos apareceran aqui automaticamente una vez que empieces a recibir mensajes desde tus plataformas conectadas.
                         </div>
                     </div>
                 </div>
 
+                <!-- Team Page -->
                 <div id="teamPage" class="hidden">
                     <div class="team-section">
                         <div class="section-header">
-                            <h3 class="section-title">All Team Members</h3>
-                            <button class="btn-secondary" onclick="inviteTeamMember()">
+                            <h3 class="section-title">Todos los Miembros del Equipo</h3>
+                            <button class="btn-secondary" onclick="openInviteModal()">
                                 <span>➕</span>
-                                <span>Invite Member</span>
+                                <span>Invitar Miembro</span>
                             </button>
                         </div>
                         <div class="team-grid" id="allTeamGrid">
-                            <!-- Team members will be loaded here -->
                         </div>
                     </div>
                 </div>
 
+                <!-- Integrations Page -->
                 <div id="integrationsPage" class="hidden">
-                    <div class="empty-state">
-                        <div class="empty-icon">🔌</div>
-                        <div class="empty-title">Integrations Coming Soon</div>
-                        <div class="empty-text">
-                            WhatsApp Business, Instagram, and Messenger integrations will be available in the next update
+                    <div class="integrations-grid">
+                        <div class="integration-card">
+                            <div class="integration-icon integration-wa">📱</div>
+                            <div class="integration-info">
+                                <h3 class="integration-name">WhatsApp Business</h3>
+                                <p class="integration-desc">Conecta tu cuenta de WhatsApp Business API para recibir y responder mensajes de clientes.</p>
+                            </div>
+                            <div class="integration-status" id="waStatus">
+                                <span class="status-badge status-disconnected">Desconectado</span>
+                            </div>
+                            <button class="btn-primary btn-sm" onclick="connectIntegration('whatsapp')">Conectar</button>
                         </div>
+                        <div class="integration-card">
+                            <div class="integration-icon integration-ig">📷</div>
+                            <div class="integration-info">
+                                <h3 class="integration-name">Instagram Direct</h3>
+                                <p class="integration-desc">Recibe y responde mensajes directos de Instagram desde tu panel unificado.</p>
+                            </div>
+                            <div class="integration-status" id="igStatus">
+                                <span class="status-badge status-disconnected">Desconectado</span>
+                            </div>
+                            <button class="btn-primary btn-sm" onclick="connectIntegration('instagram')">Conectar</button>
+                        </div>
+                        <div class="integration-card">
+                            <div class="integration-icon integration-msg">💬</div>
+                            <div class="integration-info">
+                                <h3 class="integration-name">Messenger</h3>
+                                <p class="integration-desc">Gestiona los mensajes de tu pagina de Facebook directamente desde MessageHub.</p>
+                            </div>
+                            <div class="integration-status" id="msgStatus">
+                                <span class="status-badge status-disconnected">Desconectado</span>
+                            </div>
+                            <button class="btn-primary btn-sm" onclick="connectIntegration('messenger')">Conectar</button>
+                        </div>
+                    </div>
+                    <div class="integration-help">
+                        <h4>Necesitas ayuda para conectar?</h4>
+                        <p>Consulta la guia de integracion o contacta al administrador del sistema para obtener las credenciales necesarias de Meta Business.</p>
+                        <button class="btn-secondary" onclick="openHelpModal()">Ver Ayuda</button>
                     </div>
                 </div>
 
+                <!-- Settings Page -->
                 <div id="settingsPage" class="hidden">
-                    <div class="empty-state">
-                        <div class="empty-icon">⚙️</div>
-                        <div class="empty-title">Settings</div>
-                        <div class="empty-text">
-                            Organization settings and preferences coming soon
+                    <div class="settings-container">
+                        <div class="settings-section">
+                            <h3 class="settings-section-title">Perfil</h3>
+                            <div class="settings-card">
+                                <div class="settings-row">
+                                    <div class="settings-row-info">
+                                        <span class="settings-row-label">Nombre</span>
+                                        <span class="settings-row-value" id="settingsName">--</span>
+                                    </div>
+                                </div>
+                                <div class="settings-row">
+                                    <div class="settings-row-info">
+                                        <span class="settings-row-label">Correo electronico</span>
+                                        <span class="settings-row-value" id="settingsEmail">--</span>
+                                    </div>
+                                </div>
+                                <div class="settings-row">
+                                    <div class="settings-row-info">
+                                        <span class="settings-row-label">Rol</span>
+                                        <span class="settings-row-value" id="settingsRole">--</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="settings-section">
+                            <h3 class="settings-section-title">Organizacion</h3>
+                            <div class="settings-card">
+                                <div class="settings-row">
+                                    <div class="settings-row-info">
+                                        <span class="settings-row-label">Nombre de la organizacion</span>
+                                        <span class="settings-row-value" id="settingsOrgName">--</span>
+                                    </div>
+                                </div>
+                                <div class="settings-row" id="settingsInviteRow">
+                                    <div class="settings-row-info">
+                                        <span class="settings-row-label">Codigo de invitacion</span>
+                                        <span class="settings-row-value" id="settingsInviteCode">--</span>
+                                    </div>
+                                    <button class="btn-secondary btn-sm" onclick="copySettingsInviteCode()">Copiar</button>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="settings-section">
+                            <h3 class="settings-section-title">Sesion</h3>
+                            <div class="settings-card">
+                                <div class="settings-row">
+                                    <div class="settings-row-info">
+                                        <span class="settings-row-label">Cerrar sesion</span>
+                                        <span class="settings-row-desc">Cierra tu sesion actual en este dispositivo</span>
+                                    </div>
+                                    <button class="btn-primary btn-danger btn-sm" onclick="handleLogout()">Cerrar Sesion</button>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -375,13 +634,12 @@
     <!-- Firebase SDK -->
     <script type="module">
         import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js';
-        import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, 
-                 signInWithPopup, GoogleAuthProvider, FacebookAuthProvider, 
-                 onAuthStateChanged, signOut, updateProfile } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js';
-        import { getFirestore, collection, addDoc, query, where, orderBy, onSnapshot, 
+        import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword,
+                 signInWithPopup, GoogleAuthProvider, FacebookAuthProvider,
+                 onAuthStateChanged, signOut, updateProfile, sendPasswordResetEmail } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js';
+        import { getFirestore, collection, addDoc, query, where, orderBy, onSnapshot,
                  serverTimestamp, doc, setDoc, getDoc, getDocs, updateDoc } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js';
 
-        // TODO: Replace with your Firebase config
         const firebaseConfig = {
           apiKey: "AIzaSyC9_TIJFPQvF9M1pWHcXaACYAwxaS5q5-Y",
           authDomain: "crm-meta-e56f4.firebaseapp.com",
@@ -398,22 +656,23 @@
 
         window.auth = auth;
         window.db = db;
-        window.firebaseAuth = { 
-            signInWithEmailAndPassword, 
+        window.firebaseAuth = {
+            signInWithEmailAndPassword,
             createUserWithEmailAndPassword,
             signInWithPopup,
             GoogleAuthProvider,
             FacebookAuthProvider,
             signOut,
-            updateProfile
+            updateProfile,
+            sendPasswordResetEmail
         };
-        window.firestore = { 
-            collection, 
-            addDoc, 
+        window.firestore = {
+            collection,
+            addDoc,
             query,
             where,
-            orderBy, 
-            onSnapshot, 
+            orderBy,
+            onSnapshot,
             serverTimestamp,
             doc,
             setDoc,
