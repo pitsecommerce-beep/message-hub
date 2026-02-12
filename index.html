@@ -1,0 +1,423 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MessageHub - Unified Messaging Platform</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <!-- Background -->
+    <div class="bg-grid"></div>
+    <div class="bg-orbs">
+        <div class="orb orb-1"></div>
+        <div class="orb orb-2"></div>
+        <div class="orb orb-3"></div>
+    </div>
+
+    <!-- Auth Page -->
+    <div class="auth-container" id="authPage">
+        <div class="auth-box">
+            <div class="logo-section">
+                <div class="logo">MessageHub</div>
+                <div class="tagline">Unified messaging platform for your business</div>
+            </div>
+
+            <div class="auth-tabs">
+                <button class="auth-tab active" onclick="switchAuthTab('login')">Sign In</button>
+                <button class="auth-tab" onclick="switchAuthTab('register')">Sign Up</button>
+            </div>
+
+            <!-- Login Form -->
+            <form id="loginForm">
+                <div class="form-group">
+                    <label class="form-label">Email</label>
+                    <input type="email" class="form-input" id="loginEmail" placeholder="you@company.com" required>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Password</label>
+                    <input type="password" class="form-input" id="loginPassword" placeholder="••••••••" required>
+                </div>
+                <button type="submit" class="btn-primary" id="loginBtn">
+                    <span id="loginBtnText">Sign In</span>
+                </button>
+            </form>
+
+            <!-- Register Form -->
+            <form id="registerForm" class="hidden">
+                <div class="form-group">
+                    <label class="form-label">Full Name</label>
+                    <input type="text" class="form-input" id="registerName" placeholder="John Doe" required>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Email</label>
+                    <input type="email" class="form-input" id="registerEmail" placeholder="you@company.com" required>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Password</label>
+                    <input type="password" class="form-input" id="registerPassword" placeholder="••••••••" required>
+                </div>
+                <button type="submit" class="btn-primary" id="registerBtn">
+                    <span id="registerBtnText">Create Account</span>
+                </button>
+            </form>
+
+            <div class="divider">
+                <span class="divider-text">or continue with</span>
+            </div>
+
+            <div class="social-buttons">
+                <button class="btn-social" onclick="handleGoogleAuth()">
+                    <span>🔍</span> Google
+                </button>
+                <button class="btn-social" onclick="handleFacebookAuth()">
+                    <span>📘</span> Facebook
+                </button>
+            </div>
+
+            <div class="link-text">
+                <a href="#" onclick="alert('Coming soon!')">Forgot password?</a>
+            </div>
+        </div>
+    </div>
+
+    <!-- Onboarding Page -->
+    <div class="onboarding-container hidden" id="onboardingPage">
+        <div class="onboarding-box">
+            <div class="progress-steps">
+                <div class="progress-step active" id="step1"></div>
+                <div class="progress-step" id="step2"></div>
+            </div>
+
+            <!-- Step 1: Choose Role -->
+            <div id="onboardingStep1">
+                <div class="onboarding-header">
+                    <h2 class="onboarding-title">Welcome! Let's get started</h2>
+                    <p class="onboarding-subtitle">How do you want to use MessageHub?</p>
+                </div>
+
+                <div class="role-selection">
+                    <div class="role-card" onclick="selectRole('admin')">
+                        <div class="role-icon">👑</div>
+                        <div class="role-title">Create Organization</div>
+                        <div class="role-description">
+                            Start a new organization, manage team members, and control all settings.
+                        </div>
+                    </div>
+                    <div class="role-card" onclick="selectRole('agent')">
+                        <div class="role-icon">💼</div>
+                        <div class="role-title">Join as Agent</div>
+                        <div class="role-description">
+                            Join an existing organization and start managing conversations.
+                        </div>
+                    </div>
+                </div>
+
+                <button class="btn-primary" id="roleNextBtn" disabled onclick="proceedToStep2()">
+                    <span>Continue</span>
+                </button>
+            </div>
+
+            <!-- Step 2: Organization/Join Details -->
+            <div id="onboardingStep2" class="hidden">
+                <!-- For Admin -->
+                <div id="adminSetup" class="hidden">
+                    <div class="onboarding-header">
+                        <h2 class="onboarding-title">Create Your Organization</h2>
+                        <p class="onboarding-subtitle">Set up your workspace</p>
+                    </div>
+
+                    <form id="orgForm">
+                        <div class="form-group">
+                            <label class="form-label">Organization Name</label>
+                            <input type="text" class="form-input" id="orgName" placeholder="Acme Inc." required>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Industry</label>
+                            <input type="text" class="form-input" id="orgIndustry" placeholder="E-commerce, SaaS, etc.">
+                        </div>
+                        <button type="submit" class="btn-primary">
+                            <span id="orgBtnText">Create Organization</span>
+                        </button>
+                    </form>
+                </div>
+
+                <!-- For Agent -->
+                <div id="agentSetup" class="hidden">
+                    <div class="onboarding-header">
+                        <h2 class="onboarding-title">Join Organization</h2>
+                        <p class="onboarding-subtitle">Enter the invite code from your admin</p>
+                    </div>
+
+                    <form id="joinForm">
+                        <div class="form-group">
+                            <label class="form-label">Invite Code</label>
+                            <input type="text" class="form-input" id="inviteCode" placeholder="XXXXX-XXXXX" required>
+                        </div>
+                        <button type="submit" class="btn-primary">
+                            <span id="joinBtnText">Join Organization</span>
+                        </button>
+                    </form>
+
+                    <div class="link-text" style="margin-top: 16px;">
+                        Don't have a code? <a href="#" onclick="alert('Contact your organization admin for an invite code.')">Contact admin</a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main App -->
+    <div class="app-layout" id="appLayout">
+        <!-- Sidebar -->
+        <aside class="sidebar" id="sidebar">
+            <div class="sidebar-header">
+                <div class="sidebar-logo">MessageHub</div>
+                <div class="org-badge" id="orgBadge">
+                    <span class="org-badge-icon"></span>
+                    <span id="orgNameDisplay">Loading...</span>
+                </div>
+            </div>
+
+            <nav class="sidebar-nav">
+                <div class="nav-section">
+                    <div class="nav-section-title">Main</div>
+                    <div class="nav-item active" onclick="showPage('dashboard')">
+                        <span class="nav-icon">📊</span>
+                        <span>Dashboard</span>
+                    </div>
+                    <div class="nav-item" onclick="showPage('conversations')">
+                        <span class="nav-icon">💬</span>
+                        <span>Conversations</span>
+                        <span class="nav-badge">3</span>
+                    </div>
+                    <div class="nav-item" onclick="showPage('contacts')">
+                        <span class="nav-icon">👥</span>
+                        <span>Contacts</span>
+                    </div>
+                </div>
+
+                <div class="nav-section">
+                    <div class="nav-section-title">Organization</div>
+                    <div class="nav-item" onclick="showPage('team')">
+                        <span class="nav-icon">👨‍💼</span>
+                        <span>Team</span>
+                    </div>
+                    <div class="nav-item" onclick="showPage('integrations')">
+                        <span class="nav-icon">🔌</span>
+                        <span>Integrations</span>
+                    </div>
+                    <div class="nav-item" onclick="showPage('settings')">
+                        <span class="nav-icon">⚙️</span>
+                        <span>Settings</span>
+                    </div>
+                </div>
+            </nav>
+
+            <div class="sidebar-footer">
+                <div class="user-profile">
+                    <div class="user-avatar" id="userAvatar">U</div>
+                    <div class="user-info">
+                        <div class="user-name" id="userName">User</div>
+                        <div class="user-role" id="userRole">Admin</div>
+                    </div>
+                    <button class="logout-btn" onclick="handleLogout()" title="Logout">🚪</button>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <div class="top-bar">
+                <div class="page-header">
+                    <h1 id="pageTitle">Dashboard</h1>
+                    <div class="page-subtitle" id="pageSubtitle">Overview of your messaging activity</div>
+                </div>
+                <div class="top-bar-actions">
+                    <div class="search-box">
+                        <span class="search-icon">🔍</span>
+                        <input type="text" class="search-input" placeholder="Search...">
+                    </div>
+                    <button class="btn-icon" title="Notifications">🔔</button>
+                    <button class="btn-icon" title="Help">❓</button>
+                </div>
+            </div>
+
+            <div class="content-area" id="contentArea">
+                <!-- Dashboard Page -->
+                <div id="dashboardPage">
+                    <div class="stats-grid">
+                        <div class="stat-card">
+                            <div class="stat-header">
+                                <span class="stat-label">Total Messages</span>
+                                <div class="stat-icon primary">💬</div>
+                            </div>
+                            <div class="stat-value">0</div>
+                            <div class="stat-change">Ready to start</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-header">
+                                <span class="stat-label">Active Conversations</span>
+                                <div class="stat-icon secondary">🔥</div>
+                            </div>
+                            <div class="stat-value">0</div>
+                            <div class="stat-change">No active chats</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-header">
+                                <span class="stat-label">Response Time</span>
+                                <div class="stat-icon accent">⚡</div>
+                            </div>
+                            <div class="stat-value">--</div>
+                            <div class="stat-change">Not available</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-header">
+                                <span class="stat-label">Team Members</span>
+                                <div class="stat-icon success">👥</div>
+                            </div>
+                            <div class="stat-value" id="teamCount">1</div>
+                            <div class="stat-change">All active</div>
+                        </div>
+                    </div>
+
+                    <div class="team-section">
+                        <div class="section-header">
+                            <h3 class="section-title">Team Members</h3>
+                            <button class="btn-secondary" onclick="inviteTeamMember()">
+                                <span>➕</span>
+                                <span>Invite Member</span>
+                            </button>
+                        </div>
+                        <div class="team-grid" id="teamGrid">
+                            <!-- Team members will be loaded here -->
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Other Pages (hidden by default) -->
+                <div id="conversationsPage" class="hidden">
+                    <div class="empty-state">
+                        <div class="empty-icon">💬</div>
+                        <div class="empty-title">No conversations yet</div>
+                        <div class="empty-text">
+                            Connect your messaging platforms to start receiving conversations
+                        </div>
+                        <button class="btn-primary" style="max-width: 200px; margin: 0 auto;" onclick="showPage('integrations')">
+                            Setup Integrations
+                        </button>
+                    </div>
+                </div>
+
+                <div id="contactsPage" class="hidden">
+                    <div class="empty-state">
+                        <div class="empty-icon">👥</div>
+                        <div class="empty-title">No contacts yet</div>
+                        <div class="empty-text">
+                            Your contacts will appear here once you start receiving messages
+                        </div>
+                    </div>
+                </div>
+
+                <div id="teamPage" class="hidden">
+                    <div class="team-section">
+                        <div class="section-header">
+                            <h3 class="section-title">All Team Members</h3>
+                            <button class="btn-secondary" onclick="inviteTeamMember()">
+                                <span>➕</span>
+                                <span>Invite Member</span>
+                            </button>
+                        </div>
+                        <div class="team-grid" id="allTeamGrid">
+                            <!-- Team members will be loaded here -->
+                        </div>
+                    </div>
+                </div>
+
+                <div id="integrationsPage" class="hidden">
+                    <div class="empty-state">
+                        <div class="empty-icon">🔌</div>
+                        <div class="empty-title">Integrations Coming Soon</div>
+                        <div class="empty-text">
+                            WhatsApp Business, Instagram, and Messenger integrations will be available in the next update
+                        </div>
+                    </div>
+                </div>
+
+                <div id="settingsPage" class="hidden">
+                    <div class="empty-state">
+                        <div class="empty-icon">⚙️</div>
+                        <div class="empty-title">Settings</div>
+                        <div class="empty-text">
+                            Organization settings and preferences coming soon
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Firebase SDK -->
+    <script type="module">
+        import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js';
+        import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, 
+                 signInWithPopup, GoogleAuthProvider, FacebookAuthProvider, 
+                 onAuthStateChanged, signOut, updateProfile } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js';
+        import { getFirestore, collection, addDoc, query, where, orderBy, onSnapshot, 
+                 serverTimestamp, doc, setDoc, getDoc, getDocs, updateDoc } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js';
+
+        // TODO: Replace with your Firebase config
+        const firebaseConfig = {
+            apiKey: "YOUR_API_KEY",
+            authDomain: "YOUR_PROJECT_ID.firebaseapp.com",
+            projectId: "YOUR_PROJECT_ID",
+            storageBucket: "YOUR_PROJECT_ID.appspot.com",
+            messagingSenderId: "YOUR_SENDER_ID",
+            appId: "YOUR_APP_ID"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+
+        window.auth = auth;
+        window.db = db;
+        window.firebaseAuth = { 
+            signInWithEmailAndPassword, 
+            createUserWithEmailAndPassword,
+            signInWithPopup,
+            GoogleAuthProvider,
+            FacebookAuthProvider,
+            signOut,
+            updateProfile
+        };
+        window.firestore = { 
+            collection, 
+            addDoc, 
+            query,
+            where,
+            orderBy, 
+            onSnapshot, 
+            serverTimestamp,
+            doc,
+            setDoc,
+            getDoc,
+            getDocs,
+            updateDoc
+        };
+
+        onAuthStateChanged(auth, async (user) => {
+            if (user) {
+                await handleUserLogin(user);
+            } else {
+                showAuthPage();
+            }
+        });
+    </script>
+
+    <script src="app.js"></script>
+</body>
+</html>
