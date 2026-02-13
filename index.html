@@ -237,6 +237,55 @@
         </div>
     </div>
 
+    <!-- Modal de Liga de Pago -->
+    <div class="modal-overlay hidden" id="paymentLinkModal">
+        <div class="modal-box">
+            <div class="modal-header">
+                <h3 class="modal-title">Enviar Liga de Pago</h3>
+                <button class="modal-close" onclick="closePaymentLinkModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="payment-link-contact" id="paymentLinkContact"></div>
+                <div class="form-group">
+                    <label class="form-label">Monto (MXN) *</label>
+                    <input type="number" class="form-input" id="paymentLinkAmount" placeholder="0.00" min="1" step="0.01" required>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Descripción / Concepto *</label>
+                    <input type="text" class="form-input" id="paymentLinkDescription" placeholder="Ej: Pedido #123, Cotización producto X...">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Pasarela de pago *</label>
+                    <div class="platform-selector">
+                        <label class="platform-option" onclick="selectPaymentGateway('stripe')">
+                            <input type="radio" name="paymentGateway" value="stripe">
+                            <span class="platform-option-card" id="gwCard_stripe">
+                                <span class="platform-option-icon">💳</span>
+                                <span>Stripe</span>
+                            </span>
+                        </label>
+                        <label class="platform-option" onclick="selectPaymentGateway('mercadopago')">
+                            <input type="radio" name="paymentGateway" value="mercadopago">
+                            <span class="platform-option-card" id="gwCard_mercadopago">
+                                <span class="platform-option-icon">🏦</span>
+                                <span>MercadoPago</span>
+                            </span>
+                        </label>
+                    </div>
+                    <span class="integ-field-hint" id="paymentGatewayHint"></span>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Notas adicionales (opcional)</label>
+                    <textarea class="form-input form-textarea" id="paymentLinkNotes" placeholder="Instrucciones especiales para el cliente..." rows="2"></textarea>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary" onclick="closePaymentLinkModal()">Cancelar</button>
+                <button class="btn-primary" style="max-width:220px" onclick="sendPaymentLink()">Enviar Liga de Pago</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Modal de Agregar/Editar Contacto -->
     <div class="modal-overlay hidden" id="contactModal">
         <div class="modal-box modal-lg">

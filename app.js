@@ -566,10 +566,22 @@ async function loadApp(userId) {
         document.getElementById('userAvatar').textContent = userInitial;
         document.getElementById('orgNameDisplay').textContent = currentOrganization.name;
 
+        // Ocultar Integraciones para agentes
+        const integNavItem = document.querySelector('.nav-item[data-page="integrations"]');
+        if (integNavItem) {
+            if (userData.role === 'agente') {
+                integNavItem.style.display = 'none';
+            } else {
+                integNavItem.style.display = '';
+            }
+        }
+
         await loadTeamMembers();
         await loadContacts();
         await loadConversations();
-        await loadIntegrationConfigs();
+        if (userData.role !== 'agente') {
+            await loadIntegrationConfigs();
+        }
         updateSettingsPage(userData);
 
         addAppNotification('Bienvenido', `Hola ${userName}, bienvenido a MessageHub.`, 'info');
@@ -624,6 +636,12 @@ async function loadTeamMembers() {
 // ========== NAVEGACION DE PAGINAS ==========
 
 function showPage(page) {
+    // Bloquear acceso a Integraciones para agentes
+    if (page === 'integrations' && currentUserData && currentUserData.role === 'agente') {
+        showNotification('Acceso restringido', 'La sección de Integraciones solo está disponible para gerentes y administradores.', 'warning');
+        return;
+    }
+
     const pages = ['dashboard', 'conversations', 'contacts', 'team', 'integrations', 'settings'];
     pages.forEach(p => {
         const el = document.getElementById(p + 'Page');
@@ -1187,6 +1205,8 @@ function handleSearch(query) {
     ];
 
     pages.forEach(p => {
+        // Ocultar Integraciones de búsqueda para agentes
+        if (p.page === 'integrations' && currentUserData && currentUserData.role === 'agente') return;
         if (p.name.toLowerCase().includes(q)) {
             results.push({ type: 'page', ...p });
         }
@@ -1207,18 +1227,24 @@ function handleSearch(query) {
         }
     });
 
-    const actions = [
+    let actions = [
         { name: 'Invitar Miembro', action: 'openInviteModal()', icon: '➕' },
         { name: 'Agregar Contacto', action: 'openContactModal()', icon: '📇' },
         { name: 'Cerrar Sesión', action: 'handleLogout()', icon: '🚪' },
         { name: 'Ayuda', action: 'openHelpModal()', icon: '❓' },
         { name: 'Mi Perfil', action: 'openProfileModal()', icon: '👤' },
-        { name: 'WhatsApp', action: "connectIntegration('whatsapp')", icon: '📱' },
-        { name: 'Instagram', action: "connectIntegration('instagram')", icon: '📷' },
-        { name: 'Messenger', action: "connectIntegration('messenger')", icon: '💬' },
-        { name: 'Stripe', action: "connectPayment('stripe')", icon: '💳' },
-        { name: 'MercadoPago', action: "connectPayment('mercadopago')", icon: '🏦' },
+        { name: 'WhatsApp', action: "openIntegrationConfig('whatsapp')", icon: '📱' },
+        { name: 'Instagram', action: "openIntegrationConfig('instagram')", icon: '📷' },
+        { name: 'Messenger', action: "openIntegrationConfig('messenger')", icon: '💬' },
+        { name: 'Stripe', action: "openIntegrationConfig('stripe')", icon: '💳' },
+        { name: 'MercadoPago', action: "openIntegrationConfig('mercadopago')", icon: '🏦' },
     ];
+
+    // Filtrar acciones de integración para agentes
+    if (currentUserData && currentUserData.role === 'agente') {
+        const integrationActions = ['WhatsApp', 'Instagram', 'Messenger', 'Stripe', 'MercadoPago'];
+        actions = actions.filter(a => !integrationActions.includes(a.name));
+    }
 
     actions.forEach(a => {
         if (a.name.toLowerCase().includes(q)) {
@@ -1466,6 +1492,8 @@ let currentConversation = null;
 let currentConvFilter = 'all';
 let messagesUnsubscribe = null;
 let selectedChatPlatform = null;
+let selectedPaymentGateway = null;
+let currentConvPaymentLinks = [];
 
 async function loadConversations() {
     if (!currentOrganization) return;
@@ -1613,6 +1641,7 @@ async function openConversation(convId) {
             <div class="conv-messages-loading"><span class="spinner"></span></div>
         </div>
         <div class="conv-composer">
+            <button class="conv-composer-btn" onclick="openPaymentLinkModal()" title="Enviar liga de pago">💳</button>
             <input type="text" class="conv-composer-input" id="messageInput" placeholder="Escribe un mensaje..." onkeypress="if(event.key==='Enter')sendMessage()">
             <button class="conv-composer-send" onclick="sendMessage()" title="Enviar">➤</button>
         </div>
@@ -1674,6 +1703,34 @@ async function loadMessages(convId) {
                 const isAgent = msg.sender === 'agent';
                 const time = msg.timestamp ? formatMessageTime(msg.timestamp) : '';
                 const senderName = isAgent ? (msg.senderName || 'Tú') : (currentConversation?.contactName || 'Contacto');
+
+                // Mensaje especial de liga de pago
+                if (msg.type === 'payment_link') {
+                    const isPaid = msg.paymentStatus === 'paid';
+                    const statusLabel = isPaid ? 'Pagado' : 'Pendiente';
+                    const statusClass = isPaid ? 'payment-status-paid' : 'payment-status-pending';
+                    const gatewayName = msg.paymentGateway === 'stripe' ? 'Stripe' : 'MercadoPago';
+                    const markPaidBtn = !isPaid ? `<button class="payment-mark-paid-btn" onclick="markPaymentAsPaid('${msg.paymentLinkId}', '${msg.id}')">Confirmar Pago</button>` : '';
+
+                    return `
+                        <div class="conv-message conv-message-agent">
+                            <div class="conv-message-bubble payment-link-bubble">
+                                <div class="payment-link-header">
+                                    <span class="payment-link-icon">💳</span>
+                                    <span class="payment-link-title">Liga de Pago</span>
+                                    <span class="payment-link-status ${statusClass}">${statusLabel}</span>
+                                </div>
+                                <div class="payment-link-amount">$${Number(msg.paymentAmount).toLocaleString('es-MX', { minimumFractionDigits: 2 })} MXN</div>
+                                <div class="payment-link-desc">${escapeHtml(msg.paymentDescription || '')}</div>
+                                <div class="payment-link-gateway">${gatewayName}</div>
+                                <div class="payment-link-ref">Ref: ${escapeHtml(msg.paymentTrackingRef || '')}</div>
+                                ${markPaidBtn}
+                                <div class="conv-message-time">${time}</div>
+                            </div>
+                        </div>
+                    `;
+                }
+
                 return `
                     <div class="conv-message ${isAgent ? 'conv-message-agent' : 'conv-message-contact'}">
                         <div class="conv-message-bubble">
@@ -1797,6 +1854,222 @@ async function changeConvStage(convId, newStage) {
     } catch (error) {
         console.error('Error cambiando etapa:', error);
         showNotification('Error', 'No se pudo cambiar la etapa.', 'error');
+    }
+}
+
+// ========== LIGAS DE PAGO ==========
+
+function generateTrackingRef() {
+    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+    let ref = 'PAY-';
+    for (let i = 0; i < 8; i++) {
+        ref += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    return ref;
+}
+
+function openPaymentLinkModal() {
+    if (!currentConversation) {
+        showNotification('Sin conversación', 'Abre una conversación primero para enviar una liga de pago.', 'warning');
+        return;
+    }
+
+    // Verificar que hay al menos una pasarela configurada
+    const hasStripe = integrationConfigs.stripe && integrationConfigs.stripe.publishableKey;
+    const hasMercadoPago = integrationConfigs.mercadopago && integrationConfigs.mercadopago.publicKey;
+
+    const contactInfo = document.getElementById('paymentLinkContact');
+    contactInfo.innerHTML = `<span>Cliente: <strong>${escapeHtml(currentConversation.contactName || 'Sin nombre')}</strong></span>`;
+
+    // Mostrar hint sobre pasarelas no configuradas
+    const hintEl = document.getElementById('paymentGatewayHint');
+    if (!hasStripe && !hasMercadoPago) {
+        hintEl.textContent = 'Ninguna pasarela configurada. La liga se generará como referencia manual para cobro externo.';
+        hintEl.style.color = 'var(--accent)';
+    } else {
+        const configured = [];
+        if (hasStripe) configured.push('Stripe');
+        if (hasMercadoPago) configured.push('MercadoPago');
+        hintEl.textContent = `Pasarelas configuradas: ${configured.join(', ')}`;
+        hintEl.style.color = 'var(--text-tertiary)';
+    }
+
+    // Reset form
+    document.getElementById('paymentLinkAmount').value = '';
+    document.getElementById('paymentLinkDescription').value = '';
+    document.getElementById('paymentLinkNotes').value = '';
+    selectedPaymentGateway = null;
+    document.querySelectorAll('input[name="paymentGateway"]').forEach(r => r.checked = false);
+    document.querySelectorAll('#paymentLinkModal .platform-option-card').forEach(c => c.classList.remove('selected'));
+
+    document.getElementById('paymentLinkModal').classList.remove('hidden');
+}
+
+function closePaymentLinkModal() {
+    document.getElementById('paymentLinkModal').classList.add('hidden');
+    selectedPaymentGateway = null;
+}
+
+function selectPaymentGateway(gateway) {
+    selectedPaymentGateway = gateway;
+    document.querySelectorAll('#paymentLinkModal .platform-option-card').forEach(c => c.classList.remove('selected'));
+    const radio = document.querySelector(`input[name="paymentGateway"][value="${gateway}"]`);
+    if (radio) {
+        radio.checked = true;
+        radio.closest('.platform-option').querySelector('.platform-option-card').classList.add('selected');
+    }
+}
+
+async function sendPaymentLink() {
+    if (!currentConversation || !currentOrganization) return;
+
+    const amount = parseFloat(document.getElementById('paymentLinkAmount').value);
+    const description = document.getElementById('paymentLinkDescription').value.trim();
+    const notes = document.getElementById('paymentLinkNotes').value.trim();
+
+    if (!amount || amount <= 0) {
+        showNotification('Monto requerido', 'Ingresa un monto válido mayor a 0.', 'warning');
+        return;
+    }
+
+    if (!description) {
+        showNotification('Descripción requerida', 'Ingresa una descripción o concepto del pago.', 'warning');
+        return;
+    }
+
+    if (!selectedPaymentGateway) {
+        showNotification('Pasarela requerida', 'Selecciona una pasarela de pago.', 'warning');
+        return;
+    }
+
+    const trackingRef = generateTrackingRef();
+    const userName = currentUserData?.name || currentUser.displayName || currentUser.email.split('@')[0];
+
+    try {
+        // 1. Crear registro de liga de pago en Firestore
+        const paymentData = {
+            conversationId: currentConversation.id,
+            contactId: currentConversation.contactId || null,
+            contactName: currentConversation.contactName || 'Sin nombre',
+            amount: amount,
+            currency: 'MXN',
+            description: description,
+            notes: notes,
+            gateway: selectedPaymentGateway,
+            status: 'pending',
+            trackingRef: trackingRef,
+            createdAt: window.firestore.serverTimestamp(),
+            createdBy: currentUser.uid,
+            createdByName: userName
+        };
+
+        const paymentRef = await window.firestore.addDoc(
+            window.firestore.collection(window.db, 'organizations', currentOrganization.id, 'paymentLinks'),
+            paymentData
+        );
+
+        // 2. Enviar mensaje especial de liga de pago en la conversación
+        const gatewayName = selectedPaymentGateway === 'stripe' ? 'Stripe' : 'MercadoPago';
+        const messageText = `Liga de Pago enviada:\nMonto: $${amount.toLocaleString('es-MX', { minimumFractionDigits: 2 })} MXN\nConcepto: ${description}\nPasarela: ${gatewayName}\nReferencia: ${trackingRef}${notes ? '\nNotas: ' + notes : ''}`;
+
+        await window.firestore.addDoc(
+            window.firestore.collection(window.db, 'organizations', currentOrganization.id, 'conversations', currentConversation.id, 'messages'),
+            {
+                text: messageText,
+                type: 'payment_link',
+                paymentLinkId: paymentRef.id,
+                paymentAmount: amount,
+                paymentDescription: description,
+                paymentGateway: selectedPaymentGateway,
+                paymentTrackingRef: trackingRef,
+                paymentStatus: 'pending',
+                sender: 'agent',
+                senderName: userName,
+                senderUid: currentUser.uid,
+                platform: currentConversation.platform,
+                timestamp: window.firestore.serverTimestamp(),
+                status: 'sent'
+            }
+        );
+
+        // 3. Actualizar conversación
+        await window.firestore.updateDoc(
+            window.firestore.doc(window.db, 'organizations', currentOrganization.id, 'conversations', currentConversation.id),
+            {
+                lastMessage: `💳 Liga de pago: $${amount.toLocaleString('es-MX', { minimumFractionDigits: 2 })} MXN`,
+                lastMessageAt: window.firestore.serverTimestamp(),
+                lastMessageBy: currentUser.uid
+            }
+        );
+
+        // 4. Mover funnel a "Pago Pendiente" si está en etapa anterior
+        const earlyStages = ['curioso', 'cotizando'];
+        if (currentConversation.funnelStage && earlyStages.includes(currentConversation.funnelStage)) {
+            await changeConvStage(currentConversation.id, 'pago_pendiente');
+        }
+
+        // Actualizar local
+        const convIdx = conversations.findIndex(c => c.id === currentConversation.id);
+        if (convIdx !== -1) {
+            conversations[convIdx].lastMessage = `💳 Liga de pago: $${amount.toLocaleString('es-MX', { minimumFractionDigits: 2 })} MXN`;
+            conversations[convIdx].lastMessageAt = new Date();
+        }
+
+        closePaymentLinkModal();
+        addAppNotification('Liga de pago enviada', `Liga por $${amount.toLocaleString('es-MX', { minimumFractionDigits: 2 })} MXN enviada a ${currentConversation.contactName}`, 'success');
+    } catch (error) {
+        console.error('Error enviando liga de pago:', error);
+        showNotification('Error', 'No se pudo enviar la liga de pago: ' + error.message, 'error');
+    }
+}
+
+async function markPaymentAsPaid(paymentLinkId, messageId) {
+    if (!currentOrganization || !currentConversation) return;
+
+    if (!confirm('¿Confirmar que el pago fue recibido? Esto moverá al cliente a "Orden Pendiente".')) return;
+
+    try {
+        // 1. Actualizar estado de la liga de pago
+        await window.firestore.updateDoc(
+            window.firestore.doc(window.db, 'organizations', currentOrganization.id, 'paymentLinks', paymentLinkId),
+            {
+                status: 'paid',
+                paidAt: window.firestore.serverTimestamp(),
+                confirmedBy: currentUser.uid
+            }
+        );
+
+        // 2. Actualizar el mensaje de liga de pago
+        await window.firestore.updateDoc(
+            window.firestore.doc(window.db, 'organizations', currentOrganization.id, 'conversations', currentConversation.id, 'messages', messageId),
+            {
+                paymentStatus: 'paid'
+            }
+        );
+
+        // 3. Mover conversación y contacto a "Orden Pendiente"
+        await changeConvStage(currentConversation.id, 'orden_pendiente');
+
+        // 4. Enviar mensaje de confirmación en la conversación
+        const userName = currentUserData?.name || currentUser.displayName || currentUser.email.split('@')[0];
+        await window.firestore.addDoc(
+            window.firestore.collection(window.db, 'organizations', currentOrganization.id, 'conversations', currentConversation.id, 'messages'),
+            {
+                text: `Pago confirmado. La orden ha sido movida a "Orden Pendiente". Referencia de pago: ${paymentLinkId.substr(0, 8)}`,
+                sender: 'agent',
+                senderName: 'Sistema',
+                senderUid: currentUser.uid,
+                platform: currentConversation.platform,
+                timestamp: window.firestore.serverTimestamp(),
+                status: 'sent',
+                type: 'system'
+            }
+        );
+
+        addAppNotification('Pago confirmado', `El pago de ${currentConversation.contactName} fue confirmado. Movido a Orden Pendiente.`, 'success');
+    } catch (error) {
+        console.error('Error confirmando pago:', error);
+        showNotification('Error', 'No se pudo confirmar el pago: ' + error.message, 'error');
     }
 }
 
@@ -1959,6 +2232,7 @@ document.addEventListener('keydown', (e) => {
         closeSearchResults();
         closeIntegrationConfig();
         closeNewChatModal();
+        closePaymentLinkModal();
         document.getElementById('notificationsPanel')?.classList.add('hidden');
     }
 });
