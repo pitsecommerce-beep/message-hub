@@ -592,6 +592,7 @@ async function loadApp(userId) {
         await loadConversations();
         if (userData.role !== 'agente') {
             await loadIntegrationConfigs();
+            await loadKnowledgeBases();
             await loadAIAgents();
         }
         updateSettingsPage(userData);
@@ -694,6 +695,7 @@ function showPage(page) {
     } else if (page === 'integrations') {
         loadIntegrationConfigs();
     } else if (page === 'aiAgents') {
+        loadKnowledgeBases();
         loadAIAgents();
     }
 
@@ -1729,6 +1731,9 @@ let selectedChatPlatform = null;
 let selectedPaymentGateway = null;
 let currentConvPaymentLinks = [];
 let aiAgents = [];
+let knowledgeBases = [];
+let parsedExcelData = null;
+let parsedExcelWorkbook = null;
 
 async function loadConversations() {
     if (!currentOrganization) return;
@@ -2732,13 +2737,15 @@ function openAIAgentModal(agent = null) {
     const title = document.getElementById('aiAgentModalTitle');
     const editId = document.getElementById('aiAgentEditId');
 
+    // Populate knowledge base checkboxes
+    populateKBCheckboxes(agent ? (agent.knowledgeBases || []) : []);
+
     if (agent) {
         title.textContent = 'Editar Agente IA';
         editId.value = agent.id;
         document.getElementById('aiAgentName').value = agent.name || '';
         document.getElementById('aiAgentProvider').value = agent.provider || '';
         onAIProviderChange();
-        // Set model after provider change rebuilds the select
         setTimeout(() => {
             const modelEl = document.getElementById('aiAgentModel');
             if (modelEl) modelEl.value = agent.model || '';
@@ -2748,7 +2755,6 @@ function openAIAgentModal(agent = null) {
         document.getElementById('aiAgentSystemPrompt').value = agent.systemPrompt || '';
         document.getElementById('aiAgentActive').checked = agent.isActive !== false;
 
-        // Channels
         document.getElementById('aiCh_whatsapp').checked = agent.channels?.whatsapp || false;
         document.getElementById('aiCh_instagram').checked = agent.channels?.instagram || false;
         document.getElementById('aiCh_messenger').checked = agent.channels?.messenger || false;
@@ -2765,7 +2771,6 @@ function openAIAgentModal(agent = null) {
         document.getElementById('aiCh_instagram').checked = false;
         document.getElementById('aiCh_messenger').checked = false;
 
-        // Reset model select
         const modelEl = document.getElementById('aiAgentModel');
         if (modelEl.tagName === 'SELECT') {
             modelEl.innerHTML = '<option value="">Primero selecciona proveedor</option>';
@@ -2776,6 +2781,24 @@ function openAIAgentModal(agent = null) {
     }
 
     document.getElementById('aiAgentModal').classList.remove('hidden');
+}
+
+function populateKBCheckboxes(selectedIds) {
+    const container = document.getElementById('aiKbCheckboxes');
+    if (!container) return;
+    if (knowledgeBases.length === 0) {
+        container.innerHTML = '<span class="integ-field-hint">No hay bases de datos. Sube un Excel desde la página de Agentes IA.</span>';
+        return;
+    }
+    container.innerHTML = knowledgeBases.map(kb => {
+        const checked = selectedIds.includes(kb.id) ? 'checked' : '';
+        return `
+            <label class="ai-channel-check">
+                <input type="checkbox" value="${kb.id}" ${checked}>
+                <span class="ai-channel-label">📊 ${escapeHtml(kb.name)} (${kb.rowCount || 0} filas)</span>
+            </label>
+        `;
+    }).join('');
 }
 
 function closeAIAgentModal() {
@@ -2824,6 +2847,12 @@ async function saveAIAgent() {
         messenger: document.getElementById('aiCh_messenger').checked
     };
 
+    // Collect selected knowledge bases
+    const selectedKBs = [];
+    document.querySelectorAll('#aiKbCheckboxes input[type="checkbox"]:checked').forEach(cb => {
+        selectedKBs.push(cb.value);
+    });
+
     const agentData = {
         name,
         provider,
@@ -2833,6 +2862,7 @@ async function saveAIAgent() {
         systemPrompt,
         isActive,
         channels,
+        knowledgeBases: selectedKBs,
         updatedAt: window.firestore.serverTimestamp()
     };
 
@@ -2910,6 +2940,483 @@ async function toggleConvAI(convId, enabled) {
     }
 }
 
+// ========== BASES DE DATOS / KNOWLEDGE BASES ==========
+
+async function loadKnowledgeBases() {
+    if (!currentOrganization) return;
+    try {
+        const kbRef = window.firestore.collection(window.db, 'organizations', currentOrganization.id, 'knowledgeBases');
+        const snapshot = await window.firestore.getDocs(kbRef);
+        knowledgeBases = [];
+        snapshot.forEach(doc => {
+            knowledgeBases.push({ id: doc.id, ...doc.data() });
+        });
+        renderKnowledgeBases();
+    } catch (error) {
+        console.error('Error cargando bases de datos:', error);
+    }
+}
+
+function renderKnowledgeBases() {
+    const grid = document.getElementById('kbGrid');
+    if (!grid) return;
+
+    if (knowledgeBases.length === 0) {
+        grid.innerHTML = `
+            <div class="kb-empty">
+                <span class="kb-empty-icon">📊</span>
+                <p>No hay bases de datos cargadas</p>
+                <p class="kb-empty-hint">Sube un archivo Excel para crear tu primera base de conocimiento.</p>
+            </div>
+        `;
+        return;
+    }
+
+    grid.innerHTML = knowledgeBases.map(kb => {
+        const date = kb.createdAt ? (kb.createdAt.toDate ? kb.createdAt.toDate() : new Date(kb.createdAt)) : null;
+        const dateStr = date ? date.toLocaleDateString('es-MX') : '--';
+        const columnsStr = (kb.columns || []).join(', ');
+        const agentsUsing = aiAgents.filter(a => a.knowledgeBases && a.knowledgeBases.includes(kb.id));
+        const agentNames = agentsUsing.length > 0 ? agentsUsing.map(a => a.name).join(', ') : 'Ningún agente';
+
+        return `
+            <div class="kb-card">
+                <div class="kb-card-header">
+                    <div class="kb-card-info">
+                        <span class="kb-card-icon">📊</span>
+                        <div>
+                            <div class="kb-card-name">${escapeHtml(kb.name)}</div>
+                            <div class="kb-card-desc">${escapeHtml(kb.description || '')}</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="kb-card-meta">
+                    <span><strong>${kb.rowCount || 0}</strong> filas</span>
+                    <span><strong>${(kb.columns || []).length}</strong> columnas</span>
+                    <span>${escapeHtml(kb.sourceFileName || '')}</span>
+                </div>
+                <div class="kb-card-columns">
+                    <span class="kb-card-columns-label">Columnas:</span>
+                    ${(kb.columns || []).map(c => `<span class="kb-column-tag">${escapeHtml(c)}</span>`).join('')}
+                </div>
+                <div class="kb-card-agents">
+                    <span class="kb-card-agents-label">Usado por:</span>
+                    <span class="kb-card-agents-value">${escapeHtml(agentNames)}</span>
+                </div>
+                <div class="kb-card-footer">
+                    <span class="kb-card-date">Creado: ${dateStr}</span>
+                    <div class="kb-card-actions">
+                        <button class="btn-secondary btn-sm" onclick="openExcelUploadModal('${kb.id}')">Actualizar</button>
+                        <button class="btn-secondary btn-sm btn-integ-delete" onclick="deleteKnowledgeBase('${kb.id}')">Eliminar</button>
+                    </div>
+                </div>
+            </div>
+        `;
+    }).join('');
+}
+
+async function deleteKnowledgeBase(kbId) {
+    const kb = knowledgeBases.find(k => k.id === kbId);
+    if (!kb) return;
+    if (!confirm(`¿Eliminar la base de datos "${kb.name}"? Se borrarán todos los datos importados.`)) return;
+
+    try {
+        // Delete all rows in the knowledge base
+        const rowsRef = window.firestore.collection(window.db, 'organizations', currentOrganization.id, 'knowledgeBases', kbId, 'rows');
+        const rowsSnap = await window.firestore.getDocs(rowsRef);
+        const deletePromises = [];
+        rowsSnap.forEach(docSnap => {
+            deletePromises.push(
+                window.firestore.deleteDoc(
+                    window.firestore.doc(window.db, 'organizations', currentOrganization.id, 'knowledgeBases', kbId, 'rows', docSnap.id)
+                )
+            );
+        });
+        await Promise.all(deletePromises);
+
+        // Delete the knowledge base document
+        await window.firestore.deleteDoc(
+            window.firestore.doc(window.db, 'organizations', currentOrganization.id, 'knowledgeBases', kbId)
+        );
+
+        knowledgeBases = knowledgeBases.filter(k => k.id !== kbId);
+        renderKnowledgeBases();
+        showNotification('Base eliminada', `La base de datos "${kb.name}" fue eliminada.`, 'success');
+    } catch (error) {
+        console.error('Error eliminando base de datos:', error);
+        showNotification('Error', 'No se pudo eliminar la base de datos.', 'error');
+    }
+}
+
+// ========== EXCEL UPLOAD / IMPORT ==========
+
+function openExcelUploadModal(kbId = null) {
+    const title = document.getElementById('excelUploadTitle');
+    document.getElementById('kbEditId').value = kbId || '';
+
+    if (kbId) {
+        const kb = knowledgeBases.find(k => k.id === kbId);
+        title.textContent = 'Actualizar Base de Datos';
+        document.getElementById('kbName').value = kb ? kb.name : '';
+        document.getElementById('kbDescription').value = kb ? (kb.description || '') : '';
+    } else {
+        title.textContent = 'Subir Base de Datos desde Excel';
+        document.getElementById('kbName').value = '';
+        document.getElementById('kbDescription').value = '';
+    }
+
+    clearExcelFile();
+    document.getElementById('excelUploadModal').classList.remove('hidden');
+}
+
+function closeExcelUploadModal() {
+    document.getElementById('excelUploadModal').classList.add('hidden');
+    parsedExcelData = null;
+    parsedExcelWorkbook = null;
+}
+
+function handleExcelDrop(event) {
+    event.preventDefault();
+    event.currentTarget.classList.remove('dragover');
+    const file = event.dataTransfer.files[0];
+    if (file) processExcelFile(file);
+}
+
+function handleExcelFileSelect(event) {
+    const file = event.target.files[0];
+    if (file) processExcelFile(file);
+}
+
+function processExcelFile(file) {
+    if (file.size > 5 * 1024 * 1024) {
+        showNotification('Archivo muy grande', 'El archivo debe ser menor a 5MB.', 'warning');
+        return;
+    }
+
+    const validExts = ['.xlsx', '.xls', '.csv'];
+    const ext = '.' + file.name.split('.').pop().toLowerCase();
+    if (!validExts.includes(ext)) {
+        showNotification('Formato no soportado', 'Solo se aceptan archivos .xlsx, .xls o .csv', 'warning');
+        return;
+    }
+
+    document.getElementById('excelFileName').textContent = file.name;
+    document.getElementById('excelUploadZone').classList.add('hidden');
+    document.getElementById('excelFileInfo').classList.remove('hidden');
+
+    const reader = new FileReader();
+    reader.onload = function(e) {
+        try {
+            const data = new Uint8Array(e.target.result);
+            const workbook = XLSX.read(data, { type: 'array', cellDates: true });
+            parsedExcelWorkbook = workbook;
+
+            // Show sheet selector if multiple sheets
+            const sheetSelector = document.getElementById('sheetSelector');
+            const sheetGroup = document.getElementById('sheetSelectorGroup');
+            if (workbook.SheetNames.length > 1) {
+                sheetSelector.innerHTML = workbook.SheetNames.map((name, i) =>
+                    `<option value="${i}">${escapeHtml(name)}</option>`
+                ).join('');
+                sheetGroup.classList.remove('hidden');
+            } else {
+                sheetGroup.classList.add('hidden');
+            }
+
+            selectExcelSheet(0);
+        } catch (err) {
+            console.error('Error parsing Excel:', err);
+            showNotification('Error al leer archivo', 'No se pudo leer el archivo Excel. Verifica que no esté corrupto.', 'error');
+            clearExcelFile();
+        }
+    };
+    reader.readAsArrayBuffer(file);
+}
+
+function selectExcelSheet(sheetIndex) {
+    if (!parsedExcelWorkbook) return;
+
+    const sheetName = parsedExcelWorkbook.SheetNames[sheetIndex];
+    const worksheet = parsedExcelWorkbook.Sheets[sheetName];
+    const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '' });
+
+    if (jsonData.length < 2) {
+        showNotification('Sin datos', 'La hoja seleccionada no tiene datos suficientes (necesita al menos encabezados + 1 fila).', 'warning');
+        parsedExcelData = null;
+        document.getElementById('excelPreviewWrapper').classList.add('hidden');
+        document.getElementById('importExcelBtn').disabled = true;
+        return;
+    }
+
+    // First row is headers
+    const headers = jsonData[0].map((h, i) => {
+        const name = String(h || '').trim();
+        return name || `Columna_${i + 1}`;
+    });
+    const rows = jsonData.slice(1).filter(row => row.some(cell => cell !== '' && cell !== null && cell !== undefined));
+
+    parsedExcelData = { headers, rows, sheetName };
+
+    document.getElementById('excelFileMeta').textContent = `${rows.length} filas, ${headers.length} columnas — Hoja: ${sheetName}`;
+    document.getElementById('excelPreviewCount').textContent = `${rows.length} filas totales`;
+
+    // Render preview table (max 20 rows)
+    const previewRows = rows.slice(0, 20);
+    const thead = document.getElementById('excelPreviewHead');
+    const tbody = document.getElementById('excelPreviewBody');
+
+    thead.innerHTML = `<tr>${headers.map(h => `<th>${escapeHtml(h)}</th>`).join('')}</tr>`;
+    tbody.innerHTML = previewRows.map(row =>
+        `<tr>${headers.map((_, i) => {
+            let val = row[i];
+            if (val instanceof Date) val = val.toLocaleDateString('es-MX');
+            return `<td>${escapeHtml(String(val ?? ''))}</td>`;
+        }).join('')}</tr>`
+    ).join('');
+
+    const footer = document.getElementById('excelPreviewFooter');
+    if (rows.length > 20) {
+        footer.textContent = `Mostrando 20 de ${rows.length} filas. Todas las filas se importarán.`;
+    } else {
+        footer.textContent = '';
+    }
+
+    document.getElementById('excelPreviewWrapper').classList.remove('hidden');
+    document.getElementById('importExcelBtn').disabled = false;
+
+    // Auto-fill name from filename if empty
+    const nameInput = document.getElementById('kbName');
+    if (!nameInput.value) {
+        const fileName = document.getElementById('excelFileName').textContent;
+        nameInput.value = fileName.replace(/\.(xlsx|xls|csv)$/i, '');
+    }
+}
+
+function clearExcelFile() {
+    parsedExcelData = null;
+    parsedExcelWorkbook = null;
+    document.getElementById('excelUploadZone').classList.remove('hidden');
+    document.getElementById('excelFileInfo').classList.add('hidden');
+    document.getElementById('sheetSelectorGroup').classList.add('hidden');
+    document.getElementById('excelPreviewWrapper').classList.add('hidden');
+    document.getElementById('importExcelBtn').disabled = true;
+    document.getElementById('excelFileInput').value = '';
+}
+
+async function importExcelToFirestore() {
+    if (!currentOrganization || !parsedExcelData) return;
+
+    const name = document.getElementById('kbName').value.trim();
+    const description = document.getElementById('kbDescription').value.trim();
+    const kbEditId = document.getElementById('kbEditId').value;
+
+    if (!name) {
+        showNotification('Nombre requerido', 'Ingresa un nombre para la base de datos.', 'warning');
+        return;
+    }
+
+    const { headers, rows } = parsedExcelData;
+    const fileName = document.getElementById('excelFileName').textContent;
+
+    const btn = document.getElementById('importExcelBtn');
+    btn.disabled = true;
+    btn.textContent = 'Importando...';
+
+    try {
+        let kbId = kbEditId;
+
+        // If updating, delete existing rows first
+        if (kbEditId) {
+            const existingRowsRef = window.firestore.collection(window.db, 'organizations', currentOrganization.id, 'knowledgeBases', kbEditId, 'rows');
+            const existingSnap = await window.firestore.getDocs(existingRowsRef);
+            const delPromises = [];
+            existingSnap.forEach(docSnap => {
+                delPromises.push(
+                    window.firestore.deleteDoc(
+                        window.firestore.doc(window.db, 'organizations', currentOrganization.id, 'knowledgeBases', kbEditId, 'rows', docSnap.id)
+                    )
+                );
+            });
+            await Promise.all(delPromises);
+        }
+
+        // Create or update knowledge base document
+        const kbData = {
+            name,
+            description,
+            columns: headers,
+            rowCount: rows.length,
+            sourceFileName: fileName,
+            updatedAt: window.firestore.serverTimestamp()
+        };
+
+        if (kbEditId) {
+            await window.firestore.updateDoc(
+                window.firestore.doc(window.db, 'organizations', currentOrganization.id, 'knowledgeBases', kbEditId),
+                kbData
+            );
+        } else {
+            kbData.createdAt = window.firestore.serverTimestamp();
+            kbData.createdBy = currentUser.uid;
+            const kbRef = await window.firestore.addDoc(
+                window.firestore.collection(window.db, 'organizations', currentOrganization.id, 'knowledgeBases'),
+                kbData
+            );
+            kbId = kbRef.id;
+        }
+
+        // Import rows in batches of 20
+        const batchSize = 20;
+        for (let i = 0; i < rows.length; i += batchSize) {
+            const batch = rows.slice(i, i + batchSize);
+            const promises = batch.map(row => {
+                const rowObj = {};
+                headers.forEach((h, idx) => {
+                    let val = row[idx];
+                    if (val instanceof Date) val = val.toISOString();
+                    rowObj[h] = val ?? '';
+                });
+                return window.firestore.addDoc(
+                    window.firestore.collection(window.db, 'organizations', currentOrganization.id, 'knowledgeBases', kbId, 'rows'),
+                    rowObj
+                );
+            });
+            await Promise.all(promises);
+
+            // Update button progress
+            const pct = Math.min(100, Math.round(((i + batchSize) / rows.length) * 100));
+            btn.textContent = `Importando... ${pct}%`;
+        }
+
+        // Update local state
+        await loadKnowledgeBases();
+        closeExcelUploadModal();
+        showNotification('Importación exitosa', `Se importaron ${rows.length} filas a "${name}".`, 'success');
+    } catch (error) {
+        console.error('Error importando Excel:', error);
+        showNotification('Error', 'No se pudo importar los datos: ' + error.message, 'error');
+    } finally {
+        btn.textContent = 'Importar a Base de Datos';
+        btn.disabled = false;
+    }
+}
+
+// ========== GENERACIÓN DE CONTEXTO IA CON BASE DE DATOS ==========
+
+// Genera el system prompt enriquecido con esquema de bases de datos
+function buildAISystemPrompt(agent) {
+    let prompt = agent.systemPrompt || '';
+
+    const agentKBs = (agent.knowledgeBases || [])
+        .map(kbId => knowledgeBases.find(kb => kb.id === kbId))
+        .filter(Boolean);
+
+    if (agentKBs.length === 0) return prompt;
+
+    prompt += '\n\n--- BASES DE DATOS DISPONIBLES ---\n';
+    prompt += 'Tienes acceso a las siguientes bases de datos para responder preguntas de los clientes.\n';
+    prompt += 'Cuando un cliente pregunte sobre productos, precios, disponibilidad, etc., consulta estas bases de datos para dar respuestas precisas.\n\n';
+
+    agentKBs.forEach(kb => {
+        prompt += `BASE DE DATOS: "${kb.name}"\n`;
+        if (kb.description) prompt += `Descripción: ${kb.description}\n`;
+        prompt += `Columnas disponibles: ${(kb.columns || []).join(', ')}\n`;
+        prompt += `Total de registros: ${kb.rowCount || 0}\n`;
+        prompt += `Para consultar esta base de datos, usa la función query_database con el ID "${kb.id}".\n\n`;
+    });
+
+    prompt += 'INSTRUCCIONES DE CONSULTA:\n';
+    prompt += '- Cuando necesites buscar información, usa la función query_database.\n';
+    prompt += '- Puedes filtrar por cualquier columna usando el parámetro "filters".\n';
+    prompt += '- Devuelve la información de forma clara y amigable al cliente.\n';
+    prompt += '- Si no encuentras resultados, ofrece alternativas o pide más detalles.\n';
+
+    return prompt;
+}
+
+// Genera las tool definitions para que la IA pueda consultar bases de datos
+function buildAIToolDefinitions(agent) {
+    const agentKBs = (agent.knowledgeBases || [])
+        .map(kbId => knowledgeBases.find(kb => kb.id === kbId))
+        .filter(Boolean);
+
+    if (agentKBs.length === 0) return [];
+
+    const properties = {
+        knowledgeBaseId: {
+            type: 'string',
+            description: 'ID de la base de datos a consultar',
+            enum: agentKBs.map(kb => kb.id)
+        },
+        searchQuery: {
+            type: 'string',
+            description: 'Texto de búsqueda libre para encontrar registros relevantes'
+        },
+        filters: {
+            type: 'object',
+            description: 'Filtros por columna. Ej: {"categoria": "electrónica", "precio_max": "5000"}'
+        },
+        limit: {
+            type: 'number',
+            description: 'Máximo de resultados a devolver (default: 10)'
+        }
+    };
+
+    return [{
+        type: 'function',
+        function: {
+            name: 'query_database',
+            description: 'Consulta una base de datos de conocimiento para buscar productos, precios, disponibilidad u otra información. Bases disponibles: ' +
+                agentKBs.map(kb => `"${kb.name}" (${(kb.columns || []).join(', ')})`).join('; '),
+            parameters: {
+                type: 'object',
+                properties,
+                required: ['knowledgeBaseId']
+            }
+        }
+    }];
+}
+
+// Ejecuta una consulta a la base de datos (para Cloud Functions)
+async function queryKnowledgeBase(kbId, searchQuery, filters, limit = 10) {
+    if (!currentOrganization) return [];
+
+    try {
+        const rowsRef = window.firestore.collection(
+            window.db, 'organizations', currentOrganization.id, 'knowledgeBases', kbId, 'rows'
+        );
+        const snapshot = await window.firestore.getDocs(rowsRef);
+        let results = [];
+        snapshot.forEach(doc => results.push({ id: doc.id, ...doc.data() }));
+
+        // Apply text search if provided
+        if (searchQuery) {
+            const q = searchQuery.toLowerCase();
+            results = results.filter(row =>
+                Object.values(row).some(val =>
+                    String(val).toLowerCase().includes(q)
+                )
+            );
+        }
+
+        // Apply filters
+        if (filters && typeof filters === 'object') {
+            Object.entries(filters).forEach(([key, value]) => {
+                results = results.filter(row => {
+                    const rowVal = String(row[key] || '').toLowerCase();
+                    const filterVal = String(value).toLowerCase();
+                    return rowVal.includes(filterVal);
+                });
+            });
+        }
+
+        return results.slice(0, limit);
+    } catch (error) {
+        console.error('Error consultando base de datos:', error);
+        return [];
+    }
+}
+
 // ========== UTILIDADES ==========
 
 function generateOrgId() {
@@ -2947,6 +3454,7 @@ document.addEventListener('keydown', (e) => {
         closeNewChatModal();
         closePaymentLinkModal();
         closeAIAgentModal();
+        closeExcelUploadModal();
         document.getElementById('notificationsPanel')?.classList.add('hidden');
     }
 });
