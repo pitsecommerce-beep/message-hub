@@ -570,21 +570,29 @@ async function loadApp(userId) {
         document.getElementById('userAvatar').textContent = userInitial;
         document.getElementById('orgNameDisplay').textContent = currentOrganization.name;
 
-        // Ocultar Integraciones para agentes
-        const integNavItem = document.querySelector('.nav-item[data-page="integrations"]');
-        if (integNavItem) {
-            if (userData.role === 'agente') {
-                integNavItem.style.display = 'none';
-            } else {
-                integNavItem.style.display = '';
+        // Ocultar Integraciones y Agentes IA para agentes
+        ['integrations', 'aiAgents'].forEach(navPage => {
+            const navItem = document.querySelector(`.nav-item[data-page="${navPage}"]`);
+            if (navItem) {
+                navItem.style.display = userData.role === 'agente' ? 'none' : '';
             }
+        });
+
+        // Ocultar sección de personalización para agentes
+        const brandingSection = document.getElementById('settingsBrandingSection');
+        if (brandingSection) {
+            brandingSection.style.display = userData.role === 'agente' ? 'none' : '';
         }
+
+        // Aplicar branding personalizado
+        applyBranding();
 
         await loadTeamMembers();
         await loadContacts();
         await loadConversations();
         if (userData.role !== 'agente') {
             await loadIntegrationConfigs();
+            await loadAIAgents();
         }
         updateSettingsPage(userData);
 
@@ -641,13 +649,13 @@ async function loadTeamMembers() {
 // ========== NAVEGACION DE PAGINAS ==========
 
 function showPage(page) {
-    // Bloquear acceso a Integraciones para agentes
-    if (page === 'integrations' && currentUserData && currentUserData.role === 'agente') {
-        showNotification('Acceso restringido', 'La sección de Integraciones solo está disponible para gerentes y administradores.', 'warning');
+    // Bloquear acceso a Integraciones y Agentes IA para agentes
+    if ((page === 'integrations' || page === 'aiAgents') && currentUserData && currentUserData.role === 'agente') {
+        showNotification('Acceso restringido', 'Esta sección solo está disponible para gerentes y administradores.', 'warning');
         return;
     }
 
-    const pages = ['dashboard', 'conversations', 'contacts', 'team', 'integrations', 'settings'];
+    const pages = ['dashboard', 'conversations', 'contacts', 'team', 'integrations', 'aiAgents', 'settings'];
     pages.forEach(p => {
         const el = document.getElementById(p + 'Page');
         if (el) el.classList.add('hidden');
@@ -668,6 +676,7 @@ function showPage(page) {
         contacts: { title: 'Contactos', subtitle: 'Directorio de contactos enriquecido' },
         team: { title: 'Equipo', subtitle: 'Gestiona los miembros de tu equipo' },
         integrations: { title: 'Integraciones', subtitle: 'Conecta plataformas de mensajería y pasarelas de pago' },
+        aiAgents: { title: 'Agentes IA', subtitle: 'Configura agentes de inteligencia artificial para tus canales' },
         settings: { title: 'Configuración', subtitle: 'Preferencias de la organización' }
     };
 
@@ -684,6 +693,8 @@ function showPage(page) {
         loadConversations();
     } else if (page === 'integrations') {
         loadIntegrationConfigs();
+    } else if (page === 'aiAgents') {
+        loadAIAgents();
     }
 
     const sidebar = document.getElementById('sidebar');
@@ -1373,12 +1384,13 @@ function handleSearch(query) {
         { name: 'Contactos', page: 'contacts', icon: '👥' },
         { name: 'Equipo', page: 'team', icon: '👨‍💼' },
         { name: 'Integraciones', page: 'integrations', icon: '🔌' },
+        { name: 'Agentes IA', page: 'aiAgents', icon: '🤖' },
         { name: 'Configuración', page: 'settings', icon: '⚙️' },
     ];
 
     pages.forEach(p => {
-        // Ocultar Integraciones de búsqueda para agentes
-        if (p.page === 'integrations' && currentUserData && currentUserData.role === 'agente') return;
+        // Ocultar Integraciones y Agentes IA de búsqueda para agentes
+        if ((p.page === 'integrations' || p.page === 'aiAgents') && currentUserData && currentUserData.role === 'agente') return;
         if (p.name.toLowerCase().includes(q)) {
             results.push({ type: 'page', ...p });
         }
@@ -1466,6 +1478,30 @@ function updateSettingsPage(userData) {
     if (currentOrganization) {
         document.getElementById('settingsOrgName').textContent = currentOrganization.name;
         document.getElementById('settingsInviteCode').textContent = currentOrganization.inviteCode || '--';
+
+        // Branding fields
+        const brandInput = document.getElementById('brandNameInput');
+        if (brandInput) brandInput.value = currentOrganization.brandName || '';
+
+        const logoImg = document.getElementById('logoPreviewImg');
+        const logoPlaceholder = document.getElementById('logoPreviewPlaceholder');
+        const removeLogoBtn = document.getElementById('removeLogoBtn');
+        if (currentOrganization.customLogo) {
+            logoImg.src = currentOrganization.customLogo;
+            logoImg.classList.remove('hidden');
+            logoPlaceholder.classList.add('hidden');
+            if (removeLogoBtn) removeLogoBtn.classList.remove('hidden');
+        }
+
+        const iconImg = document.getElementById('iconPreviewImg');
+        const iconPlaceholder = document.getElementById('iconPreviewPlaceholder');
+        const removeIconBtn = document.getElementById('removeIconBtn');
+        if (currentOrganization.customIcon) {
+            iconImg.src = currentOrganization.customIcon;
+            iconImg.classList.remove('hidden');
+            iconPlaceholder.classList.add('hidden');
+            if (removeIconBtn) removeIconBtn.classList.remove('hidden');
+        }
     }
 }
 
@@ -1692,6 +1728,7 @@ let messagesUnsubscribe = null;
 let selectedChatPlatform = null;
 let selectedPaymentGateway = null;
 let currentConvPaymentLinks = [];
+let aiAgents = [];
 
 async function loadConversations() {
     if (!currentOrganization) return;
@@ -1828,6 +1865,11 @@ async function openConversation(convId) {
                 </div>
             </div>
             <div class="conv-detail-actions">
+                <label class="ai-conv-toggle" title="Activar/desactivar IA para esta conversación">
+                    <input type="checkbox" ${conv.aiEnabled ? 'checked' : ''} onchange="toggleConvAI('${conv.id}', this.checked)">
+                    <span class="ai-conv-toggle-slider"></span>
+                    <span class="ai-conv-toggle-label">🤖</span>
+                </label>
                 <select class="conv-stage-select" onchange="changeConvStage('${conv.id}', this.value)" title="Etapa del funnel">
                     <option value="">Sin etapa</option>
                     ${FUNNEL_STAGES.map(s => `<option value="${s.id}" ${conv.funnelStage === s.id ? 'selected' : ''}>${s.name}</option>`).join('')}
@@ -2395,6 +2437,479 @@ async function startNewChat() {
     }
 }
 
+// ========== PERSONALIZACIÓN / BRANDING ==========
+
+function applyBranding() {
+    if (!currentOrganization) return;
+
+    const sidebarLogo = document.querySelector('.sidebar-logo');
+    const authLogo = document.querySelector('.logo');
+
+    // Brand name
+    const brandName = currentOrganization.brandName || 'MessageHub';
+    if (sidebarLogo) sidebarLogo.textContent = brandName;
+
+    // Custom logo in sidebar
+    const customLogo = currentOrganization.customLogo;
+    if (customLogo && sidebarLogo) {
+        sidebarLogo.innerHTML = `<img src="${customLogo}" alt="${escapeHtml(brandName)}" class="sidebar-logo-img">`;
+    }
+
+    // Custom icon in sidebar header
+    const orgBadgeIcon = document.querySelector('.org-badge-icon');
+    const customIcon = currentOrganization.customIcon;
+    if (customIcon && orgBadgeIcon) {
+        orgBadgeIcon.innerHTML = `<img src="${customIcon}" alt="" class="org-badge-icon-img">`;
+    }
+}
+
+async function saveBrandName() {
+    if (!currentOrganization) return;
+    const brandName = document.getElementById('brandNameInput').value.trim();
+
+    try {
+        await window.firestore.updateDoc(
+            window.firestore.doc(window.db, 'organizations', currentOrganization.id),
+            { brandName: brandName || null }
+        );
+        currentOrganization.brandName = brandName || null;
+        applyBranding();
+        showNotification('Nombre guardado', brandName ? `El nombre de marca "${brandName}" fue guardado.` : 'Se restauró el nombre predeterminado.', 'success');
+    } catch (error) {
+        console.error('Error guardando nombre de marca:', error);
+        showNotification('Error', 'No se pudo guardar el nombre de marca.', 'error');
+    }
+}
+
+async function handleLogoUpload(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    if (file.size > 200 * 1024) {
+        showNotification('Archivo muy grande', 'El logo debe ser menor a 200KB.', 'warning');
+        event.target.value = '';
+        return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+        const base64 = e.target.result;
+        try {
+            await window.firestore.updateDoc(
+                window.firestore.doc(window.db, 'organizations', currentOrganization.id),
+                { customLogo: base64 }
+            );
+            currentOrganization.customLogo = base64;
+
+            document.getElementById('logoPreviewImg').src = base64;
+            document.getElementById('logoPreviewImg').classList.remove('hidden');
+            document.getElementById('logoPreviewPlaceholder').classList.add('hidden');
+            document.getElementById('removeLogoBtn').classList.remove('hidden');
+
+            applyBranding();
+            showNotification('Logo guardado', 'El logo fue actualizado correctamente.', 'success');
+        } catch (error) {
+            console.error('Error subiendo logo:', error);
+            showNotification('Error', 'No se pudo guardar el logo.', 'error');
+        }
+    };
+    reader.readAsDataURL(file);
+    event.target.value = '';
+}
+
+async function removeLogo() {
+    if (!currentOrganization) return;
+    try {
+        await window.firestore.updateDoc(
+            window.firestore.doc(window.db, 'organizations', currentOrganization.id),
+            { customLogo: null }
+        );
+        currentOrganization.customLogo = null;
+        document.getElementById('logoPreviewImg').classList.add('hidden');
+        document.getElementById('logoPreviewPlaceholder').classList.remove('hidden');
+        document.getElementById('removeLogoBtn').classList.add('hidden');
+        applyBranding();
+        showNotification('Logo eliminado', 'Se restauró el logo predeterminado.', 'success');
+    } catch (error) {
+        showNotification('Error', 'No se pudo eliminar el logo.', 'error');
+    }
+}
+
+async function handleIconUpload(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    if (file.size > 100 * 1024) {
+        showNotification('Archivo muy grande', 'El ícono debe ser menor a 100KB.', 'warning');
+        event.target.value = '';
+        return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+        const base64 = e.target.result;
+        try {
+            await window.firestore.updateDoc(
+                window.firestore.doc(window.db, 'organizations', currentOrganization.id),
+                { customIcon: base64 }
+            );
+            currentOrganization.customIcon = base64;
+
+            document.getElementById('iconPreviewImg').src = base64;
+            document.getElementById('iconPreviewImg').classList.remove('hidden');
+            document.getElementById('iconPreviewPlaceholder').classList.add('hidden');
+            document.getElementById('removeIconBtn').classList.remove('hidden');
+
+            applyBranding();
+            showNotification('Ícono guardado', 'El ícono fue actualizado correctamente.', 'success');
+        } catch (error) {
+            console.error('Error subiendo ícono:', error);
+            showNotification('Error', 'No se pudo guardar el ícono.', 'error');
+        }
+    };
+    reader.readAsDataURL(file);
+    event.target.value = '';
+}
+
+async function removeIcon() {
+    if (!currentOrganization) return;
+    try {
+        await window.firestore.updateDoc(
+            window.firestore.doc(window.db, 'organizations', currentOrganization.id),
+            { customIcon: null }
+        );
+        currentOrganization.customIcon = null;
+        document.getElementById('iconPreviewImg').classList.add('hidden');
+        document.getElementById('iconPreviewPlaceholder').classList.remove('hidden');
+        document.getElementById('removeIconBtn').classList.add('hidden');
+        applyBranding();
+        showNotification('Ícono eliminado', 'Se restauró el ícono predeterminado.', 'success');
+    } catch (error) {
+        showNotification('Error', 'No se pudo eliminar el ícono.', 'error');
+    }
+}
+
+// ========== AGENTES IA ==========
+
+const AI_MODELS = {
+    openai: [
+        { id: 'gpt-4o', name: 'GPT-4o (Recomendado)' },
+        { id: 'gpt-4o-mini', name: 'GPT-4o Mini (Económico)' },
+        { id: 'gpt-4-turbo', name: 'GPT-4 Turbo' },
+        { id: 'gpt-3.5-turbo', name: 'GPT-3.5 Turbo' }
+    ],
+    anthropic: [
+        { id: 'claude-sonnet-4-5-20250929', name: 'Claude Sonnet 4.5 (Recomendado)' },
+        { id: 'claude-haiku-4-5-20251001', name: 'Claude Haiku 4.5 (Económico)' },
+        { id: 'claude-opus-4-6', name: 'Claude Opus 4.6' }
+    ],
+    custom: []
+};
+
+function onAIProviderChange() {
+    const provider = document.getElementById('aiAgentProvider').value;
+    const modelSelect = document.getElementById('aiAgentModel');
+    const endpointGroup = document.getElementById('aiAgentEndpointGroup');
+
+    if (provider === 'custom') {
+        endpointGroup.classList.remove('hidden');
+        modelSelect.innerHTML = '<option value="">Escribe el nombre del modelo</option>';
+        // Convert to text input for custom
+        const parent = modelSelect.parentElement;
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.className = 'form-input';
+        input.id = 'aiAgentModel';
+        input.placeholder = 'nombre-del-modelo';
+        parent.replaceChild(input, modelSelect);
+    } else {
+        endpointGroup.classList.add('hidden');
+        // Ensure it's a select
+        const currentEl = document.getElementById('aiAgentModel');
+        if (currentEl.tagName !== 'SELECT') {
+            const parent = currentEl.parentElement;
+            const select = document.createElement('select');
+            select.className = 'form-input form-select';
+            select.id = 'aiAgentModel';
+            parent.replaceChild(select, currentEl);
+        }
+        const sel = document.getElementById('aiAgentModel');
+        const models = AI_MODELS[provider] || [];
+        if (models.length === 0) {
+            sel.innerHTML = '<option value="">Primero selecciona proveedor</option>';
+        } else {
+            sel.innerHTML = models.map(m => `<option value="${m.id}">${m.name}</option>`).join('');
+        }
+    }
+}
+
+async function loadAIAgents() {
+    if (!currentOrganization) return;
+
+    try {
+        const agentsRef = window.firestore.collection(window.db, 'organizations', currentOrganization.id, 'aiAgents');
+        const snapshot = await window.firestore.getDocs(agentsRef);
+        aiAgents = [];
+        snapshot.forEach(doc => {
+            aiAgents.push({ id: doc.id, ...doc.data() });
+        });
+        renderAIAgents();
+        renderChannelMap();
+    } catch (error) {
+        console.error('Error cargando agentes IA:', error);
+    }
+}
+
+function renderAIAgents() {
+    const grid = document.getElementById('aiAgentsGrid');
+    if (!grid) return;
+
+    if (aiAgents.length === 0) {
+        grid.innerHTML = `
+            <div class="ai-agents-empty">
+                <span class="ai-agents-empty-icon">🤖</span>
+                <p>No hay agentes configurados</p>
+                <p class="ai-agents-empty-hint">Crea tu primer agente de IA para automatizar la atención en tus canales de mensajería.</p>
+            </div>
+        `;
+        return;
+    }
+
+    grid.innerHTML = aiAgents.map(agent => {
+        const providerLabel = agent.provider === 'openai' ? 'OpenAI' : agent.provider === 'anthropic' ? 'Anthropic' : 'Personalizado';
+        const channels = [];
+        if (agent.channels) {
+            if (agent.channels.whatsapp) channels.push('📱 WA');
+            if (agent.channels.instagram) channels.push('📷 IG');
+            if (agent.channels.messenger) channels.push('💬 MSG');
+        }
+        const channelsStr = channels.length > 0 ? channels.join(' · ') : 'Sin canales';
+        const statusClass = agent.isActive ? 'ai-agent-active' : 'ai-agent-inactive';
+        const statusLabel = agent.isActive ? 'Activo' : 'Inactivo';
+        const promptPreview = (agent.systemPrompt || '').substring(0, 100) + ((agent.systemPrompt || '').length > 100 ? '...' : '');
+
+        return `
+            <div class="ai-agent-card ${statusClass}">
+                <div class="ai-agent-card-header">
+                    <div class="ai-agent-card-info">
+                        <span class="ai-agent-card-icon">🤖</span>
+                        <div>
+                            <div class="ai-agent-card-name">${escapeHtml(agent.name)}</div>
+                            <div class="ai-agent-card-provider">${providerLabel} · ${escapeHtml(agent.model || '')}</div>
+                        </div>
+                    </div>
+                    <span class="ai-agent-status-badge ${statusClass}">${statusLabel}</span>
+                </div>
+                <div class="ai-agent-card-channels">${channelsStr}</div>
+                <div class="ai-agent-card-prompt">${escapeHtml(promptPreview)}</div>
+                <div class="ai-agent-card-actions">
+                    <button class="btn-secondary btn-sm" onclick="openAIAgentModal(aiAgents.find(a=>a.id==='${agent.id}'))">Editar</button>
+                    <button class="btn-secondary btn-sm btn-integ-delete" onclick="deleteAIAgent('${agent.id}')">Eliminar</button>
+                </div>
+            </div>
+        `;
+    }).join('');
+}
+
+function renderChannelMap() {
+    const channels = ['whatsapp', 'instagram', 'messenger'];
+    channels.forEach(ch => {
+        const el = document.getElementById('mapAgent_' + ch);
+        if (!el) return;
+
+        const assignedAgents = aiAgents.filter(a => a.isActive && a.channels && a.channels[ch]);
+        if (assignedAgents.length === 0) {
+            el.textContent = 'Sin agente asignado';
+            el.className = 'ai-channel-map-agent ai-channel-map-none';
+        } else {
+            el.textContent = assignedAgents.map(a => a.name).join(', ');
+            el.className = 'ai-channel-map-agent ai-channel-map-assigned';
+        }
+    });
+}
+
+function openAIAgentModal(agent = null) {
+    const title = document.getElementById('aiAgentModalTitle');
+    const editId = document.getElementById('aiAgentEditId');
+
+    if (agent) {
+        title.textContent = 'Editar Agente IA';
+        editId.value = agent.id;
+        document.getElementById('aiAgentName').value = agent.name || '';
+        document.getElementById('aiAgentProvider').value = agent.provider || '';
+        onAIProviderChange();
+        // Set model after provider change rebuilds the select
+        setTimeout(() => {
+            const modelEl = document.getElementById('aiAgentModel');
+            if (modelEl) modelEl.value = agent.model || '';
+        }, 50);
+        document.getElementById('aiAgentApiKey').value = agent.apiKey || '';
+        document.getElementById('aiAgentEndpoint').value = agent.endpoint || '';
+        document.getElementById('aiAgentSystemPrompt').value = agent.systemPrompt || '';
+        document.getElementById('aiAgentActive').checked = agent.isActive !== false;
+
+        // Channels
+        document.getElementById('aiCh_whatsapp').checked = agent.channels?.whatsapp || false;
+        document.getElementById('aiCh_instagram').checked = agent.channels?.instagram || false;
+        document.getElementById('aiCh_messenger').checked = agent.channels?.messenger || false;
+    } else {
+        title.textContent = 'Crear Agente IA';
+        editId.value = '';
+        document.getElementById('aiAgentName').value = '';
+        document.getElementById('aiAgentProvider').value = '';
+        document.getElementById('aiAgentApiKey').value = '';
+        document.getElementById('aiAgentEndpoint').value = '';
+        document.getElementById('aiAgentSystemPrompt').value = '';
+        document.getElementById('aiAgentActive').checked = true;
+        document.getElementById('aiCh_whatsapp').checked = false;
+        document.getElementById('aiCh_instagram').checked = false;
+        document.getElementById('aiCh_messenger').checked = false;
+
+        // Reset model select
+        const modelEl = document.getElementById('aiAgentModel');
+        if (modelEl.tagName === 'SELECT') {
+            modelEl.innerHTML = '<option value="">Primero selecciona proveedor</option>';
+        } else {
+            modelEl.value = '';
+        }
+        document.getElementById('aiAgentEndpointGroup').classList.add('hidden');
+    }
+
+    document.getElementById('aiAgentModal').classList.remove('hidden');
+}
+
+function closeAIAgentModal() {
+    document.getElementById('aiAgentModal').classList.add('hidden');
+}
+
+async function saveAIAgent() {
+    if (!currentOrganization) return;
+
+    const name = document.getElementById('aiAgentName').value.trim();
+    const provider = document.getElementById('aiAgentProvider').value;
+    const model = document.getElementById('aiAgentModel').value.trim ? document.getElementById('aiAgentModel').value.trim() : document.getElementById('aiAgentModel').value;
+    const apiKey = document.getElementById('aiAgentApiKey').value.trim();
+    const endpoint = document.getElementById('aiAgentEndpoint').value.trim();
+    const systemPrompt = document.getElementById('aiAgentSystemPrompt').value.trim();
+    const isActive = document.getElementById('aiAgentActive').checked;
+
+    if (!name) {
+        showNotification('Campo requerido', 'Ingresa un nombre para el agente.', 'warning');
+        return;
+    }
+    if (!provider) {
+        showNotification('Campo requerido', 'Selecciona un proveedor de IA.', 'warning');
+        return;
+    }
+    if (!model) {
+        showNotification('Campo requerido', 'Selecciona o escribe un modelo.', 'warning');
+        return;
+    }
+    if (!apiKey) {
+        showNotification('Campo requerido', 'Ingresa la API Key.', 'warning');
+        return;
+    }
+    if (provider === 'custom' && !endpoint) {
+        showNotification('Campo requerido', 'Ingresa la URL del endpoint para el proveedor personalizado.', 'warning');
+        return;
+    }
+    if (!systemPrompt) {
+        showNotification('Campo requerido', 'Define el system prompt del agente.', 'warning');
+        return;
+    }
+
+    const channels = {
+        whatsapp: document.getElementById('aiCh_whatsapp').checked,
+        instagram: document.getElementById('aiCh_instagram').checked,
+        messenger: document.getElementById('aiCh_messenger').checked
+    };
+
+    const agentData = {
+        name,
+        provider,
+        model,
+        apiKey,
+        endpoint: provider === 'custom' ? endpoint : '',
+        systemPrompt,
+        isActive,
+        channels,
+        updatedAt: window.firestore.serverTimestamp()
+    };
+
+    const editId = document.getElementById('aiAgentEditId').value;
+
+    try {
+        if (editId) {
+            await window.firestore.updateDoc(
+                window.firestore.doc(window.db, 'organizations', currentOrganization.id, 'aiAgents', editId),
+                agentData
+            );
+            const idx = aiAgents.findIndex(a => a.id === editId);
+            if (idx !== -1) aiAgents[idx] = { ...aiAgents[idx], ...agentData };
+            showNotification('Agente actualizado', `El agente "${name}" fue actualizado.`, 'success');
+        } else {
+            agentData.createdAt = window.firestore.serverTimestamp();
+            agentData.createdBy = currentUser.uid;
+            const docRef = await window.firestore.addDoc(
+                window.firestore.collection(window.db, 'organizations', currentOrganization.id, 'aiAgents'),
+                agentData
+            );
+            aiAgents.push({ id: docRef.id, ...agentData });
+            showNotification('Agente creado', `El agente "${name}" fue creado exitosamente.`, 'success');
+        }
+
+        renderAIAgents();
+        renderChannelMap();
+        closeAIAgentModal();
+    } catch (error) {
+        console.error('Error guardando agente IA:', error);
+        showNotification('Error', 'No se pudo guardar el agente: ' + error.message, 'error');
+    }
+}
+
+async function deleteAIAgent(agentId) {
+    const agent = aiAgents.find(a => a.id === agentId);
+    if (!agent) return;
+    if (!confirm(`¿Eliminar el agente "${agent.name}"? Esta acción no se puede deshacer.`)) return;
+
+    try {
+        await window.firestore.deleteDoc(
+            window.firestore.doc(window.db, 'organizations', currentOrganization.id, 'aiAgents', agentId)
+        );
+        aiAgents = aiAgents.filter(a => a.id !== agentId);
+        renderAIAgents();
+        renderChannelMap();
+        showNotification('Agente eliminado', `El agente "${agent.name}" fue eliminado.`, 'success');
+    } catch (error) {
+        console.error('Error eliminando agente IA:', error);
+        showNotification('Error', 'No se pudo eliminar el agente.', 'error');
+    }
+}
+
+// Toggle IA por conversación
+async function toggleConvAI(convId, enabled) {
+    if (!currentOrganization) return;
+
+    try {
+        await window.firestore.updateDoc(
+            window.firestore.doc(window.db, 'organizations', currentOrganization.id, 'conversations', convId),
+            { aiEnabled: enabled }
+        );
+
+        const conv = conversations.find(c => c.id === convId);
+        if (conv) conv.aiEnabled = enabled;
+
+        addAppNotification(
+            enabled ? 'IA activada' : 'IA desactivada',
+            `La IA fue ${enabled ? 'activada' : 'desactivada'} para esta conversación.`,
+            'success'
+        );
+    } catch (error) {
+        console.error('Error toggling AI:', error);
+        showNotification('Error', 'No se pudo cambiar el estado de la IA.', 'error');
+    }
+}
+
 // ========== UTILIDADES ==========
 
 function generateOrgId() {
@@ -2431,6 +2946,7 @@ document.addEventListener('keydown', (e) => {
         closeIntegrationConfig();
         closeNewChatModal();
         closePaymentLinkModal();
+        closeAIAgentModal();
         document.getElementById('notificationsPanel')?.classList.add('hidden');
     }
 });

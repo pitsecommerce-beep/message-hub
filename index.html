@@ -286,6 +286,83 @@
         </div>
     </div>
 
+    <!-- Modal de Agente IA -->
+    <div class="modal-overlay hidden" id="aiAgentModal">
+        <div class="modal-box modal-lg">
+            <div class="modal-header">
+                <h3 class="modal-title" id="aiAgentModalTitle">Crear Agente IA</h3>
+                <button class="modal-close" onclick="closeAIAgentModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="aiAgentEditId" value="">
+                <div class="form-group">
+                    <label class="form-label">Nombre del agente *</label>
+                    <input type="text" class="form-input" id="aiAgentName" placeholder="Ej: Agente de Ventas, Soporte Técnico...">
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label class="form-label">Proveedor de IA *</label>
+                        <select class="form-input form-select" id="aiAgentProvider" onchange="onAIProviderChange()">
+                            <option value="">Seleccionar...</option>
+                            <option value="openai">OpenAI (GPT)</option>
+                            <option value="anthropic">Anthropic (Claude)</option>
+                            <option value="custom">Personalizado</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Modelo *</label>
+                        <select class="form-input form-select" id="aiAgentModel">
+                            <option value="">Primero selecciona proveedor</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">API Key *</label>
+                    <input type="password" class="form-input" id="aiAgentApiKey" placeholder="sk-... o tu clave de API">
+                    <span class="integ-field-hint">Se almacenará de forma segura vía Cloud Functions</span>
+                </div>
+                <div class="form-group hidden" id="aiAgentEndpointGroup">
+                    <label class="form-label">URL del Endpoint *</label>
+                    <input type="text" class="form-input" id="aiAgentEndpoint" placeholder="https://api.custom.com/v1/chat/completions">
+                    <span class="integ-field-hint">URL completa del endpoint de la API compatible con OpenAI</span>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">System Prompt *</label>
+                    <textarea class="form-input form-textarea" id="aiAgentSystemPrompt" rows="6" placeholder="Eres un agente de atención al cliente amable y profesional para [nombre de empresa]. Tu objetivo es ayudar a los clientes con sus consultas..."></textarea>
+                    <span class="integ-field-hint">Define la personalidad, instrucciones y comportamiento del agente. Sé específico sobre el tono, conocimientos y limitaciones.</span>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Canales asignados</label>
+                    <span class="integ-field-hint">Selecciona en qué canales operará este agente. Un solo agente puede atender múltiples canales.</span>
+                    <div class="ai-channel-checkboxes">
+                        <label class="ai-channel-check">
+                            <input type="checkbox" id="aiCh_whatsapp" value="whatsapp">
+                            <span class="ai-channel-label">📱 WhatsApp</span>
+                        </label>
+                        <label class="ai-channel-check">
+                            <input type="checkbox" id="aiCh_instagram" value="instagram">
+                            <span class="ai-channel-label">📷 Instagram</span>
+                        </label>
+                        <label class="ai-channel-check">
+                            <input type="checkbox" id="aiCh_messenger" value="messenger">
+                            <span class="ai-channel-label">💬 Messenger</span>
+                        </label>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label class="ai-active-toggle">
+                        <input type="checkbox" id="aiAgentActive" checked>
+                        <span>Agente activo</span>
+                    </label>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary" onclick="closeAIAgentModal()">Cancelar</button>
+                <button class="btn-primary" style="max-width:200px" onclick="saveAIAgent()">Guardar Agente</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Modal de Agregar/Editar Contacto -->
     <div class="modal-overlay hidden" id="contactModal">
         <div class="modal-box modal-lg">
@@ -554,6 +631,10 @@
                     <div class="nav-item" data-page="integrations" onclick="showPage('integrations')">
                         <span class="nav-icon">🔌</span>
                         <span>Integraciones</span>
+                    </div>
+                    <div class="nav-item" data-page="aiAgents" onclick="showPage('aiAgents')">
+                        <span class="nav-icon">🤖</span>
+                        <span>Agentes IA</span>
                     </div>
                     <div class="nav-item" data-page="settings" onclick="showPage('settings')">
                         <span class="nav-icon">⚙️</span>
@@ -957,6 +1038,45 @@
                     </div>
                 </div>
 
+                <!-- AI Agents Page -->
+                <div id="aiAgentsPage" class="hidden">
+                    <div class="section-header">
+                        <h3 class="section-title">Agentes de Inteligencia Artificial</h3>
+                        <button class="btn-primary btn-sm" onclick="openAIAgentModal()">+ Crear Agente</button>
+                    </div>
+                    <p class="ai-agents-desc">Configura agentes de IA para atender conversaciones automáticamente. Asigna diferentes agentes a cada canal para personalizar la atención.</p>
+
+                    <div class="ai-agents-grid" id="aiAgentsGrid">
+                        <div class="ai-agents-empty">
+                            <span class="ai-agents-empty-icon">🤖</span>
+                            <p>No hay agentes configurados</p>
+                            <p class="ai-agents-empty-hint">Crea tu primer agente de IA para automatizar la atención en tus canales de mensajería.</p>
+                        </div>
+                    </div>
+
+                    <div class="ai-channel-map-section">
+                        <h4 class="ai-channel-map-title">Mapa de Canales</h4>
+                        <p class="ai-channel-map-desc">Vista rápida de qué agente atiende cada canal</p>
+                        <div class="ai-channel-map" id="aiChannelMap">
+                            <div class="ai-channel-map-item">
+                                <span class="ai-channel-map-icon">📱</span>
+                                <span class="ai-channel-map-name">WhatsApp</span>
+                                <span class="ai-channel-map-agent" id="mapAgent_whatsapp">Sin agente asignado</span>
+                            </div>
+                            <div class="ai-channel-map-item">
+                                <span class="ai-channel-map-icon">📷</span>
+                                <span class="ai-channel-map-name">Instagram</span>
+                                <span class="ai-channel-map-agent" id="mapAgent_instagram">Sin agente asignado</span>
+                            </div>
+                            <div class="ai-channel-map-item">
+                                <span class="ai-channel-map-icon">💬</span>
+                                <span class="ai-channel-map-name">Messenger</span>
+                                <span class="ai-channel-map-agent" id="mapAgent_messenger">Sin agente asignado</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- Settings Page -->
                 <div id="settingsPage" class="hidden">
                     <div class="settings-container">
@@ -1008,6 +1128,51 @@
                                     <div class="settings-row-info">
                                         <span class="settings-row-label">Configuración de Firebase</span>
                                         <span class="settings-row-desc">Las claves de Firebase son públicas por diseño. La seguridad está en las Firestore Security Rules y restricciones de dominio en Google Cloud Console.</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="settings-section" id="settingsBrandingSection">
+                            <h3 class="settings-section-title">Personalización</h3>
+                            <div class="settings-card">
+                                <div class="settings-row">
+                                    <div class="settings-row-info">
+                                        <span class="settings-row-label">Nombre de marca</span>
+                                        <span class="settings-row-desc">Reemplaza "MessageHub" en la barra lateral y pantalla de inicio</span>
+                                    </div>
+                                    <div class="branding-input-row">
+                                        <input type="text" class="form-input" id="brandNameInput" placeholder="MessageHub" style="max-width:200px">
+                                        <button class="btn-primary btn-sm" onclick="saveBrandName()">Guardar</button>
+                                    </div>
+                                </div>
+                                <div class="settings-row">
+                                    <div class="settings-row-info">
+                                        <span class="settings-row-label">Logo</span>
+                                        <span class="settings-row-desc">Imagen que se mostrará en la barra lateral (PNG, JPG, máx 200KB)</span>
+                                    </div>
+                                    <div class="branding-logo-row">
+                                        <div class="logo-preview-box" id="logoPreviewBox">
+                                            <span id="logoPreviewPlaceholder">Sin logo</span>
+                                            <img id="logoPreviewImg" class="hidden" alt="Logo">
+                                        </div>
+                                        <input type="file" id="logoFileInput" accept="image/png,image/jpeg,image/webp,image/svg+xml" class="hidden" onchange="handleLogoUpload(event)">
+                                        <button class="btn-secondary btn-sm" onclick="document.getElementById('logoFileInput').click()">Subir</button>
+                                        <button class="btn-secondary btn-sm btn-integ-delete hidden" id="removeLogoBtn" onclick="removeLogo()">Quitar</button>
+                                    </div>
+                                </div>
+                                <div class="settings-row">
+                                    <div class="settings-row-info">
+                                        <span class="settings-row-label">Ícono de la barra lateral</span>
+                                        <span class="settings-row-desc">Ícono pequeño junto al nombre (PNG, JPG, máx 100KB)</span>
+                                    </div>
+                                    <div class="branding-logo-row">
+                                        <div class="icon-preview-box" id="iconPreviewBox">
+                                            <span id="iconPreviewPlaceholder">Sin ícono</span>
+                                            <img id="iconPreviewImg" class="hidden" alt="Ícono">
+                                        </div>
+                                        <input type="file" id="iconFileInput" accept="image/png,image/jpeg,image/webp,image/svg+xml" class="hidden" onchange="handleIconUpload(event)">
+                                        <button class="btn-secondary btn-sm" onclick="document.getElementById('iconFileInput').click()">Subir</button>
+                                        <button class="btn-secondary btn-sm btn-integ-delete hidden" id="removeIconBtn" onclick="removeIcon()">Quitar</button>
                                     </div>
                                 </div>
                             </div>
