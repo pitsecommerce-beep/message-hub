@@ -3417,6 +3417,302 @@ body {
     color: var(--primary);
 }
 
+/* ========== KNOWLEDGE BASES / EXCEL UPLOAD ========== */
+
+.kb-section {
+    margin-bottom: 32px;
+    padding-top: 24px;
+    border-top: 1px solid var(--border);
+}
+
+.kb-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+    gap: 16px;
+    margin-bottom: 16px;
+}
+
+.kb-empty {
+    grid-column: 1 / -1;
+    text-align: center;
+    padding: 40px 24px;
+    color: var(--text-tertiary);
+}
+
+.kb-empty-icon {
+    font-size: 40px;
+    display: block;
+    margin-bottom: 8px;
+}
+
+.kb-empty-hint {
+    font-size: 13px;
+    margin-top: 4px;
+}
+
+.kb-card {
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 16px;
+    transition: all 0.3s;
+}
+
+.kb-card:hover {
+    border-color: var(--secondary);
+    box-shadow: 0 4px 20px rgba(245, 158, 11, 0.1);
+}
+
+.kb-card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 10px;
+}
+
+.kb-card-info {
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+}
+
+.kb-card-icon {
+    font-size: 22px;
+    flex-shrink: 0;
+}
+
+.kb-card-name {
+    font-weight: 600;
+    font-size: 15px;
+    color: var(--text-primary);
+}
+
+.kb-card-desc {
+    font-size: 12px;
+    color: var(--text-tertiary);
+    margin-top: 2px;
+}
+
+.kb-card-meta {
+    display: flex;
+    gap: 16px;
+    font-size: 13px;
+    color: var(--text-secondary);
+    padding: 8px 0;
+    border-top: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 10px;
+}
+
+.kb-card-columns {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    align-items: center;
+    margin-bottom: 8px;
+}
+
+.kb-card-columns-label {
+    font-size: 11px;
+    color: var(--text-tertiary);
+    font-weight: 600;
+    margin-right: 4px;
+}
+
+.kb-column-tag {
+    font-size: 11px;
+    background: rgba(99, 102, 241, 0.1);
+    color: var(--primary);
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-family: 'JetBrains Mono', monospace;
+}
+
+.kb-card-agents {
+    font-size: 12px;
+    color: var(--text-tertiary);
+    margin-bottom: 10px;
+}
+
+.kb-card-agents-label {
+    font-weight: 600;
+    margin-right: 4px;
+}
+
+.kb-card-agents-value {
+    color: var(--text-secondary);
+}
+
+.kb-card-footer {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.kb-card-date {
+    font-size: 11px;
+    color: var(--text-tertiary);
+}
+
+.kb-card-actions {
+    display: flex;
+    gap: 6px;
+}
+
+/* Excel Upload Modal */
+
+.modal-xl {
+    max-width: 860px;
+}
+
+.excel-upload-zone {
+    border: 2px dashed var(--border);
+    border-radius: 12px;
+    padding: 40px 24px;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.3s;
+    background: rgba(255, 255, 255, 0.02);
+    margin-bottom: 16px;
+}
+
+.excel-upload-zone:hover,
+.excel-upload-zone.dragover {
+    border-color: var(--primary);
+    background: rgba(99, 102, 241, 0.05);
+}
+
+.excel-upload-icon {
+    font-size: 40px;
+    margin-bottom: 8px;
+}
+
+.excel-upload-text {
+    font-size: 15px;
+    color: var(--text-primary);
+    margin-bottom: 4px;
+}
+
+.excel-upload-hint {
+    font-size: 12px;
+    color: var(--text-tertiary);
+}
+
+.excel-file-info {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: rgba(99, 102, 241, 0.08);
+    border: 1px solid rgba(99, 102, 241, 0.2);
+    border-radius: 10px;
+    padding: 10px 14px;
+    margin-bottom: 16px;
+}
+
+.excel-file-icon {
+    font-size: 24px;
+    flex-shrink: 0;
+}
+
+.excel-file-details {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+}
+
+.excel-file-name {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.excel-file-meta {
+    font-size: 12px;
+    color: var(--text-tertiary);
+}
+
+.excel-preview-wrapper {
+    margin-top: 16px;
+}
+
+.excel-preview-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+}
+
+.excel-preview-header h4 {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.excel-preview-count {
+    font-size: 12px;
+    color: var(--text-tertiary);
+    background: rgba(255, 255, 255, 0.05);
+    padding: 2px 10px;
+    border-radius: 12px;
+}
+
+.excel-preview-table-scroll {
+    overflow-x: auto;
+    max-height: 300px;
+    overflow-y: auto;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+}
+
+.excel-preview-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+}
+
+.excel-preview-table th {
+    background: rgba(99, 102, 241, 0.1);
+    color: var(--primary);
+    font-weight: 600;
+    padding: 8px 12px;
+    text-align: left;
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    white-space: nowrap;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+}
+
+.excel-preview-table td {
+    padding: 6px 12px;
+    border-top: 1px solid var(--border);
+    color: var(--text-secondary);
+    max-width: 200px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.excel-preview-table tbody tr:hover {
+    background: rgba(255, 255, 255, 0.03);
+}
+
+.excel-preview-footer {
+    font-size: 12px;
+    color: var(--text-tertiary);
+    padding: 8px 0;
+    text-align: center;
+    font-style: italic;
+}
+
+.ai-kb-checkboxes {
+    display: flex;
+    gap: 8px;
+    margin-top: 8px;
+    flex-wrap: wrap;
+}
+
 /* ========== RESPONSIVE ADDITIONS ========== */
 @media (max-width: 1024px) {
     .funnel-board {
@@ -3446,7 +3742,8 @@ body {
         justify-content: flex-start;
     }
 
-    .ai-agents-grid {
+    .ai-agents-grid,
+    .kb-grid {
         grid-template-columns: 1fr;
     }
 

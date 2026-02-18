@@ -8,6 +8,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="styles.css">
+    <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
 </head>
 <body>
     <!-- Background -->
@@ -332,6 +333,13 @@
                     <span class="integ-field-hint">Define la personalidad, instrucciones y comportamiento del agente. Sé específico sobre el tono, conocimientos y limitaciones.</span>
                 </div>
                 <div class="form-group">
+                    <label class="form-label">Bases de datos asignadas</label>
+                    <span class="integ-field-hint">Selecciona qué bases de datos podrá consultar este agente para responder preguntas.</span>
+                    <div class="ai-kb-checkboxes" id="aiKbCheckboxes">
+                        <span class="integ-field-hint">No hay bases de datos. Sube un Excel desde la página de Agentes IA.</span>
+                    </div>
+                </div>
+                <div class="form-group">
                     <label class="form-label">Canales asignados</label>
                     <span class="integ-field-hint">Selecciona en qué canales operará este agente. Un solo agente puede atender múltiples canales.</span>
                     <div class="ai-channel-checkboxes">
@@ -359,6 +367,73 @@
             <div class="modal-footer">
                 <button class="btn-secondary" onclick="closeAIAgentModal()">Cancelar</button>
                 <button class="btn-primary" style="max-width:200px" onclick="saveAIAgent()">Guardar Agente</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal de Subir Excel / Base de Datos -->
+    <div class="modal-overlay hidden" id="excelUploadModal">
+        <div class="modal-box modal-xl">
+            <div class="modal-header">
+                <h3 class="modal-title" id="excelUploadTitle">Subir Base de Datos desde Excel</h3>
+                <button class="modal-close" onclick="closeExcelUploadModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="kbEditId" value="">
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label class="form-label">Nombre de la base de datos *</label>
+                        <input type="text" class="form-input" id="kbName" placeholder="Ej: Catálogo de Productos, Lista de Precios, Inventario...">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Descripción</label>
+                        <input type="text" class="form-input" id="kbDescription" placeholder="Qué información contiene esta base de datos">
+                    </div>
+                </div>
+
+                <!-- Upload Zone -->
+                <div class="excel-upload-zone" id="excelUploadZone" onclick="document.getElementById('excelFileInput').click()" ondragover="event.preventDefault(); this.classList.add('dragover')" ondragleave="this.classList.remove('dragover')" ondrop="handleExcelDrop(event)">
+                    <div class="excel-upload-icon">📊</div>
+                    <div class="excel-upload-text">Arrastra tu archivo Excel aquí o haz clic para seleccionar</div>
+                    <div class="excel-upload-hint">Formatos soportados: .xlsx, .xls, .csv (máx 5MB)</div>
+                    <input type="file" id="excelFileInput" accept=".xlsx,.xls,.csv" class="hidden" onchange="handleExcelFileSelect(event)">
+                </div>
+
+                <!-- File Info -->
+                <div class="excel-file-info hidden" id="excelFileInfo">
+                    <span class="excel-file-icon">📄</span>
+                    <div class="excel-file-details">
+                        <span class="excel-file-name" id="excelFileName">--</span>
+                        <span class="excel-file-meta" id="excelFileMeta">--</span>
+                    </div>
+                    <button class="btn-icon btn-sm" onclick="clearExcelFile()" title="Quitar archivo">✕</button>
+                </div>
+
+                <!-- Sheet Selector (for multi-sheet Excel files) -->
+                <div class="form-group hidden" id="sheetSelectorGroup">
+                    <label class="form-label">Hoja del Excel</label>
+                    <select class="form-input form-select" id="sheetSelector" onchange="selectExcelSheet(this.value)"></select>
+                </div>
+
+                <!-- Data Preview Table -->
+                <div class="excel-preview-wrapper hidden" id="excelPreviewWrapper">
+                    <div class="excel-preview-header">
+                        <h4>Vista previa de datos</h4>
+                        <span class="excel-preview-count" id="excelPreviewCount">0 filas</span>
+                    </div>
+                    <div class="excel-preview-table-scroll">
+                        <table class="excel-preview-table" id="excelPreviewTable">
+                            <thead id="excelPreviewHead"></thead>
+                            <tbody id="excelPreviewBody"></tbody>
+                        </table>
+                    </div>
+                    <div class="excel-preview-footer" id="excelPreviewFooter"></div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary" onclick="closeExcelUploadModal()">Cancelar</button>
+                <button class="btn-primary" style="max-width:260px" id="importExcelBtn" onclick="importExcelToFirestore()" disabled>Importar a Base de Datos</button>
             </div>
         </div>
     </div>
@@ -1051,6 +1126,22 @@
                             <span class="ai-agents-empty-icon">🤖</span>
                             <p>No hay agentes configurados</p>
                             <p class="ai-agents-empty-hint">Crea tu primer agente de IA para automatizar la atención en tus canales de mensajería.</p>
+                        </div>
+                    </div>
+
+                    <!-- Knowledge Bases Section -->
+                    <div class="kb-section">
+                        <div class="section-header">
+                            <h3 class="section-title">Bases de Datos / Conocimiento</h3>
+                            <button class="btn-primary btn-sm" onclick="openExcelUploadModal()">+ Subir Excel</button>
+                        </div>
+                        <p class="ai-agents-desc">Sube archivos Excel para crear bases de datos que tus agentes de IA puedan consultar cuando los clientes hagan preguntas sobre productos, precios, inventario, etc.</p>
+                        <div class="kb-grid" id="kbGrid">
+                            <div class="kb-empty">
+                                <span class="kb-empty-icon">📊</span>
+                                <p>No hay bases de datos cargadas</p>
+                                <p class="kb-empty-hint">Sube un archivo Excel para crear tu primera base de conocimiento.</p>
+                            </div>
                         </div>
                     </div>
 
