@@ -644,6 +644,36 @@
                         </div>
                     </div>
 
+                    <!-- Charts Section -->
+                    <div class="dashboard-charts">
+                        <div class="chart-card">
+                            <div class="chart-header">
+                                <h3 class="chart-title">Conversaciones Activas</h3>
+                                <div class="chart-period-selector">
+                                    <button class="chart-period-btn active" onclick="setChartPeriod('today', this)">Hoy</button>
+                                    <button class="chart-period-btn" onclick="setChartPeriod('week', this)">Semana</button>
+                                    <button class="chart-period-btn" onclick="setChartPeriod('month', this)">Mes</button>
+                                    <button class="chart-period-btn" onclick="setChartPeriod('custom', this)">Personalizado</button>
+                                </div>
+                            </div>
+                            <div class="chart-custom-dates hidden" id="chartCustomDates">
+                                <input type="date" class="form-input form-input-sm" id="chartDateFrom" onchange="updateDashboardCharts()">
+                                <span>a</span>
+                                <input type="date" class="form-input form-input-sm" id="chartDateTo" onchange="updateDashboardCharts()">
+                            </div>
+                            <div class="chart-body" id="convChart"></div>
+                            <div class="chart-legend" id="convChartLegend"></div>
+                        </div>
+                        <div class="chart-card">
+                            <div class="chart-header">
+                                <h3 class="chart-title">Funnel de Ventas</h3>
+                                <span class="chart-subtitle">Distribución actual</span>
+                            </div>
+                            <div class="chart-body" id="funnelChart"></div>
+                            <div class="chart-legend" id="funnelChartLegend"></div>
+                        </div>
+                    </div>
+
                     <div class="team-section">
                         <div class="section-header">
                             <h3 class="section-title">Miembros del Equipo</h3>
@@ -850,7 +880,10 @@
                             <div class="integration-status" id="waStatus">
                                 <span class="status-badge status-disconnected">Desconectado</span>
                             </div>
-                            <button class="btn-primary btn-sm" onclick="openIntegrationConfig('whatsapp')">Configurar</button>
+                            <div class="integration-actions">
+                                <button class="btn-primary btn-sm" onclick="openIntegrationConfig('whatsapp')">Configurar</button>
+                                <button class="btn-secondary btn-sm btn-integ-delete hidden" id="integDelete_whatsapp" onclick="deleteIntegrationConfig('whatsapp')">Borrar</button>
+                            </div>
                         </div>
                         <div class="integration-card" id="integCard_instagram">
                             <div class="integration-icon integration-ig">📷</div>
@@ -861,7 +894,10 @@
                             <div class="integration-status" id="igStatus">
                                 <span class="status-badge status-disconnected">Desconectado</span>
                             </div>
-                            <button class="btn-primary btn-sm" onclick="openIntegrationConfig('instagram')">Configurar</button>
+                            <div class="integration-actions">
+                                <button class="btn-primary btn-sm" onclick="openIntegrationConfig('instagram')">Configurar</button>
+                                <button class="btn-secondary btn-sm btn-integ-delete hidden" id="integDelete_instagram" onclick="deleteIntegrationConfig('instagram')">Borrar</button>
+                            </div>
                         </div>
                         <div class="integration-card" id="integCard_messenger">
                             <div class="integration-icon integration-msg">💬</div>
@@ -872,7 +908,10 @@
                             <div class="integration-status" id="msgStatus">
                                 <span class="status-badge status-disconnected">Desconectado</span>
                             </div>
-                            <button class="btn-primary btn-sm" onclick="openIntegrationConfig('messenger')">Configurar</button>
+                            <div class="integration-actions">
+                                <button class="btn-primary btn-sm" onclick="openIntegrationConfig('messenger')">Configurar</button>
+                                <button class="btn-secondary btn-sm btn-integ-delete hidden" id="integDelete_messenger" onclick="deleteIntegrationConfig('messenger')">Borrar</button>
+                            </div>
                         </div>
                     </div>
 
@@ -890,7 +929,10 @@
                             <div class="integration-status" id="stripeStatus">
                                 <span class="status-badge status-disconnected">Desconectado</span>
                             </div>
-                            <button class="btn-primary btn-sm" onclick="openIntegrationConfig('stripe')">Configurar</button>
+                            <div class="integration-actions">
+                                <button class="btn-primary btn-sm" onclick="openIntegrationConfig('stripe')">Configurar</button>
+                                <button class="btn-secondary btn-sm btn-integ-delete hidden" id="integDelete_stripe" onclick="deleteIntegrationConfig('stripe')">Borrar</button>
+                            </div>
                         </div>
                         <div class="integration-card" id="integCard_mercadopago">
                             <div class="integration-icon integration-mp">🏦</div>
@@ -901,7 +943,10 @@
                             <div class="integration-status" id="mpStatus">
                                 <span class="status-badge status-disconnected">Desconectado</span>
                             </div>
-                            <button class="btn-primary btn-sm" onclick="openIntegrationConfig('mercadopago')">Configurar</button>
+                            <div class="integration-actions">
+                                <button class="btn-primary btn-sm" onclick="openIntegrationConfig('mercadopago')">Configurar</button>
+                                <button class="btn-secondary btn-sm btn-integ-delete hidden" id="integDelete_mercadopago" onclick="deleteIntegrationConfig('mercadopago')">Borrar</button>
+                            </div>
                         </div>
                     </div>
 

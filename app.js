@@ -200,6 +200,10 @@ function handleForgotPassword() {
 }
 
 function handleLogout() {
+    // Cerrar cualquier modal abierto antes de mostrar el de logout
+    document.querySelectorAll('.modal-overlay').forEach(m => {
+        if (m.id !== 'logoutModal') m.classList.add('hidden');
+    });
     document.getElementById('logoutModal').classList.remove('hidden');
 }
 
@@ -588,6 +592,7 @@ async function loadApp(userId) {
 
         document.getElementById('appLayout').classList.add('active');
         showPageDirect('dashboard');
+        updateDashboardCharts();
     } catch (error) {
         console.error('Error al cargar la app:', error);
         showNotification('Error', 'No se pudo cargar la aplicación. Intenta recargar la página.', 'error');
@@ -672,7 +677,9 @@ function showPage(page) {
     }
 
     // Refrescar datos según la página
-    if (page === 'conversations') {
+    if (page === 'dashboard') {
+        updateDashboardCharts();
+    } else if (page === 'conversations') {
         renderFunnel();
         loadConversations();
     } else if (page === 'integrations') {
@@ -690,6 +697,171 @@ function showPageDirect(page) {
 function toggleMobileSidebar() {
     const sidebar = document.getElementById('sidebar');
     sidebar.classList.toggle('mobile-open');
+}
+
+// ========== GRÁFICAS DEL DASHBOARD ==========
+
+let currentChartPeriod = 'today';
+
+function setChartPeriod(period, btn) {
+    currentChartPeriod = period;
+    document.querySelectorAll('.chart-period-btn').forEach(b => b.classList.remove('active'));
+    if (btn) btn.classList.add('active');
+
+    const customDates = document.getElementById('chartCustomDates');
+    if (period === 'custom') {
+        customDates.classList.remove('hidden');
+    } else {
+        customDates.classList.add('hidden');
+    }
+    updateDashboardCharts();
+}
+
+function getChartDateRange() {
+    const now = new Date();
+    let from, to;
+    to = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59);
+
+    switch (currentChartPeriod) {
+        case 'today':
+            from = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0);
+            break;
+        case 'week':
+            from = new Date(now);
+            from.setDate(now.getDate() - now.getDay()); // Inicio de semana (domingo)
+            from.setHours(0, 0, 0, 0);
+            break;
+        case 'month':
+            from = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0);
+            break;
+        case 'custom':
+            const fromInput = document.getElementById('chartDateFrom').value;
+            const toInput = document.getElementById('chartDateTo').value;
+            if (fromInput) from = new Date(fromInput + 'T00:00:00');
+            else from = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0);
+            if (toInput) to = new Date(toInput + 'T23:59:59');
+            break;
+        default:
+            from = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0);
+    }
+    return { from, to };
+}
+
+function updateDashboardCharts() {
+    renderConversationsChart();
+    renderFunnelChart();
+}
+
+function renderConversationsChart() {
+    const chartEl = document.getElementById('convChart');
+    const legendEl = document.getElementById('convChartLegend');
+    if (!chartEl) return;
+
+    const { from, to } = getChartDateRange();
+
+    // Filtrar conversaciones por periodo
+    const filtered = conversations.filter(c => {
+        const date = c.lastMessageAt ? (c.lastMessageAt.toDate ? c.lastMessageAt.toDate() : new Date(c.lastMessageAt)) : null;
+        return date && date >= from && date <= to;
+    });
+
+    // Contar por plataforma
+    const platforms = { whatsapp: 0, instagram: 0, messenger: 0, manual: 0 };
+    filtered.forEach(c => {
+        const p = c.platform || 'manual';
+        platforms[p] = (platforms[p] || 0) + 1;
+    });
+
+    const total = filtered.length;
+    const platformData = [
+        { key: 'whatsapp', label: 'WhatsApp', color: '#25D366', count: platforms.whatsapp },
+        { key: 'instagram', label: 'Instagram', color: '#E4405F', count: platforms.instagram },
+        { key: 'messenger', label: 'Messenger', color: '#0084FF', count: platforms.messenger },
+        { key: 'manual', label: 'Manual', color: '#8B5CF6', count: platforms.manual }
+    ].filter(p => p.count > 0);
+
+    if (total === 0) {
+        chartEl.innerHTML = '<div class="chart-empty">Sin conversaciones en este periodo</div>';
+        legendEl.innerHTML = '';
+        return;
+    }
+
+    // Barras horizontales
+    const maxCount = Math.max(...platformData.map(p => p.count));
+    chartEl.innerHTML = `
+        <div class="chart-total">
+            <span class="chart-total-number">${total}</span>
+            <span class="chart-total-label">conversaciones</span>
+        </div>
+        <div class="chart-bars">
+            ${platformData.map(p => {
+                const pct = Math.round((p.count / maxCount) * 100);
+                return `
+                    <div class="chart-bar-row">
+                        <span class="chart-bar-label">${p.label}</span>
+                        <div class="chart-bar-track">
+                            <div class="chart-bar-fill" style="width:${pct}%;background:${p.color}"></div>
+                        </div>
+                        <span class="chart-bar-value">${p.count}</span>
+                    </div>
+                `;
+            }).join('')}
+        </div>
+    `;
+
+    legendEl.innerHTML = platformData.map(p =>
+        `<span class="chart-legend-item"><span class="chart-legend-dot" style="background:${p.color}"></span>${p.label}: ${p.count}</span>`
+    ).join('');
+}
+
+function renderFunnelChart() {
+    const chartEl = document.getElementById('funnelChart');
+    const legendEl = document.getElementById('funnelChartLegend');
+    if (!chartEl) return;
+
+    // Contar contactos por etapa
+    const stageCounts = {};
+    FUNNEL_STAGES.forEach(s => { stageCounts[s.id] = 0; });
+    contacts.forEach(c => {
+        const stage = c.funnelStage || 'curioso';
+        if (stageCounts[stage] !== undefined) stageCounts[stage]++;
+    });
+
+    const total = contacts.length;
+
+    if (total === 0) {
+        chartEl.innerHTML = '<div class="chart-empty">Sin contactos en el funnel</div>';
+        legendEl.innerHTML = '';
+        return;
+    }
+
+    // Barras del funnel (forma de embudo)
+    const maxCount = Math.max(...Object.values(stageCounts), 1);
+    chartEl.innerHTML = `
+        <div class="chart-total">
+            <span class="chart-total-number">${total}</span>
+            <span class="chart-total-label">contactos</span>
+        </div>
+        <div class="chart-funnel-bars">
+            ${FUNNEL_STAGES.map(stage => {
+                const count = stageCounts[stage.id];
+                const pct = Math.round((count / maxCount) * 100);
+                return `
+                    <div class="chart-bar-row">
+                        <span class="chart-bar-label">${stage.name}</span>
+                        <div class="chart-bar-track">
+                            <div class="chart-bar-fill" style="width:${pct}%;background:${stage.color}"></div>
+                        </div>
+                        <span class="chart-bar-value">${count}</span>
+                    </div>
+                `;
+            }).join('')}
+        </div>
+    `;
+
+    legendEl.innerHTML = FUNNEL_STAGES.map(s =>
+        `<span class="chart-legend-item"><span class="chart-legend-dot" style="background:${s.color}"></span>${s.name}: ${stageCounts[s.id]}</span>`
+    ).join('');
 }
 
 // ========== VISTA DE CONVERSACIONES / FUNNEL ==========
@@ -1468,6 +1640,32 @@ function updateIntegrationStatus(platform, connected) {
         } else {
             statusEl.innerHTML = '<span class="status-badge status-disconnected">Desconectado</span>';
         }
+    }
+    // Mostrar/ocultar botón de borrar
+    const deleteBtn = document.getElementById('integDelete_' + platform);
+    if (deleteBtn) {
+        if (connected) {
+            deleteBtn.classList.remove('hidden');
+        } else {
+            deleteBtn.classList.add('hidden');
+        }
+    }
+}
+
+async function deleteIntegrationConfig(platform) {
+    if (!currentOrganization) return;
+    if (!confirm(`¿Eliminar la configuración de ${getIntegrationName(platform)}? Se borrarán todas las credenciales almacenadas.`)) return;
+
+    try {
+        await window.firestore.deleteDoc(
+            window.firestore.doc(window.db, 'organizations', currentOrganization.id, 'integrations', platform)
+        );
+        delete integrationConfigs[platform];
+        updateIntegrationStatus(platform, false);
+        showNotification('Configuración eliminada', `La configuración de ${getIntegrationName(platform)} fue eliminada correctamente.`, 'success');
+    } catch (error) {
+        console.error('Error eliminando configuración:', error);
+        showNotification('Error', 'No se pudo eliminar la configuración: ' + error.message, 'error');
     }
 }
 
