@@ -17,9 +17,11 @@ const fetch = require('node-fetch');
 
 const {
     db,
+    FieldValue,
     findAgentForPlatform,
     loadKBMeta,
     loadKBRows,
+    saveOrUpdateContact,
     expandSearchTerms,
     scoreRow,
 } = require('../utils/firestore');
@@ -72,7 +74,7 @@ async function buildSystemPrompt(agent, orgId, userMessage) {
             const columns = kb.columns
                 || Object.keys(allRows[0]).filter(k => k !== 'id');
 
-            // Filtrar y ordenar por relevancia semántica (máximo 30 filas)
+            // Filtrar y ordenar por relevancia semántica (máximo 7 filas)
             let rowsToInclude;
             if (terms.size > 0 || years.length > 0) {
                 const scored = allRows
@@ -80,10 +82,10 @@ async function buildSystemPrompt(agent, orgId, userMessage) {
                     .filter(({ score }) => score > 0)
                     .sort((a, b) => b.score - a.score);
                 rowsToInclude = scored.length > 0
-                    ? scored.slice(0, 30).map(({ row }) => row)
-                    : allRows.slice(0, 20);
+                    ? scored.slice(0, 7).map(({ row }) => row)
+                    : allRows.slice(0, 7);
             } else {
-                rowsToInclude = allRows.slice(0, 20);
+                rowsToInclude = allRows.slice(0, 7);
             }
 
             prompt += `Total en base: ${allRows.length} registros `
@@ -149,31 +151,67 @@ async function loadConversationHistory(orgId, convId, limit = 10) {
 // Llamadas a proveedores de IA
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Definición de herramientas para el agente IA
+// ---------------------------------------------------------------------------
+
+/** Devuelve las tool definitions disponibles en el autoResponder. */
+function buildToolDefinitions() {
+    return [{
+        type: 'function',
+        function: {
+            name: 'save_contact',
+            description: 'Guarda o actualiza los datos del contacto cuando el cliente proporciona su nombre, dirección, nombre del taller o empresa, RFC u otros datos personales. Úsala SIEMPRE que el cliente comparta cualquiera de estos datos.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    name:    { type: 'string', description: 'Nombre completo del cliente o responsable' },
+                    company: { type: 'string', description: 'Nombre del taller, empresa o negocio' },
+                    phone:   { type: 'string', description: 'Número de teléfono' },
+                    email:   { type: 'string', description: 'Correo electrónico' },
+                    address: { type: 'string', description: 'Dirección completa' },
+                    rfc:     { type: 'string', description: 'RFC para facturación fiscal' },
+                    notes:   { type: 'string', description: 'Notas adicionales' },
+                },
+                required: ['name'],
+            },
+        },
+    }];
+}
+
+// ---------------------------------------------------------------------------
+// Llamadas a proveedores de IA (con soporte de herramientas)
+// ---------------------------------------------------------------------------
+
 /**
- * Llama a OpenAI (o endpoint compatible) y devuelve el texto de la respuesta.
+ * Llama a OpenAI. Si el modelo invoca save_contact, ejecuta la herramienta
+ * y hace una segunda llamada para obtener el mensaje final al cliente.
  *
- * @param {{ apiKey: string, model: string, provider: string, endpoint?: string }} agent
+ * @param {object} agent
  * @param {string} systemPrompt
- * @param {{ role: string, content: string }[]} messages
+ * @param {object[]} messages
+ * @param {object[]} tools
+ * @param {string} orgId
+ * @param {string} convId
  * @returns {Promise<string>}
  */
-async function callOpenAI(agent, systemPrompt, messages) {
+async function callOpenAI(agent, systemPrompt, messages, tools, orgId, convId) {
     const endpoint = (agent.provider === 'custom' && agent.endpoint)
         ? agent.endpoint
         : 'https://api.openai.com/v1/chat/completions';
 
+    const body = {
+        model:       agent.model,
+        messages:    [{ role: 'system', content: systemPrompt }, ...messages],
+        max_tokens:  1024,
+        temperature: 0.7,
+    };
+    if (tools.length > 0) body.tools = tools;
+
     const res = await fetch(endpoint, {
         method:  'POST',
-        headers: {
-            'Content-Type':  'application/json',
-            'Authorization': `Bearer ${agent.apiKey}`,
-        },
-        body: JSON.stringify({
-            model:       agent.model,
-            messages:    [{ role: 'system', content: systemPrompt }, ...messages],
-            max_tokens:  1024,
-            temperature: 0.7,
-        }),
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${agent.apiKey}` },
+        body:    JSON.stringify(body),
     });
 
     if (!res.ok) {
@@ -181,37 +219,84 @@ async function callOpenAI(agent, systemPrompt, messages) {
         throw new Error(err.error?.message || `OpenAI error ${res.status}`);
     }
 
-    const data = await res.json();
-    return data.choices?.[0]?.message?.content || '';
+    const data   = await res.json();
+    const choice = data.choices?.[0];
+
+    // Manejar llamadas a herramientas
+    if (choice?.finish_reason === 'tool_calls' || choice?.message?.tool_calls) {
+        const toolResults = [];
+        for (const tc of (choice.message.tool_calls || [])) {
+            if (tc.function.name === 'save_contact') {
+                const args   = JSON.parse(tc.function.arguments);
+                const result = await saveOrUpdateContact(orgId, convId, args);
+                toolResults.push({
+                    role:         'tool',
+                    tool_call_id: tc.id,
+                    content: result.success
+                        ? `Contacto ${result.action === 'created' ? 'creado' : 'actualizado'} correctamente: ${result.name}`
+                        : `Error al guardar contacto: ${result.message}`,
+                });
+            }
+        }
+        if (toolResults.length > 0) {
+            const res2 = await fetch(endpoint, {
+                method:  'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${agent.apiKey}` },
+                body: JSON.stringify({
+                    model:    agent.model,
+                    messages: [{ role: 'system', content: systemPrompt }, ...messages, choice.message, ...toolResults],
+                    max_tokens:  1024,
+                    temperature: 0.7,
+                }),
+            });
+            if (!res2.ok) {
+                const err2 = await res2.json().catch(() => ({}));
+                throw new Error(err2.error?.message || `OpenAI error ${res2.status}`);
+            }
+            const data2 = await res2.json();
+            return data2.choices?.[0]?.message?.content || '';
+        }
+    }
+
+    return choice?.message?.content || '';
 }
 
 /**
- * Llama a Anthropic y devuelve el texto de la respuesta.
+ * Llama a Anthropic. Si el modelo invoca save_contact, ejecuta la herramienta
+ * y hace una segunda llamada para obtener el mensaje final al cliente.
  *
- * @param {{ apiKey: string, model: string }} agent
+ * @param {object} agent
  * @param {string} systemPrompt
- * @param {{ role: string, content: string }[]} messages
+ * @param {object[]} messages
+ * @param {object[]} tools
+ * @param {string} orgId
+ * @param {string} convId
  * @returns {Promise<string>}
  */
-async function callAnthropic(agent, systemPrompt, messages) {
+async function callAnthropic(agent, systemPrompt, messages, tools, orgId, convId) {
     const anthropicMessages = messages.map(m => ({
         role:    m.role === 'assistant' ? 'assistant' : 'user',
         content: m.content,
     }));
 
+    const anthropicTools = tools.map(t => ({
+        name:         t.function.name,
+        description:  t.function.description,
+        input_schema: t.function.parameters,
+    }));
+
+    const body = {
+        model:       agent.model,
+        max_tokens:  1024,
+        system:      systemPrompt,
+        messages:    anthropicMessages,
+        ...(anthropicTools.length > 0 ? { tools: anthropicTools } : {}),
+    };
+
     const res = await fetch('https://api.anthropic.com/v1/messages', {
         method:  'POST',
-        headers: {
-            'Content-Type':      'application/json',
-            'x-api-key':         agent.apiKey,
-            'anthropic-version': '2023-06-01',
-        },
-        body: JSON.stringify({
-            model:       agent.model,
-            max_tokens:  1024,
-            system:      systemPrompt,
-            messages:    anthropicMessages,
-        }),
+        headers: { 'Content-Type': 'application/json', 'x-api-key': agent.apiKey, 'anthropic-version': '2023-06-01' },
+        body:    JSON.stringify(body),
     });
 
     if (!res.ok) {
@@ -219,7 +304,49 @@ async function callAnthropic(agent, systemPrompt, messages) {
         throw new Error(err.error?.message || `Anthropic error ${res.status}`);
     }
 
-    const data = await res.json();
+    const data          = await res.json();
+    const toolUseBlocks = (data.content || []).filter(b => b.type === 'tool_use');
+
+    if (toolUseBlocks.length > 0) {
+        const toolResultContents = [];
+        for (const tb of toolUseBlocks) {
+            if (tb.name === 'save_contact') {
+                const result = await saveOrUpdateContact(orgId, convId, tb.input);
+                toolResultContents.push({
+                    type:        'tool_result',
+                    tool_use_id: tb.id,
+                    content: result.success
+                        ? `Contacto ${result.action === 'created' ? 'creado' : 'actualizado'} correctamente: ${result.name}`
+                        : `Error al guardar contacto: ${result.message}`,
+                });
+            }
+        }
+        if (toolResultContents.length > 0) {
+            const res2 = await fetch('https://api.anthropic.com/v1/messages', {
+                method:  'POST',
+                headers: { 'Content-Type': 'application/json', 'x-api-key': agent.apiKey, 'anthropic-version': '2023-06-01' },
+                body: JSON.stringify({
+                    model:    agent.model,
+                    max_tokens: 1024,
+                    system:   systemPrompt,
+                    messages: [
+                        ...anthropicMessages,
+                        { role: 'assistant', content: data.content },
+                        { role: 'user',      content: toolResultContents },
+                    ],
+                    ...(anthropicTools.length > 0 ? { tools: anthropicTools } : {}),
+                }),
+            });
+            if (!res2.ok) {
+                const err2 = await res2.json().catch(() => ({}));
+                throw new Error(err2.error?.message || `Anthropic error ${res2.status}`);
+            }
+            const data2     = await res2.json();
+            const textBlock = (data2.content || []).find(b => b.type === 'text');
+            return textBlock?.text || '';
+        }
+    }
+
     const textBlock = (data.content || []).find(b => b.type === 'text');
     return textBlock?.text || '';
 }
@@ -273,12 +400,15 @@ exports.autoResponder = onDocumentCreated(
             const userText = messageData.text || '';
             const systemPrompt = await buildSystemPrompt(agent, orgId, userText);
 
+            // Herramientas disponibles para el agente
+            const tools = buildToolDefinitions();
+
             // Llamar al proveedor de IA (la API key viene de Firestore)
             let aiResponse;
             if (agent.provider === 'anthropic') {
-                aiResponse = await callAnthropic(agent, systemPrompt, history);
+                aiResponse = await callAnthropic(agent, systemPrompt, history, tools, orgId, convId);
             } else {
-                aiResponse = await callOpenAI(agent, systemPrompt, history);
+                aiResponse = await callOpenAI(agent, systemPrompt, history, tools, orgId, convId);
             }
 
             if (!aiResponse) {

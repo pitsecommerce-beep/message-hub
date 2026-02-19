@@ -3154,6 +3154,16 @@ async function callOpenAI(agent, systemPrompt, messages, tools) {
                     tool_call_id: tc.id,
                     content: JSON.stringify(results)
                 });
+            } else if (tc.function.name === 'save_contact') {
+                const args = JSON.parse(tc.function.arguments);
+                const result = await saveContactFromAI(args);
+                toolResults.push({
+                    role: 'tool',
+                    tool_call_id: tc.id,
+                    content: result.success
+                        ? `Contacto ${result.action === 'created' ? 'creado' : 'actualizado'} correctamente: ${result.name}`
+                        : `Error al guardar contacto: ${result.message}`
+                });
             }
         }
 
@@ -3248,6 +3258,15 @@ async function callAnthropic(agent, systemPrompt, messages, tools) {
                     type: 'tool_result',
                     tool_use_id: tb.id,
                     content: JSON.stringify(results)
+                });
+            } else if (tb.name === 'save_contact') {
+                const result = await saveContactFromAI(tb.input);
+                toolResultContents.push({
+                    type: 'tool_result',
+                    tool_use_id: tb.id,
+                    content: result.success
+                        ? `Contacto ${result.action === 'created' ? 'creado' : 'actualizado'} correctamente: ${result.name}`
+                        : `Error al guardar contacto: ${result.message}`
                 });
             }
         }
@@ -3902,7 +3921,7 @@ async function buildAISystemPromptWithData(agent, userMessage) {
 
             const columns = kb.columns || Object.keys(allRows[0]).filter(k => k !== 'id');
 
-            // Filtrar y ordenar por relevancia semántica (máximo 30 filas)
+            // Filtrar y ordenar por relevancia semántica (máximo 7 filas)
             let rowsToInclude;
             if (terms.size > 0 || years.length > 0) {
                 const scored = allRows
@@ -3910,10 +3929,10 @@ async function buildAISystemPromptWithData(agent, userMessage) {
                     .filter(({ score }) => score > 0)
                     .sort((a, b) => b.score - a.score);
                 rowsToInclude = scored.length > 0
-                    ? scored.slice(0, 30).map(({ row }) => row)
-                    : allRows.slice(0, 20);
+                    ? scored.slice(0, 7).map(({ row }) => row)
+                    : allRows.slice(0, 7);
             } else {
-                rowsToInclude = allRows.slice(0, 20);
+                rowsToInclude = allRows.slice(0, 7);
             }
 
             prompt += `Total en base: ${allRows.length} registros (mostrando ${rowsToInclude.length} relevantes)\n\n`;
@@ -3942,47 +3961,126 @@ async function buildAISystemPromptWithData(agent, userMessage) {
     return prompt;
 }
 
-// Genera las tool definitions para que la IA pueda consultar bases de datos
+// Genera las tool definitions para el agente IA.
+// save_contact siempre está disponible; query_database solo si tiene KBs.
 function buildAIToolDefinitions(agent) {
+    const tools = [];
+
+    // --- Herramienta 1: guardar datos del contacto ---
+    tools.push({
+        type: 'function',
+        function: {
+            name: 'save_contact',
+            description: 'Guarda o actualiza los datos del contacto cuando el cliente proporciona su nombre, dirección, nombre del taller o empresa, RFC u otros datos personales. Úsala SIEMPRE que el cliente comparta cualquiera de estos datos, aunque sea de forma parcial.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    name:    { type: 'string', description: 'Nombre completo del cliente o responsable' },
+                    company: { type: 'string', description: 'Nombre del taller, empresa o negocio' },
+                    phone:   { type: 'string', description: 'Número de teléfono' },
+                    email:   { type: 'string', description: 'Correo electrónico' },
+                    address: { type: 'string', description: 'Dirección completa' },
+                    rfc:     { type: 'string', description: 'RFC para facturación fiscal' },
+                    notes:   { type: 'string', description: 'Notas adicionales relevantes' },
+                },
+                required: ['name'],
+            },
+        },
+    });
+
+    // --- Herramienta 2: consultar base de datos (solo si hay KBs) ---
     const agentKBs = (agent.knowledgeBases || [])
         .map(kbId => knowledgeBases.find(kb => kb.id === kbId))
         .filter(Boolean);
 
-    if (agentKBs.length === 0) return [];
+    if (agentKBs.length > 0) {
+        tools.push({
+            type: 'function',
+            function: {
+                name: 'query_database',
+                description: 'Consulta una base de datos de conocimiento para buscar productos, precios, disponibilidad u otra información. Bases disponibles: ' +
+                    agentKBs.map(kb => `"${kb.name}" (${(kb.columns || []).join(', ')})`).join('; '),
+                parameters: {
+                    type: 'object',
+                    properties: {
+                        knowledgeBaseId: {
+                            type: 'string',
+                            description: 'ID de la base de datos a consultar',
+                            enum: agentKBs.map(kb => kb.id),
+                        },
+                        searchQuery: {
+                            type: 'string',
+                            description: 'Texto de búsqueda libre para encontrar registros relevantes',
+                        },
+                        filters: {
+                            type: 'object',
+                            description: 'Filtros por columna. Ej: {"categoria": "electrónica"}',
+                        },
+                        limit: {
+                            type: 'number',
+                            description: 'Máximo de resultados a devolver (default: 10)',
+                        },
+                    },
+                    required: ['knowledgeBaseId'],
+                },
+            },
+        });
+    }
 
-    const properties = {
-        knowledgeBaseId: {
-            type: 'string',
-            description: 'ID de la base de datos a consultar',
-            enum: agentKBs.map(kb => kb.id)
-        },
-        searchQuery: {
-            type: 'string',
-            description: 'Texto de búsqueda libre para encontrar registros relevantes'
-        },
-        filters: {
-            type: 'object',
-            description: 'Filtros por columna. Ej: {"categoria": "electrónica", "precio_max": "5000"}'
-        },
-        limit: {
-            type: 'number',
-            description: 'Máximo de resultados a devolver (default: 10)'
-        }
-    };
+    return tools;
+}
 
-    return [{
-        type: 'function',
-        function: {
-            name: 'query_database',
-            description: 'Consulta una base de datos de conocimiento para buscar productos, precios, disponibilidad u otra información. Bases disponibles: ' +
-                agentKBs.map(kb => `"${kb.name}" (${(kb.columns || []).join(', ')})`).join('; '),
-            parameters: {
-                type: 'object',
-                properties,
-                required: ['knowledgeBaseId']
-            }
+// Ejecuta la herramienta save_contact: crea o actualiza el contacto en Firestore
+// y lo vincula a la conversación activa.
+async function saveContactFromAI(contactData) {
+    if (!currentOrganization || !currentConversation) {
+        return { success: false, message: 'No hay conversación activa.' };
+    }
+    try {
+        const data = { ...contactData };
+        if (data.rfc) data.rfc = data.rfc.toUpperCase();
+
+        // Verificar si el contactId actual apunta a un documento real de Firestore
+        const existingContactId = currentConversation.contactId;
+        let isRealContact = false;
+        if (existingContactId) {
+            const snap = await window.firestore.getDoc(
+                window.firestore.doc(window.db, 'organizations', currentOrganization.id, 'contacts', existingContactId)
+            );
+            isRealContact = snap.exists();
         }
-    }];
+
+        if (isRealContact) {
+            await window.firestore.updateDoc(
+                window.firestore.doc(window.db, 'organizations', currentOrganization.id, 'contacts', existingContactId),
+                { ...data, updatedAt: window.firestore.serverTimestamp() }
+            );
+            const idx = contacts.findIndex(c => c.id === existingContactId);
+            if (idx !== -1) contacts[idx] = { ...contacts[idx], ...data, updatedAt: new Date() };
+            return { success: true, action: 'updated', name: data.name };
+        } else {
+            const docRef = await window.firestore.addDoc(
+                window.firestore.collection(window.db, 'organizations', currentOrganization.id, 'contacts'),
+                {
+                    ...data,
+                    funnelStage: 'curioso',
+                    createdAt: window.firestore.serverTimestamp(),
+                    updatedAt: window.firestore.serverTimestamp(),
+                }
+            );
+            await window.firestore.updateDoc(
+                window.firestore.doc(window.db, 'organizations', currentOrganization.id, 'conversations', currentConversation.id),
+                { contactId: docRef.id, contactName: data.name, contactPhone: data.phone || '' }
+            );
+            currentConversation.contactId   = docRef.id;
+            currentConversation.contactName = data.name;
+            contacts.push({ id: docRef.id, ...data, funnelStage: 'curioso', createdAt: new Date(), updatedAt: new Date() });
+            return { success: true, action: 'created', name: data.name, contactId: docRef.id };
+        }
+    } catch (err) {
+        console.error('Error guardando contacto desde IA:', err);
+        return { success: false, message: err.message };
+    }
 }
 
 // Ejecuta una consulta a la base de datos (usa caché interna)
