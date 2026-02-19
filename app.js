@@ -1733,6 +1733,10 @@ let currentConvPaymentLinks = [];
 let aiAgents = [];
 let knowledgeBases = [];
 let parsedExcelData = null;
+
+// ===== CACHÉ DE KNOWLEDGE BASE (TTL 5 minutos) =====
+const kbDataCache = {}; // { [kbId]: { rows: [...], loadedAt: timestamp } }
+const KB_CACHE_TTL = 5 * 60 * 1000; // 5 minutos en ms
 let parsedExcelWorkbook = null;
 
 async function loadConversations() {
@@ -3080,8 +3084,10 @@ async function sendTestMessage() {
 
 // Call AI provider API (OpenAI / Anthropic / Custom)
 async function callAIProvider(agent, messages) {
-    // Pre-load knowledge base data and embed it into the prompt
-    const systemPrompt = await buildAISystemPromptWithData(agent);
+    // Extraer el último mensaje del usuario para filtrar filas relevantes de la KB
+    const lastUserMsg = [...messages].reverse().find(m => m.role === 'user');
+    const userMessage = lastUserMsg?.content || '';
+    const systemPrompt = await buildAISystemPromptWithData(agent, userMessage);
     const tools = buildAIToolDefinitions(agent);
 
     if (agent.provider === 'anthropic') {
@@ -3659,8 +3665,43 @@ function buildAISystemPrompt(agent) {
     return prompt;
 }
 
-// Versión asíncrona que carga los datos reales de Firestore y los embebe en el prompt
-async function buildAISystemPromptWithData(agent) {
+// Obtiene las filas de una KB usando caché con TTL de 5 minutos
+async function getKBRows(kbId) {
+    const now = Date.now();
+    const cached = kbDataCache[kbId];
+    if (cached && (now - cached.loadedAt) < KB_CACHE_TTL) {
+        return cached.rows;
+    }
+    const rowsRef = window.firestore.collection(
+        window.db, 'organizations', currentOrganization.id, 'knowledgeBases', kbId, 'rows'
+    );
+    const snapshot = await window.firestore.getDocs(rowsRef);
+    const rows = [];
+    snapshot.forEach(doc => rows.push({ id: doc.id, ...doc.data() }));
+    kbDataCache[kbId] = { rows, loadedAt: now };
+    return rows;
+}
+
+// Extrae palabras clave significativas de un texto (filtra stopwords comunes)
+function extractKeywords(text) {
+    if (!text) return [];
+    const stopwords = new Set([
+        'el','la','los','las','un','una','unos','unas','de','del','al','en',
+        'con','por','para','que','qué','es','son','hay','tiene','tienen',
+        'cuánto','cuanto','me','te','se','le','lo','y','o','a','e','i','u',
+        'como','cómo','si','no','sí','más','muy','también','ya','mi','tu',
+        'su','this','the','is','are','do','does','what','how','have','has'
+    ]);
+    return text
+        .toLowerCase()
+        .replace(/[^a-záéíóúüñ0-9\s]/gi, ' ')
+        .split(/\s+/)
+        .filter(w => w.length > 2 && !stopwords.has(w));
+}
+
+// Versión asíncrona que carga datos filtrados de Firestore y los embebe en el prompt
+// userMessage: último mensaje del usuario para filtrar filas relevantes (máx 30)
+async function buildAISystemPromptWithData(agent, userMessage) {
     let prompt = agent.systemPrompt || '';
 
     const agentKBs = (agent.knowledgeBases || [])
@@ -3668,6 +3709,8 @@ async function buildAISystemPromptWithData(agent) {
         .filter(Boolean);
 
     if (agentKBs.length === 0) return prompt;
+
+    const keywords = extractKeywords(userMessage || '');
 
     prompt += '\n\n=== DATOS DE REFERENCIA ===\n';
     prompt += 'A continuación tienes los datos reales de tus bases de datos. SIEMPRE usa estos datos para responder preguntas sobre productos, precios, disponibilidad, etc.\n';
@@ -3679,27 +3722,32 @@ async function buildAISystemPromptWithData(agent) {
         prompt += `Columnas: ${(kb.columns || []).join(' | ')}\n\n`;
 
         try {
-            // Cargar todos los datos de esta base
-            const rowsRef = window.firestore.collection(
-                window.db, 'organizations', currentOrganization.id, 'knowledgeBases', kb.id, 'rows'
-            );
-            const snapshot = await window.firestore.getDocs(rowsRef);
-            const rows = [];
-            snapshot.forEach(doc => rows.push(doc.data()));
+            const allRows = await getKBRows(kb.id);
 
-            if (rows.length === 0) {
+            if (allRows.length === 0) {
                 prompt += '(Sin datos cargados en esta base)\n\n';
                 continue;
             }
 
-            const columns = kb.columns || Object.keys(rows[0]).filter(k => k !== 'id');
+            const columns = kb.columns || Object.keys(allRows[0]).filter(k => k !== 'id');
 
-            // Para bases de hasta 500 filas, incluir todo como tabla
-            const maxInline = 500;
-            const rowsToInclude = rows.slice(0, maxInline);
+            // Filtrar filas relevantes al mensaje del usuario (máximo 30)
+            let rowsToInclude;
+            if (keywords.length > 0) {
+                const matched = allRows.filter(row =>
+                    keywords.some(kw =>
+                        Object.values(row).some(val =>
+                            String(val).toLowerCase().includes(kw)
+                        )
+                    )
+                );
+                // Si hay matches, usar los primeros 30; si no, fallback a primeros 20
+                rowsToInclude = matched.length > 0 ? matched.slice(0, 30) : allRows.slice(0, 20);
+            } else {
+                rowsToInclude = allRows.slice(0, 20);
+            }
 
-            // Formato de tabla legible
-            prompt += `Total: ${rows.length} registros${rows.length > maxInline ? ` (mostrando primeros ${maxInline})` : ''}\n\n`;
+            prompt += `Total en base: ${allRows.length} registros (mostrando ${rowsToInclude.length} relevantes)\n\n`;
 
             rowsToInclude.forEach((row, i) => {
                 const parts = columns.map(col => `${col}: ${row[col] ?? ''}`);
@@ -3768,17 +3816,12 @@ function buildAIToolDefinitions(agent) {
     }];
 }
 
-// Ejecuta una consulta a la base de datos (para Cloud Functions)
+// Ejecuta una consulta a la base de datos (usa caché interna)
 async function queryKnowledgeBase(kbId, searchQuery, filters, limit = 10) {
     if (!currentOrganization) return [];
 
     try {
-        const rowsRef = window.firestore.collection(
-            window.db, 'organizations', currentOrganization.id, 'knowledgeBases', kbId, 'rows'
-        );
-        const snapshot = await window.firestore.getDocs(rowsRef);
-        let results = [];
-        snapshot.forEach(doc => results.push({ id: doc.id, ...doc.data() }));
+        let results = await getKBRows(kbId);
 
         // Apply text search if provided
         if (searchQuery) {
