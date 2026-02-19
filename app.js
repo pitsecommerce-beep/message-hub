@@ -2405,7 +2405,8 @@ async function startNewChat() {
             lastMessageAt: window.firestore.serverTimestamp(),
             lastMessageBy: currentUser.uid,
             unreadCount: 0,
-            assignedTo: currentUser.uid
+            assignedTo: currentUser.uid,
+            aiEnabled: true
         };
 
         const convRef = await window.firestore.addDoc(
@@ -2708,6 +2709,7 @@ function renderAIAgents() {
                 <div class="ai-agent-card-channels">${channelsStr}</div>
                 <div class="ai-agent-card-prompt">${escapeHtml(promptPreview)}</div>
                 <div class="ai-agent-card-actions">
+                    <button class="btn-primary btn-sm" onclick="openAITestModal('${agent.id}')">Probar</button>
                     <button class="btn-secondary btn-sm" onclick="openAIAgentModal(aiAgents.find(a=>a.id==='${agent.id}'))">Editar</button>
                     <button class="btn-secondary btn-sm btn-integ-delete" onclick="deleteAIAgent('${agent.id}')">Eliminar</button>
                 </div>
@@ -2938,6 +2940,331 @@ async function toggleConvAI(convId, enabled) {
         console.error('Error toggling AI:', error);
         showNotification('Error', 'No se pudo cambiar el estado de la IA.', 'error');
     }
+}
+
+// ========== PROBAR AGENTE IA (TEST CHAT) ==========
+
+let aiTestConversation = [];
+let aiTestAgent = null;
+let aiTestLoading = false;
+
+function openAITestModal(agentId) {
+    const agent = aiAgents.find(a => a.id === agentId);
+    if (!agent) return;
+
+    aiTestAgent = agent;
+    aiTestConversation = [];
+    aiTestLoading = false;
+
+    document.getElementById('aiTestAgentId').value = agentId;
+    document.getElementById('aiTestAgentName').textContent = agent.name;
+
+    // Info bar
+    const providerLabel = agent.provider === 'openai' ? 'OpenAI' : agent.provider === 'anthropic' ? 'Anthropic' : 'Custom';
+    const kbCount = (agent.knowledgeBases || []).length;
+    document.getElementById('aiTestInfo').textContent = `${providerLabel} · ${agent.model} · ${kbCount} base(s) de datos`;
+
+    // Build enriched prompt for preview
+    const fullPrompt = buildAISystemPrompt(agent);
+    document.getElementById('aiTestPromptText').textContent = fullPrompt;
+    document.getElementById('aiTestPromptPreview').classList.add('hidden');
+
+    // Reset chat
+    document.getElementById('aiTestMessages').innerHTML = `
+        <div class="ai-test-welcome">
+            <span class="ai-test-welcome-icon">🤖</span>
+            <p>Envía un mensaje para probar cómo responde <strong>${escapeHtml(agent.name)}</strong>.</p>
+            <p class="ai-test-welcome-hint">El agente usará su system prompt y consultará las bases de datos asignadas en tiempo real.</p>
+        </div>
+    `;
+
+    document.getElementById('aiTestInput').value = '';
+    document.getElementById('aiTestModal').classList.remove('hidden');
+    setTimeout(() => document.getElementById('aiTestInput').focus(), 100);
+}
+
+function closeAITestModal() {
+    document.getElementById('aiTestModal').classList.add('hidden');
+    aiTestAgent = null;
+    aiTestConversation = [];
+}
+
+function toggleTestPromptPreview() {
+    document.getElementById('aiTestPromptPreview').classList.toggle('hidden');
+}
+
+function appendTestMessage(role, text) {
+    const container = document.getElementById('aiTestMessages');
+    // Remove welcome if first message
+    const welcome = container.querySelector('.ai-test-welcome');
+    if (welcome) welcome.remove();
+
+    const div = document.createElement('div');
+    div.className = `ai-test-msg ai-test-msg-${role}`;
+    div.innerHTML = `
+        <div class="ai-test-msg-bubble">
+            <div class="ai-test-msg-sender">${role === 'user' ? 'Tú' : '🤖 ' + escapeHtml(aiTestAgent?.name || 'Agente')}</div>
+            <div class="ai-test-msg-text">${escapeHtml(text).replace(/\n/g, '<br>')}</div>
+        </div>
+    `;
+    container.appendChild(div);
+    container.scrollTop = container.scrollHeight;
+}
+
+function appendTestLoading() {
+    const container = document.getElementById('aiTestMessages');
+    const div = document.createElement('div');
+    div.className = 'ai-test-msg ai-test-msg-assistant';
+    div.id = 'aiTestLoading';
+    div.innerHTML = `
+        <div class="ai-test-msg-bubble ai-test-loading">
+            <span class="spinner"></span> Pensando...
+        </div>
+    `;
+    container.appendChild(div);
+    container.scrollTop = container.scrollHeight;
+}
+
+function removeTestLoading() {
+    const el = document.getElementById('aiTestLoading');
+    if (el) el.remove();
+}
+
+async function sendTestMessage() {
+    if (aiTestLoading || !aiTestAgent) return;
+    const input = document.getElementById('aiTestInput');
+    const text = input.value.trim();
+    if (!text) return;
+
+    input.value = '';
+    appendTestMessage('user', text);
+    aiTestConversation.push({ role: 'user', content: text });
+
+    aiTestLoading = true;
+    document.getElementById('aiTestSendBtn').disabled = true;
+    appendTestLoading();
+
+    try {
+        const response = await callAIProvider(aiTestAgent, aiTestConversation);
+        removeTestLoading();
+        appendTestMessage('assistant', response);
+        aiTestConversation.push({ role: 'assistant', content: response });
+    } catch (error) {
+        removeTestLoading();
+        const errMsg = `Error: ${error.message || 'No se pudo obtener respuesta'}`;
+        appendTestMessage('assistant', errMsg);
+    } finally {
+        aiTestLoading = false;
+        document.getElementById('aiTestSendBtn').disabled = false;
+        input.focus();
+    }
+}
+
+// Call AI provider API (OpenAI / Anthropic / Custom)
+async function callAIProvider(agent, messages) {
+    const systemPrompt = buildAISystemPrompt(agent);
+    const tools = buildAIToolDefinitions(agent);
+
+    if (agent.provider === 'anthropic') {
+        return await callAnthropic(agent, systemPrompt, messages, tools);
+    } else {
+        // OpenAI and custom both use OpenAI-compatible API
+        return await callOpenAI(agent, systemPrompt, messages, tools);
+    }
+}
+
+async function callOpenAI(agent, systemPrompt, messages, tools) {
+    const endpoint = agent.provider === 'custom' && agent.endpoint
+        ? agent.endpoint
+        : 'https://api.openai.com/v1/chat/completions';
+
+    const apiMessages = [
+        { role: 'system', content: systemPrompt },
+        ...messages
+    ];
+
+    const body = {
+        model: agent.model,
+        messages: apiMessages,
+        max_tokens: 1024,
+        temperature: 0.7
+    };
+
+    if (tools.length > 0) {
+        body.tools = tools;
+        body.tool_choice = 'auto';
+    }
+
+    const res = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${agent.apiKey}`
+        },
+        body: JSON.stringify(body)
+    });
+
+    if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error?.message || `Error ${res.status}: ${res.statusText}`);
+    }
+
+    const data = await res.json();
+    const choice = data.choices?.[0];
+
+    // Handle function calling (tool use)
+    if (choice?.finish_reason === 'tool_calls' || choice?.message?.tool_calls) {
+        const toolCalls = choice.message.tool_calls;
+        const toolResults = [];
+
+        for (const tc of toolCalls) {
+            if (tc.function.name === 'query_database') {
+                const args = JSON.parse(tc.function.arguments);
+                const results = await queryKnowledgeBase(
+                    args.knowledgeBaseId,
+                    args.searchQuery || '',
+                    args.filters || {},
+                    args.limit || 10
+                );
+                toolResults.push({
+                    role: 'tool',
+                    tool_call_id: tc.id,
+                    content: JSON.stringify(results)
+                });
+            }
+        }
+
+        // Second call with tool results
+        const followUpMessages = [
+            { role: 'system', content: systemPrompt },
+            ...messages,
+            choice.message,
+            ...toolResults
+        ];
+
+        const res2 = await fetch(endpoint, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${agent.apiKey}`
+            },
+            body: JSON.stringify({
+                model: agent.model,
+                messages: followUpMessages,
+                max_tokens: 1024,
+                temperature: 0.7
+            })
+        });
+
+        if (!res2.ok) {
+            const err2 = await res2.json().catch(() => ({}));
+            throw new Error(err2.error?.message || `Error ${res2.status}`);
+        }
+
+        const data2 = await res2.json();
+        return data2.choices?.[0]?.message?.content || 'Sin respuesta del modelo.';
+    }
+
+    return choice?.message?.content || 'Sin respuesta del modelo.';
+}
+
+async function callAnthropic(agent, systemPrompt, messages, tools) {
+    const anthropicMessages = messages.map(m => ({
+        role: m.role === 'assistant' ? 'assistant' : 'user',
+        content: m.content
+    }));
+
+    const body = {
+        model: agent.model,
+        max_tokens: 1024,
+        system: systemPrompt,
+        messages: anthropicMessages
+    };
+
+    // Convert OpenAI tools format to Anthropic format
+    if (tools.length > 0) {
+        body.tools = tools.map(t => ({
+            name: t.function.name,
+            description: t.function.description,
+            input_schema: t.function.parameters
+        }));
+    }
+
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'x-api-key': agent.apiKey,
+            'anthropic-version': '2023-06-01',
+            'anthropic-dangerous-direct-browser-access': 'true'
+        },
+        body: JSON.stringify(body)
+    });
+
+    if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error?.message || `Error ${res.status}: ${res.statusText}`);
+    }
+
+    const data = await res.json();
+
+    // Handle tool use
+    const toolUseBlocks = (data.content || []).filter(b => b.type === 'tool_use');
+    if (toolUseBlocks.length > 0) {
+        const toolResultContents = [];
+
+        for (const tb of toolUseBlocks) {
+            if (tb.name === 'query_database') {
+                const results = await queryKnowledgeBase(
+                    tb.input.knowledgeBaseId,
+                    tb.input.searchQuery || '',
+                    tb.input.filters || {},
+                    tb.input.limit || 10
+                );
+                toolResultContents.push({
+                    type: 'tool_result',
+                    tool_use_id: tb.id,
+                    content: JSON.stringify(results)
+                });
+            }
+        }
+
+        // Second call with tool results
+        const followUpMessages = [
+            ...anthropicMessages,
+            { role: 'assistant', content: data.content },
+            { role: 'user', content: toolResultContents }
+        ];
+
+        const res2 = await fetch('https://api.anthropic.com/v1/messages', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'x-api-key': agent.apiKey,
+                'anthropic-version': '2023-06-01',
+                'anthropic-dangerous-direct-browser-access': 'true'
+            },
+            body: JSON.stringify({
+                model: agent.model,
+                max_tokens: 1024,
+                system: systemPrompt,
+                messages: followUpMessages,
+                tools: body.tools
+            })
+        });
+
+        if (!res2.ok) {
+            const err2 = await res2.json().catch(() => ({}));
+            throw new Error(err2.error?.message || `Error ${res2.status}`);
+        }
+
+        const data2 = await res2.json();
+        const textBlocks = (data2.content || []).filter(b => b.type === 'text');
+        return textBlocks.map(b => b.text).join('\n') || 'Sin respuesta del modelo.';
+    }
+
+    const textBlocks = (data.content || []).filter(b => b.type === 'text');
+    return textBlocks.map(b => b.text).join('\n') || 'Sin respuesta del modelo.';
 }
 
 // ========== BASES DE DATOS / KNOWLEDGE BASES ==========
@@ -3455,6 +3782,7 @@ document.addEventListener('keydown', (e) => {
         closePaymentLinkModal();
         closeAIAgentModal();
         closeExcelUploadModal();
+        closeAITestModal();
         document.getElementById('notificationsPanel')?.classList.add('hidden');
     }
 });
