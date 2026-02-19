@@ -3921,7 +3921,7 @@ async function buildAISystemPromptWithData(agent, userMessage) {
 
             const columns = kb.columns || Object.keys(allRows[0]).filter(k => k !== 'id');
 
-            // Filtrar y ordenar por relevancia semántica (máximo 7 filas)
+            // Filtrar y ordenar por relevancia semántica (máximo 5 filas)
             let rowsToInclude;
             if (terms.size > 0 || years.length > 0) {
                 const scored = allRows
@@ -3929,10 +3929,10 @@ async function buildAISystemPromptWithData(agent, userMessage) {
                     .filter(({ score }) => score > 0)
                     .sort((a, b) => b.score - a.score);
                 rowsToInclude = scored.length > 0
-                    ? scored.slice(0, 7).map(({ row }) => row)
-                    : allRows.slice(0, 7);
+                    ? scored.slice(0, 5).map(({ row }) => row)
+                    : allRows.slice(0, 5);
             } else {
-                rowsToInclude = allRows.slice(0, 7);
+                rowsToInclude = allRows.slice(0, 5);
             }
 
             prompt += `Total en base: ${allRows.length} registros (mostrando ${rowsToInclude.length} relevantes)\n\n`;
