@@ -2964,9 +2964,8 @@ function openAITestModal(agentId) {
     const kbCount = (agent.knowledgeBases || []).length;
     document.getElementById('aiTestInfo').textContent = `${providerLabel} · ${agent.model} · ${kbCount} base(s) de datos`;
 
-    // Build enriched prompt for preview
-    const fullPrompt = buildAISystemPrompt(agent);
-    document.getElementById('aiTestPromptText').textContent = fullPrompt;
+    // Build enriched prompt with data for preview
+    document.getElementById('aiTestPromptText').textContent = 'Cargando datos de las bases de conocimiento...';
     document.getElementById('aiTestPromptPreview').classList.add('hidden');
 
     // Reset chat
@@ -2974,13 +2973,18 @@ function openAITestModal(agentId) {
         <div class="ai-test-welcome">
             <span class="ai-test-welcome-icon">🤖</span>
             <p>Envía un mensaje para probar cómo responde <strong>${escapeHtml(agent.name)}</strong>.</p>
-            <p class="ai-test-welcome-hint">El agente usará su system prompt y consultará las bases de datos asignadas en tiempo real.</p>
+            <p class="ai-test-welcome-hint">El agente usará su system prompt y los datos reales de las bases de datos asignadas.</p>
         </div>
     `;
 
     document.getElementById('aiTestInput').value = '';
     document.getElementById('aiTestModal').classList.remove('hidden');
     setTimeout(() => document.getElementById('aiTestInput').focus(), 100);
+
+    // Pre-load the full prompt with data (async)
+    buildAISystemPromptWithData(agent).then(fullPrompt => {
+        document.getElementById('aiTestPromptText').textContent = fullPrompt;
+    });
 }
 
 function closeAITestModal() {
@@ -3045,14 +3049,28 @@ async function sendTestMessage() {
     appendTestLoading();
 
     try {
+        // Update loading text to show data is being loaded
+        const loadingEl = document.querySelector('#aiTestLoading .ai-test-loading');
+        if (loadingEl) loadingEl.innerHTML = '<span class="spinner"></span> Cargando datos y consultando IA...';
+
         const response = await callAIProvider(aiTestAgent, aiTestConversation);
         removeTestLoading();
         appendTestMessage('assistant', response);
         aiTestConversation.push({ role: 'assistant', content: response });
     } catch (error) {
         removeTestLoading();
-        const errMsg = `Error: ${error.message || 'No se pudo obtener respuesta'}`;
-        appendTestMessage('assistant', errMsg);
+        let errMsg = error.message || 'No se pudo obtener respuesta';
+        // Provide helpful error messages
+        if (errMsg.includes('401') || errMsg.includes('Unauthorized') || errMsg.includes('invalid_api_key')) {
+            errMsg = 'API Key inválida o expirada. Verifica la clave en la configuración del agente.';
+        } else if (errMsg.includes('429')) {
+            errMsg = 'Demasiadas solicitudes. Espera unos segundos e intenta de nuevo.';
+        } else if (errMsg.includes('insufficient_quota') || errMsg.includes('billing')) {
+            errMsg = 'Sin crédito disponible en la cuenta del proveedor de IA. Recarga tu saldo.';
+        } else if (errMsg.includes('Failed to fetch') || errMsg.includes('NetworkError')) {
+            errMsg = 'Error de conexión. Verifica tu internet o que la API Key y endpoint sean correctos.';
+        }
+        appendTestMessage('assistant', `Error: ${errMsg}`);
     } finally {
         aiTestLoading = false;
         document.getElementById('aiTestSendBtn').disabled = false;
@@ -3062,13 +3080,13 @@ async function sendTestMessage() {
 
 // Call AI provider API (OpenAI / Anthropic / Custom)
 async function callAIProvider(agent, messages) {
-    const systemPrompt = buildAISystemPrompt(agent);
+    // Pre-load knowledge base data and embed it into the prompt
+    const systemPrompt = await buildAISystemPromptWithData(agent);
     const tools = buildAIToolDefinitions(agent);
 
     if (agent.provider === 'anthropic') {
         return await callAnthropic(agent, systemPrompt, messages, tools);
     } else {
-        // OpenAI and custom both use OpenAI-compatible API
         return await callOpenAI(agent, systemPrompt, messages, tools);
     }
 }
@@ -3092,7 +3110,6 @@ async function callOpenAI(agent, systemPrompt, messages, tools) {
 
     if (tools.length > 0) {
         body.tools = tools;
-        body.tool_choice = 'auto';
     }
 
     const res = await fetch(endpoint, {
@@ -3632,6 +3649,18 @@ async function importExcelToFirestore() {
 
 // Genera el system prompt enriquecido con esquema de bases de datos
 function buildAISystemPrompt(agent) {
+    // Versión sincrónica (sin datos, solo esquema) - para referencia rápida
+    let prompt = agent.systemPrompt || '';
+    const agentKBs = (agent.knowledgeBases || [])
+        .map(kbId => knowledgeBases.find(kb => kb.id === kbId))
+        .filter(Boolean);
+    if (agentKBs.length === 0) return prompt;
+    prompt += '\n\n[Bases de datos asignadas: ' + agentKBs.map(kb => kb.name).join(', ') + ' - datos se cargan al ejecutar]';
+    return prompt;
+}
+
+// Versión asíncrona que carga los datos reales de Firestore y los embebe en el prompt
+async function buildAISystemPromptWithData(agent) {
     let prompt = agent.systemPrompt || '';
 
     const agentKBs = (agent.knowledgeBases || [])
@@ -3640,23 +3669,58 @@ function buildAISystemPrompt(agent) {
 
     if (agentKBs.length === 0) return prompt;
 
-    prompt += '\n\n--- BASES DE DATOS DISPONIBLES ---\n';
-    prompt += 'Tienes acceso a las siguientes bases de datos para responder preguntas de los clientes.\n';
-    prompt += 'Cuando un cliente pregunte sobre productos, precios, disponibilidad, etc., consulta estas bases de datos para dar respuestas precisas.\n\n';
+    prompt += '\n\n=== DATOS DE REFERENCIA ===\n';
+    prompt += 'A continuación tienes los datos reales de tus bases de datos. SIEMPRE usa estos datos para responder preguntas sobre productos, precios, disponibilidad, etc.\n';
+    prompt += 'NUNCA inventes datos. Si el cliente pregunta algo que no está en estos datos, dile que no tienes esa información disponible.\n\n';
 
-    agentKBs.forEach(kb => {
-        prompt += `BASE DE DATOS: "${kb.name}"\n`;
-        if (kb.description) prompt += `Descripción: ${kb.description}\n`;
-        prompt += `Columnas disponibles: ${(kb.columns || []).join(', ')}\n`;
-        prompt += `Total de registros: ${kb.rowCount || 0}\n`;
-        prompt += `Para consultar esta base de datos, usa la función query_database con el ID "${kb.id}".\n\n`;
-    });
+    for (const kb of agentKBs) {
+        prompt += `--- ${kb.name.toUpperCase()} ---\n`;
+        if (kb.description) prompt += `(${kb.description})\n`;
+        prompt += `Columnas: ${(kb.columns || []).join(' | ')}\n\n`;
 
-    prompt += 'INSTRUCCIONES DE CONSULTA:\n';
-    prompt += '- Cuando necesites buscar información, usa la función query_database.\n';
-    prompt += '- Puedes filtrar por cualquier columna usando el parámetro "filters".\n';
-    prompt += '- Devuelve la información de forma clara y amigable al cliente.\n';
-    prompt += '- Si no encuentras resultados, ofrece alternativas o pide más detalles.\n';
+        try {
+            // Cargar todos los datos de esta base
+            const rowsRef = window.firestore.collection(
+                window.db, 'organizations', currentOrganization.id, 'knowledgeBases', kb.id, 'rows'
+            );
+            const snapshot = await window.firestore.getDocs(rowsRef);
+            const rows = [];
+            snapshot.forEach(doc => rows.push(doc.data()));
+
+            if (rows.length === 0) {
+                prompt += '(Sin datos cargados en esta base)\n\n';
+                continue;
+            }
+
+            const columns = kb.columns || Object.keys(rows[0]).filter(k => k !== 'id');
+
+            // Para bases de hasta 500 filas, incluir todo como tabla
+            const maxInline = 500;
+            const rowsToInclude = rows.slice(0, maxInline);
+
+            // Formato de tabla legible
+            prompt += `Total: ${rows.length} registros${rows.length > maxInline ? ` (mostrando primeros ${maxInline})` : ''}\n\n`;
+
+            rowsToInclude.forEach((row, i) => {
+                const parts = columns.map(col => `${col}: ${row[col] ?? ''}`);
+                prompt += `${i + 1}. ${parts.join(' | ')}\n`;
+            });
+
+            prompt += '\n';
+        } catch (err) {
+            console.error(`Error cargando datos de KB ${kb.id}:`, err);
+            prompt += '(Error al cargar datos)\n\n';
+        }
+    }
+
+    prompt += '=== FIN DE DATOS ===\n\n';
+    prompt += 'INSTRUCCIONES IMPORTANTES:\n';
+    prompt += '- Responde SIEMPRE basándote en los datos anteriores.\n';
+    prompt += '- Si te preguntan precios, busca el producto en los datos y da el precio exacto.\n';
+    prompt += '- Si te preguntan disponibilidad, busca en los datos.\n';
+    prompt += '- Si un producto no está en los datos, dile al cliente que no lo tienes disponible.\n';
+    prompt += '- Puedes mencionar productos similares que sí estén en los datos.\n';
+    prompt += '- Si además tienes la herramienta query_database, úsala para búsquedas más precisas.\n';
 
     return prompt;
 }
