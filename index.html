@@ -329,7 +329,7 @@
                 </div>
                 <div class="form-group">
                     <label class="form-label">System Prompt *</label>
-                    <textarea class="form-input form-textarea" id="aiAgentSystemPrompt" rows="6" placeholder="Eres un agente de atención al cliente amable y profesional para [nombre de empresa]. Tu objetivo es ayudar a los clientes con sus consultas..."></textarea>
+                    <textarea class="form-input form-textarea" id="aiAgentSystemPrompt" rows="4" placeholder="Eres un agente de atención al cliente amable y profesional para [nombre de empresa]. Tu objetivo es ayudar a los clientes con sus consultas..."></textarea>
                     <span class="integ-field-hint">Define la personalidad, instrucciones y comportamiento del agente. Sé específico sobre el tono, conocimientos y limitaciones.</span>
                 </div>
                 <div class="form-group">
@@ -367,6 +367,40 @@
             <div class="modal-footer">
                 <button class="btn-secondary" onclick="closeAIAgentModal()">Cancelar</button>
                 <button class="btn-primary" style="max-width:200px" onclick="saveAIAgent()">Guardar Agente</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal de Probar Agente IA -->
+    <div class="modal-overlay hidden" id="aiTestModal">
+        <div class="modal-box modal-xl">
+            <div class="modal-header">
+                <h3 class="modal-title">Probar Agente: <span id="aiTestAgentName">--</span></h3>
+                <button class="modal-close" onclick="closeAITestModal()">&times;</button>
+            </div>
+            <div class="modal-body" style="padding:0;display:flex;flex-direction:column;min-height:400px">
+                <input type="hidden" id="aiTestAgentId" value="">
+                <!-- System prompt preview toggle -->
+                <div class="ai-test-prompt-bar">
+                    <button class="btn-secondary btn-sm" onclick="toggleTestPromptPreview()">Ver System Prompt Completo</button>
+                    <span class="ai-test-info" id="aiTestInfo">--</span>
+                </div>
+                <div class="ai-test-prompt-preview hidden" id="aiTestPromptPreview">
+                    <pre id="aiTestPromptText"></pre>
+                </div>
+                <!-- Chat area -->
+                <div class="ai-test-messages" id="aiTestMessages">
+                    <div class="ai-test-welcome">
+                        <span class="ai-test-welcome-icon">🤖</span>
+                        <p>Envía un mensaje para probar cómo responde el agente.</p>
+                        <p class="ai-test-welcome-hint">El agente usará su system prompt y consultará las bases de datos asignadas.</p>
+                    </div>
+                </div>
+                <!-- Composer -->
+                <div class="ai-test-composer">
+                    <input type="text" class="ai-test-input" id="aiTestInput" placeholder="Escribe un mensaje de prueba..." onkeypress="if(event.key==='Enter')sendTestMessage()">
+                    <button class="ai-test-send" onclick="sendTestMessage()" id="aiTestSendBtn">➤</button>
+                </div>
             </div>
         </div>
     </div>
