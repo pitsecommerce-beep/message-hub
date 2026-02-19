@@ -212,6 +212,74 @@ async function loadKBRows(orgId, kbId) {
 }
 
 // ---------------------------------------------------------------------------
+// Contactos
+// ---------------------------------------------------------------------------
+
+/**
+ * Crea o actualiza un contacto cuando la IA recibe datos del cliente.
+ *
+ * Si el contactId de la conversación apunta a un documento real de Firestore,
+ * lo actualiza. Si no (o si era un ID externo como número de teléfono),
+ * crea un nuevo contacto y vincula la conversación al nuevo documento.
+ *
+ * @param {string} orgId
+ * @param {string} convId
+ * @param {{ name: string, company?: string, phone?: string, email?: string,
+ *           address?: string, rfc?: string, notes?: string }} contactData
+ * @returns {{ success: boolean, action?: 'created'|'updated', name?: string, message?: string }}
+ */
+async function saveOrUpdateContact(orgId, convId, contactData) {
+    const convDoc = await db
+        .collection('organizations').doc(orgId)
+        .collection('conversations').doc(convId)
+        .get();
+
+    if (!convDoc.exists) return { success: false, message: 'Conversación no encontrada' };
+
+    const conv = convDoc.data();
+    const data = { ...contactData };
+    if (data.rfc) data.rfc = data.rfc.toUpperCase();
+
+    // Verificar si el contactId ya apunta a un documento real de Firestore
+    const existingContactId = conv.contactId;
+    let isRealContact = false;
+    if (existingContactId) {
+        const contactDoc = await db
+            .collection('organizations').doc(orgId)
+            .collection('contacts').doc(existingContactId)
+            .get();
+        isRealContact = contactDoc.exists;
+    }
+
+    if (isRealContact) {
+        await db
+            .collection('organizations').doc(orgId)
+            .collection('contacts').doc(existingContactId)
+            .update({ ...data, updatedAt: FieldValue.serverTimestamp() });
+        return { success: true, action: 'updated', name: data.name };
+    } else {
+        const docRef = await db
+            .collection('organizations').doc(orgId)
+            .collection('contacts')
+            .add({
+                ...data,
+                funnelStage: 'curioso',
+                createdAt:   FieldValue.serverTimestamp(),
+                updatedAt:   FieldValue.serverTimestamp(),
+            });
+        await db
+            .collection('organizations').doc(orgId)
+            .collection('conversations').doc(convId)
+            .update({
+                contactId:    docRef.id,
+                contactName:  data.name,
+                contactPhone: data.phone || conv.contactPhone || '',
+            });
+        return { success: true, action: 'created', name: data.name, contactId: docRef.id };
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Motor de búsqueda semántica para autopartes
 // ---------------------------------------------------------------------------
 
@@ -386,6 +454,7 @@ module.exports = {
     findAgentForPlatform,
     loadKBMeta,
     loadKBRows,
+    saveOrUpdateContact,
     expandSearchTerms,
     scoreRow,
 };
