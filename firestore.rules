@@ -1,4 +1,12 @@
 rules_version = '2';
+
+// NOTA SOBRE CLOUD FUNCTIONS:
+// Las Cloud Functions de Firebase usan el Admin SDK, que opera con
+// privilegios de administrador y omite estas reglas de seguridad por
+// completo. No se necesita ninguna regla adicional para que las funciones
+// puedan leer/escribir en Firestore. Las reglas siguientes aplican
+// exclusivamente a clientes del SDK de navegador (frontend).
+
 service cloud.firestore {
   match /databases/{database}/documents {
 
