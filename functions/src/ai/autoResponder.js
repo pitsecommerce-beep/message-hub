@@ -20,7 +20,8 @@ const {
     findAgentForPlatform,
     loadKBMeta,
     loadKBRows,
-    extractKeywords,
+    expandSearchTerms,
+    scoreRow,
 } = require('../utils/firestore');
 
 // ---------------------------------------------------------------------------
@@ -43,7 +44,7 @@ async function buildSystemPrompt(agent, orgId, userMessage) {
     const kbIds = agent.knowledgeBases || [];
     if (kbIds.length === 0) return prompt;
 
-    const keywords = extractKeywords(userMessage);
+    const { terms, years } = expandSearchTerms(userMessage);
 
     prompt += '\n\n=== DATOS DE REFERENCIA ===\n';
     prompt += 'A continuación tienes los datos reales de tus bases de datos. '
@@ -71,18 +72,15 @@ async function buildSystemPrompt(agent, orgId, userMessage) {
             const columns = kb.columns
                 || Object.keys(allRows[0]).filter(k => k !== 'id');
 
-            // Filtrar filas relevantes al mensaje del usuario
+            // Filtrar y ordenar por relevancia semántica (máximo 30 filas)
             let rowsToInclude;
-            if (keywords.length > 0) {
-                const matched = allRows.filter(row =>
-                    keywords.some(kw =>
-                        Object.values(row).some(val =>
-                            String(val).toLowerCase().includes(kw)
-                        )
-                    )
-                );
-                rowsToInclude = matched.length > 0
-                    ? matched.slice(0, 30)
+            if (terms.size > 0 || years.length > 0) {
+                const scored = allRows
+                    .map(row => ({ row, score: scoreRow(row, terms, years) }))
+                    .filter(({ score }) => score > 0)
+                    .sort((a, b) => b.score - a.score);
+                rowsToInclude = scored.length > 0
+                    ? scored.slice(0, 30).map(({ row }) => row)
                     : allRows.slice(0, 20);
             } else {
                 rowsToInclude = allRows.slice(0, 20);

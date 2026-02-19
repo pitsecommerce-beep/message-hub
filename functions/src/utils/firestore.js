@@ -212,32 +212,168 @@ async function loadKBRows(orgId, kbId) {
 }
 
 // ---------------------------------------------------------------------------
-// Utilidades de texto
+// Motor de búsqueda semántica para autopartes
 // ---------------------------------------------------------------------------
 
+// Diccionario bidireccional: términos del usuario ↔ abreviaturas de la KB.
+const AUTOPARTE_EXPANSIONS = {
+    'electrico':     ['elec', 'elect'],
+    'eléctrico':     ['elec', 'elect'],
+    'electrica':     ['elec', 'elect'],
+    'eléctrica':     ['elec', 'elect'],
+    'electric':      ['elec', 'elect'],
+    'manual':        ['man'],
+    'derecho':       ['r', 'der', 'dcho', 'dere'],
+    'derecha':       ['r', 'der', 'dcha', 'dere'],
+    'right':         ['r', 'der'],
+    'izquierdo':     ['l', 'izq', 'izqdo'],
+    'izquierda':     ['l', 'izq', 'izqda'],
+    'left':          ['l', 'izq'],
+    'delantero':     ['del', 'front', 'frt', 'delan'],
+    'delantera':     ['del', 'front', 'frt', 'delan'],
+    'delanteros':    ['del'],
+    'delanteras':    ['del'],
+    'trasero':       ['tras', 'tra', 'rear', 'post'],
+    'trasera':       ['tras', 'tra', 'rear', 'post'],
+    'traseros':      ['tras'],
+    'traseras':      ['tras'],
+    'front':         ['del', 'frt'],
+    'rear':          ['tras', 'tra'],
+    'direccional':   ['direcc', 'direc', 'c/direcc', 'c/direc'],
+    'direccionales': ['direcc', 'c/direcc'],
+    'pintar':        ['p/pintar', 'p/p'],
+    'pintada':       ['p/pintar', 'p/p'],
+    'pintura':       ['p/pintar', 'p/p'],
+    'texturizado':   ['text', 'textu'],
+    'texturizada':   ['text', 'textu'],
+    'textured':      ['text'],
+    'autoabatible':  ['autoab', 'e/abatible'],
+    'autofold':      ['autoab', 'e/abatible'],
+    'abatible':      ['autoab', 'e/abatible', 'abatible'],
+    'control':       ['c/cont', 'cont'],
+    'controlable':   ['c/cont'],
+    // Expansión inversa
+    'elec':          ['electrico', 'eléctrico'],
+    'elect':         ['electrico', 'eléctrico'],
+    'man':           ['manual'],
+    'der':           ['derecho', 'derecha'],
+    'izq':           ['izquierdo', 'izquierda'],
+    'tras':          ['trasero', 'trasera'],
+    'text':          ['texturizado', 'texturizada'],
+    'autoab':        ['autoabatible', 'abatible'],
+    'direcc':        ['direccional'],
+    'cont':          ['control'],
+};
+
+/** Normaliza año de 2 dígitos a 4 dígitos. 00-29→2000s, 30-99→1900s */
+function normalizeYear(twoDigitStr) {
+    const n = parseInt(twoDigitStr, 10);
+    return n <= 29 ? 2000 + n : 1900 + n;
+}
+
 /**
- * Extrae palabras clave significativas de un texto (elimina stopwords comunes
- * en español e inglés).
- *
- * @param {string} text
- * @returns {string[]}
+ * Extrae rangos de años (XX-XX o XXXX-XXXX) del texto de una fila.
+ * @returns {{ from: number, to: number }[]}
  */
-function extractKeywords(text) {
-    if (!text) return [];
+function extractYearRanges(text) {
+    const ranges = [];
+    const re = /(?<!\d)(\d{2}|\d{4})-(\d{2}|\d{4})(?!\d)/g;
+    let m;
+    while ((m = re.exec(text)) !== null) {
+        let from = parseInt(m[1], 10);
+        let to   = parseInt(m[2], 10);
+        if (from < 100) from = normalizeYear(m[1]);
+        if (to   < 100) to   = normalizeYear(m[2]);
+        if (from >= 1930 && to <= 2030 && from <= to) ranges.push({ from, to });
+    }
+    return ranges;
+}
+
+/**
+ * Detecta años en la consulta del usuario (4 dígitos o 2 dígitos solos).
+ * NO interpreta rangos XX-XX como años separados.
+ * @returns {number[]}
+ */
+function extractQueryYears(text) {
+    const years = new Set();
+    const re4 = /\b(19[3-9]\d|20[0-2]\d)\b/g;
+    let m;
+    while ((m = re4.exec(text)) !== null) years.add(parseInt(m[1], 10));
+    const re2 = /(?:^|[\s,\/])(\d{2})(?:[\s,\/]|$)/g;
+    while ((m = re2.exec(text)) !== null) years.add(normalizeYear(m[1]));
+    return [...years];
+}
+
+/**
+ * Expande los términos del usuario con el diccionario de abreviaturas.
+ * @returns {{ terms: Set<string>, years: number[] }}
+ */
+function expandSearchTerms(text) {
+    if (!text) return { terms: new Set(), years: [] };
 
     const stopwords = new Set([
-        'el','la','los','las','un','una','unos','unas','de','del','al','en',
+        'el','la','los','las','un','una','unos','unas','en',
         'con','por','para','que','qué','es','son','hay','tiene','tienen',
-        'cuánto','cuanto','me','te','se','le','lo','y','o','a','e','i','u',
+        'me','te','se','le','lo','y','o','a','e','i','u',
         'como','cómo','si','no','sí','más','muy','también','ya','mi','tu',
         'su','this','the','is','are','do','does','what','how','have','has',
+        'al','de',
     ]);
 
-    return text
+    const years  = extractQueryYears(text);
+    const tokens = text
         .toLowerCase()
-        .replace(/[^a-záéíóúüñ0-9\s]/gi, ' ')
-        .split(/\s+/)
-        .filter(w => w.length > 2 && !stopwords.has(w));
+        .split(/[\s,;.!?]+/)
+        .map(t => t.trim())
+        .filter(t => t.length > 0 && !stopwords.has(t));
+
+    const terms = new Set();
+    for (const token of tokens) {
+        if (/^\d{4}$/.test(token) && parseInt(token) >= 1930 && parseInt(token) <= 2030) continue;
+        if (/^\d{2}$/.test(token)) continue;
+        if (/[a-záéíóúüñ]/i.test(token)) terms.add(token);
+        for (const exp of (AUTOPARTE_EXPANSIONS[token] || [])) terms.add(exp.toLowerCase());
+    }
+    return { terms, years };
+}
+
+/**
+ * Calcula la relevancia de una fila.
+ * - Tokens cortos (≤2 chars): token exacto para evitar falsos positivos
+ *   ("R" no debe matchear "SIERRA" o "CORSA").
+ * - Tokens largos (≥3 chars): subcadena.
+ * - Años: verifica rangos XX-XX en la descripción.
+ *
+ * @param {object}      row
+ * @param {Set<string>} terms
+ * @param {number[]}    years
+ * @returns {number}
+ */
+function scoreRow(row, terms, years) {
+    const rowText = Object.values(row).map(v => String(v ?? '')).join(' ').toLowerCase();
+    const rowTokens = new Set(
+        rowText.split(/\s+/).map(t => t.replace(/^[.,;:()\[\]]+|[.,;:()\[\]]+$/g, ''))
+    );
+
+    let score = 0;
+    for (const term of terms) {
+        if (term.length <= 2) {
+            if (rowTokens.has(term)) score += (term.length === 1 ? 4 : 2);
+        } else {
+            if (rowText.includes(term)) score += 1;
+        }
+    }
+
+    if (years.length > 0) {
+        const ranges = extractYearRanges(rowText);
+        const anyMatch = years.some(y => ranges.some(r => y >= r.from && y <= r.to));
+        if (anyMatch) {
+            score += 5;
+        } else if (score > 0 && ranges.length > 0) {
+            score = Math.max(0, score - 1);
+        }
+    }
+    return score;
 }
 
 module.exports = {
@@ -250,5 +386,6 @@ module.exports = {
     findAgentForPlatform,
     loadKBMeta,
     loadKBRows,
-    extractKeywords,
+    expandSearchTerms,
+    scoreRow,
 };

@@ -3682,21 +3682,192 @@ async function getKBRows(kbId) {
     return rows;
 }
 
-// Extrae palabras clave significativas de un texto (filtra stopwords comunes)
-function extractKeywords(text) {
-    if (!text) return [];
+// ===== MOTOR DE BÚSQUEDA SEMÁNTICA PARA AUTOPARTES =====
+
+// Diccionario bidireccional: términos en español/inglés ↔ abreviaturas de la KB.
+// El usuario escribe "eléctrico" → se busca también "ELEC" en las filas.
+// Si el usuario escribe "IZQ" → se busca también "izquierdo"/"izquierda".
+const AUTOPARTE_EXPANSIONS = {
+    // Tipo de accionamiento
+    'electrico':     ['elec', 'elect'],
+    'eléctrico':     ['elec', 'elect'],
+    'electrica':     ['elec', 'elect'],
+    'eléctrica':     ['elec', 'elect'],
+    'electric':      ['elec', 'elect'],
+    'manual':        ['man'],
+    // Lado del vehículo
+    'derecho':       ['r', 'der', 'dcho', 'dere'],
+    'derecha':       ['r', 'der', 'dcha', 'dere'],
+    'right':         ['r', 'der'],
+    'izquierdo':     ['l', 'izq', 'izqdo'],
+    'izquierda':     ['l', 'izq', 'izqda'],
+    'left':          ['l', 'izq'],
+    // Posición en el vehículo
+    'delantero':     ['del', 'front', 'frt', 'delan'],
+    'delantera':     ['del', 'front', 'frt', 'delan'],
+    'delanteros':    ['del'],
+    'delanteras':    ['del'],
+    'trasero':       ['tras', 'tra', 'rear', 'post'],
+    'trasera':       ['tras', 'tra', 'rear', 'post'],
+    'traseros':      ['tras'],
+    'traseras':      ['tras'],
+    'front':         ['del', 'frt'],
+    'rear':          ['tras', 'tra'],
+    // Características de espejos y otras piezas
+    'direccional':   ['direcc', 'direc', 'c/direcc', 'c/direc'],
+    'direccionales': ['direcc', 'c/direcc'],
+    'pintar':        ['p/pintar', 'p/p'],
+    'pintada':       ['p/pintar', 'p/p'],
+    'pintura':       ['p/pintar', 'p/p'],
+    'texturizado':   ['text', 'textu'],
+    'texturizada':   ['text', 'textu'],
+    'textured':      ['text'],
+    'autoabatible':  ['autoab', 'e/abatible'],
+    'autofold':      ['autoab', 'e/abatible'],
+    'abatible':      ['autoab', 'e/abatible', 'abatible'],
+    'control':       ['c/cont', 'cont'],
+    'controlable':   ['c/cont'],
+    // Expansión inversa: cuando el usuario escribe la abreviatura
+    'elec':          ['electrico', 'eléctrico'],
+    'elect':         ['electrico', 'eléctrico'],
+    'man':           ['manual'],
+    'der':           ['derecho', 'derecha'],
+    'izq':           ['izquierdo', 'izquierda'],
+    'tras':          ['trasero', 'trasera'],
+    'text':          ['texturizado', 'texturizada'],
+    'autoab':        ['autoabatible', 'abatible'],
+    'direcc':        ['direccional'],
+    'cont':          ['control'],
+};
+
+/**
+ * Normaliza año de 2 dígitos a 4 dígitos.
+ * 00-29 → 2000-2029 | 30-99 → 1930-1999
+ */
+function normalizeYear(twoDigitStr) {
+    const n = parseInt(twoDigitStr, 10);
+    return n <= 29 ? 2000 + n : 1900 + n;
+}
+
+/**
+ * Extrae todos los rangos de años (XX-XX o XXXX-XXXX) del texto de una fila.
+ * Ejemplo: "SENTRA 01-06" → [{from:2001, to:2006}]
+ * @returns {{ from: number, to: number }[]}
+ */
+function extractYearRanges(text) {
+    const ranges = [];
+    const re = /(?<!\d)(\d{2}|\d{4})-(\d{2}|\d{4})(?!\d)/g;
+    let m;
+    while ((m = re.exec(text)) !== null) {
+        let from = parseInt(m[1], 10);
+        let to   = parseInt(m[2], 10);
+        if (from < 100) from = normalizeYear(m[1]);
+        if (to   < 100) to   = normalizeYear(m[2]);
+        if (from >= 1930 && to <= 2030 && from <= to) {
+            ranges.push({ from, to });
+        }
+    }
+    return ranges;
+}
+
+/**
+ * Detecta años en la consulta del usuario.
+ * Maneja: 4 dígitos (1993, 2004) y 2 dígitos solos separados por espacios/comas.
+ * NO interpreta rangos como "88-94" como años separados.
+ * @returns {number[]}
+ */
+function extractQueryYears(text) {
+    const years = new Set();
+    // Años de 4 dígitos en rango razonable para vehículos
+    const re4 = /\b(19[3-9]\d|20[0-2]\d)\b/g;
+    let m;
+    while ((m = re4.exec(text)) !== null) years.add(parseInt(m[1], 10));
+    // Años de 2 dígitos SOLOS (no parte de un rango XX-XX ni de número mayor)
+    const re2 = /(?:^|[\s,\/])(\d{2})(?:[\s,\/]|$)/g;
+    while ((m = re2.exec(text)) !== null) years.add(normalizeYear(m[1]));
+    return [...years];
+}
+
+/**
+ * Expande los términos de búsqueda del usuario con el diccionario de abreviaturas.
+ * Retorna el Set de todos los términos a buscar (originales + expansiones)
+ * y el array de años detectados.
+ * @returns {{ terms: Set<string>, years: number[] }}
+ */
+function expandSearchTerms(text) {
+    if (!text) return { terms: new Set(), years: [] };
+
     const stopwords = new Set([
-        'el','la','los','las','un','una','unos','unas','de','del','al','en',
+        'el','la','los','las','un','una','unos','unas','en',
         'con','por','para','que','qué','es','son','hay','tiene','tienen',
-        'cuánto','cuanto','me','te','se','le','lo','y','o','a','e','i','u',
+        'me','te','se','le','lo','y','o','a','e','i','u',
         'como','cómo','si','no','sí','más','muy','también','ya','mi','tu',
-        'su','this','the','is','are','do','does','what','how','have','has'
+        'su','this','the','is','are','do','does','what','how','have','has',
+        'al','de',
     ]);
-    return text
+
+    const years  = extractQueryYears(text);
+    const tokens = text
         .toLowerCase()
-        .replace(/[^a-záéíóúüñ0-9\s]/gi, ' ')
-        .split(/\s+/)
-        .filter(w => w.length > 2 && !stopwords.has(w));
+        .split(/[\s,;.!?]+/)
+        .map(t => t.trim())
+        .filter(t => t.length > 0 && !stopwords.has(t));
+
+    const terms = new Set();
+    for (const token of tokens) {
+        // Saltar tokens que sean solo años (ya los manejamos aparte)
+        if (/^\d{4}$/.test(token) && parseInt(token) >= 1930 && parseInt(token) <= 2030) continue;
+        if (/^\d{2}$/.test(token)) continue;
+        // Agregar el término si tiene al menos una letra
+        if (/[a-záéíóúüñ]/i.test(token)) terms.add(token);
+        // Agregar expansiones del diccionario
+        for (const exp of (AUTOPARTE_EXPANSIONS[token] || [])) terms.add(exp.toLowerCase());
+    }
+    return { terms, years };
+}
+
+/**
+ * Calcula la relevancia de una fila frente a los términos expandidos y años.
+ *
+ * - Tokens de 1-2 chars (R, L, MAN…): token exacto para evitar falsos positivos
+ *   (ej. "R" no debe matchear "SIERRA", "CORSA" o "CHEVROLET").
+ * - Tokens de 3+ chars: matching de subcadena (incluye abreviaturas como TRAS, ELEC).
+ * - Años: se extraen rangos XX-XX de la descripción y se comprueba si el año
+ *   del usuario cae dentro. Si hay rangos pero ninguno coincide, leve penalización.
+ *
+ * @param {object}       row
+ * @param {Set<string>}  terms
+ * @param {number[]}     years
+ * @returns {number}  0 = sin match, mayor = más relevante
+ */
+function scoreRow(row, terms, years) {
+    const rowText = Object.values(row).map(v => String(v ?? '')).join(' ').toLowerCase();
+    // Tokenizar filas preservando abreviaturas con barra (P/P, C/CONT, E/ABATIBLE)
+    const rowTokens = new Set(
+        rowText.split(/\s+/).map(t => t.replace(/^[.,;:()\[\]]+|[.,;:()\[\]]+$/g, ''))
+    );
+
+    let score = 0;
+    for (const term of terms) {
+        if (term.length <= 2) {
+            // Token exacto para términos cortos (R, L, P/P tiene longitud 3 → substring)
+            if (rowTokens.has(term)) score += (term.length === 1 ? 4 : 2);
+        } else {
+            if (rowText.includes(term)) score += 1;
+        }
+    }
+
+    if (years.length > 0) {
+        const ranges = extractYearRanges(rowText);
+        const anyMatch = years.some(y => ranges.some(r => y >= r.from && y <= r.to));
+        if (anyMatch) {
+            score += 5; // El año correcto es muy relevante
+        } else if (score > 0 && ranges.length > 0) {
+            // Fila con años incompatibles: leve penalización
+            score = Math.max(0, score - 1);
+        }
+    }
+    return score;
 }
 
 // Versión asíncrona que carga datos filtrados de Firestore y los embebe en el prompt
@@ -3710,7 +3881,7 @@ async function buildAISystemPromptWithData(agent, userMessage) {
 
     if (agentKBs.length === 0) return prompt;
 
-    const keywords = extractKeywords(userMessage || '');
+    const { terms, years } = expandSearchTerms(userMessage || '');
 
     prompt += '\n\n=== DATOS DE REFERENCIA ===\n';
     prompt += 'A continuación tienes los datos reales de tus bases de datos. SIEMPRE usa estos datos para responder preguntas sobre productos, precios, disponibilidad, etc.\n';
@@ -3731,18 +3902,16 @@ async function buildAISystemPromptWithData(agent, userMessage) {
 
             const columns = kb.columns || Object.keys(allRows[0]).filter(k => k !== 'id');
 
-            // Filtrar filas relevantes al mensaje del usuario (máximo 30)
+            // Filtrar y ordenar por relevancia semántica (máximo 30 filas)
             let rowsToInclude;
-            if (keywords.length > 0) {
-                const matched = allRows.filter(row =>
-                    keywords.some(kw =>
-                        Object.values(row).some(val =>
-                            String(val).toLowerCase().includes(kw)
-                        )
-                    )
-                );
-                // Si hay matches, usar los primeros 30; si no, fallback a primeros 20
-                rowsToInclude = matched.length > 0 ? matched.slice(0, 30) : allRows.slice(0, 20);
+            if (terms.size > 0 || years.length > 0) {
+                const scored = allRows
+                    .map(row => ({ row, score: scoreRow(row, terms, years) }))
+                    .filter(({ score }) => score > 0)
+                    .sort((a, b) => b.score - a.score);
+                rowsToInclude = scored.length > 0
+                    ? scored.slice(0, 30).map(({ row }) => row)
+                    : allRows.slice(0, 20);
             } else {
                 rowsToInclude = allRows.slice(0, 20);
             }
@@ -3823,14 +3992,16 @@ async function queryKnowledgeBase(kbId, searchQuery, filters, limit = 10) {
     try {
         let results = await getKBRows(kbId);
 
-        // Apply text search if provided
+        // Búsqueda semántica: expande abreviaturas y maneja rangos de año
         if (searchQuery) {
-            const q = searchQuery.toLowerCase();
-            results = results.filter(row =>
-                Object.values(row).some(val =>
-                    String(val).toLowerCase().includes(q)
-                )
-            );
+            const { terms: qTerms, years: qYears } = expandSearchTerms(searchQuery);
+            if (qTerms.size > 0 || qYears.length > 0) {
+                results = results
+                    .map(row => ({ row, score: scoreRow(row, qTerms, qYears) }))
+                    .filter(({ score }) => score > 0)
+                    .sort((a, b) => b.score - a.score)
+                    .map(({ row }) => row);
+            }
         }
 
         // Apply filters
