@@ -12,7 +12,6 @@
  * La respuesta se guarda como nuevo mensaje con direction: 'outgoing'.
  */
 const { onDocumentCreated } = require('firebase-functions/v2/firestore');
-const { FieldValue } = require('firebase-admin/firestore');
 const fetch = require('node-fetch');
 
 const {
@@ -22,6 +21,7 @@ const {
     loadKBMeta,
     loadKBRows,
     saveOrUpdateContact,
+    createOrder,
     expandSearchTerms,
     scoreRow,
 } = require('../utils/firestore');
@@ -157,26 +157,56 @@ async function loadConversationHistory(orgId, convId, limit = 10) {
 
 /** Devuelve las tool definitions disponibles en el autoResponder. */
 function buildToolDefinitions() {
-    return [{
-        type: 'function',
-        function: {
-            name: 'save_contact',
-            description: 'Guarda o actualiza los datos del contacto cuando el cliente proporciona su nombre, dirección, nombre del taller o empresa, RFC u otros datos personales. Úsala SIEMPRE que el cliente comparta cualquiera de estos datos.',
-            parameters: {
-                type: 'object',
-                properties: {
-                    name:    { type: 'string', description: 'Nombre completo del cliente o responsable' },
-                    company: { type: 'string', description: 'Nombre del taller, empresa o negocio' },
-                    phone:   { type: 'string', description: 'Número de teléfono' },
-                    email:   { type: 'string', description: 'Correo electrónico' },
-                    address: { type: 'string', description: 'Dirección completa' },
-                    rfc:     { type: 'string', description: 'RFC para facturación fiscal' },
-                    notes:   { type: 'string', description: 'Notas adicionales' },
+    return [
+        {
+            type: 'function',
+            function: {
+                name: 'save_contact',
+                description: 'Guarda o actualiza los datos del contacto cuando el cliente proporciona su nombre, dirección, nombre del taller o empresa, RFC u otros datos personales. Úsala SIEMPRE que el cliente comparta cualquiera de estos datos.',
+                parameters: {
+                    type: 'object',
+                    properties: {
+                        name:    { type: 'string', description: 'Nombre completo del cliente o responsable' },
+                        company: { type: 'string', description: 'Nombre del taller, empresa o negocio' },
+                        phone:   { type: 'string', description: 'Número de teléfono' },
+                        email:   { type: 'string', description: 'Correo electrónico' },
+                        address: { type: 'string', description: 'Dirección completa' },
+                        rfc:     { type: 'string', description: 'RFC para facturación fiscal' },
+                        notes:   { type: 'string', description: 'Notas adicionales' },
+                    },
+                    required: ['name'],
                 },
-                required: ['name'],
             },
         },
-    }];
+        {
+            type: 'function',
+            function: {
+                name: 'create_order',
+                description: 'Crea un nuevo pedido cuando el cliente confirma los productos que desea comprar. Úsala SIEMPRE que el cliente confirme su pedido indicando productos y/o cantidades. Incluye el precio si lo conoces.',
+                parameters: {
+                    type: 'object',
+                    properties: {
+                        items: {
+                            type: 'array',
+                            description: 'Lista de productos del pedido',
+                            items: {
+                                type: 'object',
+                                properties: {
+                                    product:   { type: 'string', description: 'Nombre del producto o servicio' },
+                                    quantity:  { type: 'number', description: 'Cantidad solicitada' },
+                                    unitPrice: { type: 'number', description: 'Precio unitario (sin símbolo de moneda)' },
+                                    notes:     { type: 'string', description: 'Notas adicionales del producto' }
+                                },
+                                required: ['product', 'quantity']
+                            }
+                        },
+                        notes: { type: 'string', description: 'Notas generales del pedido' }
+                    },
+                    required: ['items']
+                },
+            },
+        },
+    ];
 }
 
 // ---------------------------------------------------------------------------
@@ -235,6 +265,16 @@ async function callOpenAI(agent, systemPrompt, messages, tools, orgId, convId) {
                     content: result.success
                         ? `Contacto ${result.action === 'created' ? 'creado' : 'actualizado'} correctamente: ${result.name}`
                         : `Error al guardar contacto: ${result.message}`,
+                });
+            } else if (tc.function.name === 'create_order') {
+                const args   = JSON.parse(tc.function.arguments);
+                const result = await createOrder(orgId, convId, args);
+                toolResults.push({
+                    role:         'tool',
+                    tool_call_id: tc.id,
+                    content: result.success
+                        ? `Pedido creado correctamente. Número: ${result.orderNumber}. Total: $${(result.total || 0).toFixed(2)}.`
+                        : `Error al crear pedido: ${result.message}`,
                 });
             }
         }
@@ -318,6 +358,15 @@ async function callAnthropic(agent, systemPrompt, messages, tools, orgId, convId
                     content: result.success
                         ? `Contacto ${result.action === 'created' ? 'creado' : 'actualizado'} correctamente: ${result.name}`
                         : `Error al guardar contacto: ${result.message}`,
+                });
+            } else if (tb.name === 'create_order') {
+                const result = await createOrder(orgId, convId, tb.input);
+                toolResultContents.push({
+                    type:        'tool_result',
+                    tool_use_id: tb.id,
+                    content: result.success
+                        ? `Pedido creado correctamente. Número: ${result.orderNumber}. Total: $${(result.total || 0).toFixed(2)}.`
+                        : `Error al crear pedido: ${result.message}`,
                 });
             }
         }

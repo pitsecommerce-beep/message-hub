@@ -444,6 +444,77 @@ function scoreRow(row, terms, years) {
     return score;
 }
 
+// ---------------------------------------------------------------------------
+// Pedidos (Orders)
+// ---------------------------------------------------------------------------
+
+/**
+ * Genera un número de pedido secuencial para la organización.
+ * @param {string} orgId
+ * @returns {Promise<string>} e.g. "PED-00042"
+ */
+async function generateOrderNumber(orgId) {
+    const snap = await db
+        .collection('organizations').doc(orgId)
+        .collection('orders')
+        .count()
+        .get();
+    const count = snap.data().count || 0;
+    return 'PED-' + String(count + 1).padStart(5, '0');
+}
+
+/**
+ * Crea un pedido a partir de los datos enviados por el agente IA.
+ *
+ * @param {string} orgId
+ * @param {string} convId     - ID de la conversación que originó el pedido
+ * @param {object} orderData  - { items, notes, contactName? }
+ * @returns {Promise<{ success: boolean, orderNumber?: string, total?: number, message?: string }>}
+ */
+async function createOrder(orgId, convId, orderData) {
+    try {
+        const convDoc = await db
+            .collection('organizations').doc(orgId)
+            .collection('conversations').doc(convId)
+            .get();
+
+        const conv = convDoc.exists ? convDoc.data() : {};
+
+        const items = (orderData.items || []).map(item => ({
+            product:   String(item.product   || ''),
+            quantity:  Number(item.quantity)  || 1,
+            unitPrice: Number(item.unitPrice) || 0,
+            notes:     String(item.notes     || '')
+        }));
+
+        const total = items.reduce((sum, i) => sum + i.quantity * i.unitPrice, 0);
+        const orderNumber = await generateOrderNumber(orgId);
+
+        await db
+            .collection('organizations').doc(orgId)
+            .collection('orders')
+            .add({
+                orderNumber,
+                contactId:      conv.contactId   || null,
+                contactName:    orderData.contactName || conv.contactName || 'Cliente',
+                conversationId: convId,
+                platform:       conv.platform    || 'manual',
+                items,
+                total,
+                status:    'nuevo',
+                notes:     orderData.notes || '',
+                createdAt: FieldValue.serverTimestamp(),
+                updatedAt: FieldValue.serverTimestamp(),
+                createdBy: 'ai'
+            });
+
+        return { success: true, orderNumber, total };
+    } catch (err) {
+        console.error('[createOrder] Error:', err);
+        return { success: false, message: err.message };
+    }
+}
+
 module.exports = {
     db,
     FieldValue,
@@ -455,6 +526,7 @@ module.exports = {
     loadKBMeta,
     loadKBRows,
     saveOrUpdateContact,
+    createOrder,
     expandSearchTerms,
     scoreRow,
 };
