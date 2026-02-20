@@ -490,13 +490,25 @@ async function createOrder(orgId, convId, orderData) {
         const total = items.reduce((sum, i) => sum + i.quantity * i.unitPrice, 0);
         const orderNumber = await generateOrderNumber(orgId);
 
+        // Resolve contact company name
+        const contactId = conv.contactId || null;
+        let contactCompany = null;
+        if (contactId) {
+            const contactDoc = await db
+                .collection('organizations').doc(orgId)
+                .collection('contacts').doc(contactId)
+                .get();
+            if (contactDoc.exists) contactCompany = contactDoc.data().company || null;
+        }
+
         await db
             .collection('organizations').doc(orgId)
             .collection('orders')
             .add({
                 orderNumber,
-                contactId:      conv.contactId   || null,
+                contactId,
                 contactName:    orderData.contactName || conv.contactName || 'Cliente',
+                contactCompany,
                 conversationId: convId,
                 platform:       conv.platform    || 'manual',
                 items,
