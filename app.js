@@ -661,7 +661,8 @@ async function loadTeamMembers() {
 
     if (teamGrid) teamGrid.innerHTML = memberHTML;
     if (allTeamGrid) allTeamGrid.innerHTML = memberHTML;
-    document.getElementById('teamCount').textContent = teamMembers.length;
+    const teamCountEl = document.getElementById('teamCount');
+    if (teamCountEl) teamCountEl.textContent = teamMembers.length;
 }
 
 // ========== NAVEGACION DE PAGINAS ==========
