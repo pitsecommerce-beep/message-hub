@@ -22,6 +22,8 @@ const {
     loadKBRows,
     saveOrUpdateContact,
     createOrder,
+    detectParte,
+    PARTE_KEYWORDS,
     expandSearchTerms,
     scoreRow,
 } = require('../utils/firestore');
@@ -42,10 +44,14 @@ const {
  */
 async function buildSystemPrompt(agent, orgId, userMessage) {
     let prompt = agent.systemPrompt || '';
+    // Instrucción de herramientas (aplica con o sin KB)
+    prompt += '\n\nNOTA DE HERRAMIENTAS: Si el cliente confirma un pedido, llama primero a save_contact (con nombre/empresa/datos del cliente) y LUEGO a create_order.';
 
     const kbIds = agent.knowledgeBases || [];
     if (kbIds.length === 0) return prompt;
 
+    // Detectar categoría "parte" para filtrar la query de Firestore
+    const detectedParte = detectParte(userMessage);
     const { terms, years } = expandSearchTerms(userMessage);
 
     prompt += '\n\n=== DATOS DE REFERENCIA ===\n';
@@ -54,6 +60,9 @@ async function buildSystemPrompt(agent, orgId, userMessage) {
         + 'precios, disponibilidad, etc.\n';
     prompt += 'NUNCA inventes datos. Si el cliente pregunta algo que no está '
         + 'en estos datos, dile que no tienes esa información disponible.\n\n';
+    if (detectedParte) {
+        prompt += `(Filtro activo: parte="${detectedParte}" — mostrando solo esa categoría)\n\n`;
+    }
 
     for (const kbId of kbIds) {
         try {
@@ -64,32 +73,37 @@ async function buildSystemPrompt(agent, orgId, userMessage) {
             if (kb.description) prompt += `(${kb.description})\n`;
             prompt += `Columnas: ${(kb.columns || []).join(' | ')}\n\n`;
 
-            const allRows = await loadKBRows(orgId, kbId);
+            // Si se detectó parte → query filtrada (máx 30 docs, reads mínimos)
+            // Sin parte → query sin filtro, después scoring semántico
+            const rows = await loadKBRows(orgId, kbId, detectedParte || null);
 
-            if (allRows.length === 0) {
-                prompt += '(Sin datos cargados en esta base)\n\n';
+            if (rows.length === 0) {
+                prompt += detectedParte
+                    ? `(Sin registros de "${detectedParte}" en esta base)\n\n`
+                    : '(Sin datos cargados en esta base)\n\n';
                 continue;
             }
 
-            const columns = kb.columns
-                || Object.keys(allRows[0]).filter(k => k !== 'id');
+            const columns = kb.columns || Object.keys(rows[0]).filter(k => k !== 'id');
 
-            // Filtrar y ordenar por relevancia semántica (máximo 5 filas)
+            // Si parte detectada → mostrar todos (ya filtrados por Firestore)
+            // Sin parte → scoring semántico, máx 5
             let rowsToInclude;
-            if (terms.size > 0 || years.length > 0) {
-                const scored = allRows
+            if (detectedParte) {
+                rowsToInclude = rows; // ya filtrados, máx 30
+            } else if (terms.size > 0 || years.length > 0) {
+                const scored = rows
                     .map(row => ({ row, score: scoreRow(row, terms, years) }))
                     .filter(({ score }) => score > 0)
                     .sort((a, b) => b.score - a.score);
                 rowsToInclude = scored.length > 0
                     ? scored.slice(0, 5).map(({ row }) => row)
-                    : allRows.slice(0, 5);
+                    : rows.slice(0, 5);
             } else {
-                rowsToInclude = allRows.slice(0, 5);
+                rowsToInclude = rows.slice(0, 5);
             }
 
-            prompt += `Total en base: ${allRows.length} registros `
-                + `(mostrando ${rowsToInclude.length} relevantes)\n\n`;
+            prompt += `Mostrando ${rowsToInclude.length} registros relevantes:\n\n`;
 
             rowsToInclude.forEach((row, i) => {
                 const parts = columns.map(col => `${col}: ${row[col] ?? ''}`);
@@ -106,8 +120,8 @@ async function buildSystemPrompt(agent, orgId, userMessage) {
     prompt += 'INSTRUCCIONES IMPORTANTES:\n';
     prompt += '- Responde SIEMPRE basándote en los datos anteriores.\n';
     prompt += '- Si te preguntan precios, da el precio exacto de los datos.\n';
-    prompt += '- Si un producto no está en los datos, dile al cliente que no '
-        + 'lo tienes disponible.\n';
+    prompt += '- Si un producto no está en los datos, usa la herramienta query_database con el filtro "parte" correcto para buscar más registros.\n';
+    prompt += '- Si el cliente no mencionó una categoría específica, puedes preguntar qué tipo de parte necesita.\n';
     prompt += '- Puedes mencionar productos similares que sí estén en los datos.\n';
 
     return prompt;
@@ -155,9 +169,14 @@ async function loadConversationHistory(orgId, convId, limit = 10) {
 // Definición de herramientas para el agente IA
 // ---------------------------------------------------------------------------
 
-/** Devuelve las tool definitions disponibles en el autoResponder. */
-function buildToolDefinitions() {
-    return [
+/**
+ * Devuelve las tool definitions disponibles en el autoResponder.
+ * @param {object} agent - Documento del agente (para obtener knowledgeBases)
+ */
+function buildToolDefinitions(agent) {
+    const parteEnum = Object.keys(PARTE_KEYWORDS);
+
+    const tools = [
         {
             type: 'function',
             function: {
@@ -207,6 +226,107 @@ function buildToolDefinitions() {
             },
         },
     ];
+
+    // Herramienta de consulta a KB — solo si el agente tiene KBs configuradas
+    const kbIds = (agent && agent.knowledgeBases) ? agent.knowledgeBases : [];
+    if (kbIds.length > 0) {
+        tools.push({
+            type: 'function',
+            function: {
+                name: 'query_database',
+                description: 'Consulta la base de datos de productos para buscar información exacta (precios, disponibilidad, características). Úsala cuando el cliente pregunte por un producto y los datos del prompt no sean suficientes. IMPORTANTE: proporciona siempre el filtro "parte" para reducir la búsqueda a la categoría correcta.',
+                parameters: {
+                    type: 'object',
+                    properties: {
+                        knowledgeBaseId: {
+                            type: 'string',
+                            enum: kbIds,
+                            description: 'ID de la base de datos a consultar',
+                        },
+                        searchQuery: {
+                            type: 'string',
+                            description: 'Texto de búsqueda: marca, modelo, año, SKU u otras características',
+                        },
+                        filters: {
+                            type: 'object',
+                            description: 'Filtros exactos por columna. Usa "parte" para filtrar por categoría de producto y reducir lecturas en base de datos.',
+                            properties: {
+                                parte: {
+                                    type: 'string',
+                                    enum: parteEnum,
+                                    description: 'Categoría exacta del producto. Usar SIEMPRE que se conozca.',
+                                },
+                            },
+                        },
+                        limit: {
+                            type: 'number',
+                            description: 'Máximo de resultados a devolver (default: 10, máx: 30)',
+                        },
+                    },
+                    required: ['knowledgeBaseId', 'searchQuery'],
+                },
+            },
+        });
+    }
+
+    return tools;
+}
+
+// ---------------------------------------------------------------------------
+// Ejecución de la herramienta query_database
+// ---------------------------------------------------------------------------
+
+/**
+ * Ejecuta una consulta a la KB con filtro de parte opcional.
+ * Prioridad: filtro explícito de la IA → detección automática de parte → sin filtro.
+ *
+ * @param {string} orgId
+ * @param {{ knowledgeBaseId: string, searchQuery?: string, filters?: object, limit?: number }} args
+ * @returns {Promise<string>} - Resultado formateado para el modelo de IA
+ */
+async function executeQueryDatabase(orgId, args) {
+    try {
+        const kbId       = args.knowledgeBaseId;
+        const searchQuery = args.searchQuery || '';
+        const limit       = Math.min(Number(args.limit) || 10, 30);
+
+        // Parte: primero filtro explícito de la IA, luego detección automática
+        const parteFilter = (args.filters && args.filters.parte)
+            ? args.filters.parte
+            : detectParte(searchQuery);
+
+        const rows = await loadKBRows(orgId, kbId, parteFilter || null);
+
+        if (rows.length === 0) {
+            return parteFilter
+                ? `No se encontraron productos de la categoría "${parteFilter}".`
+                : 'No se encontraron productos en la base de datos.';
+        }
+
+        // Scoring semántico sobre los resultados ya filtrados por Firestore
+        let results = rows;
+        if (searchQuery) {
+            const { terms, years } = expandSearchTerms(searchQuery);
+            if (terms.size > 0 || years.length > 0) {
+                const scored = rows
+                    .map(row => ({ row, score: scoreRow(row, terms, years) }))
+                    .filter(({ score }) => score > 0)
+                    .sort((a, b) => b.score - a.score);
+                if (scored.length > 0) results = scored.map(({ row }) => row);
+            }
+        }
+
+        results = results.slice(0, limit);
+        const columns = Object.keys(results[0]).filter(k => k !== 'id');
+        const formatted = results.map((row, i) => {
+            return `${i + 1}. ${columns.map(col => `${col}: ${row[col] ?? ''}`).join(' | ')}`;
+        }).join('\n');
+
+        return `Encontrados ${results.length} resultados${parteFilter ? ` (parte: ${parteFilter})` : ''}:\n${formatted}`;
+    } catch (err) {
+        console.error('[executeQueryDatabase] Error:', err);
+        return 'Error al consultar la base de datos.';
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -276,6 +396,10 @@ async function callOpenAI(agent, systemPrompt, messages, tools, orgId, convId) {
                         ? `Pedido creado correctamente. Número: ${result.orderNumber}. Total: $${(result.total || 0).toFixed(2)}.`
                         : `Error al crear pedido: ${result.message}`,
                 });
+            } else if (tc.function.name === 'query_database') {
+                const args   = JSON.parse(tc.function.arguments);
+                const content = await executeQueryDatabase(orgId, args);
+                toolResults.push({ role: 'tool', tool_call_id: tc.id, content });
             }
         }
         if (toolResults.length > 0) {
@@ -368,6 +492,9 @@ async function callAnthropic(agent, systemPrompt, messages, tools, orgId, convId
                         ? `Pedido creado correctamente. Número: ${result.orderNumber}. Total: $${(result.total || 0).toFixed(2)}.`
                         : `Error al crear pedido: ${result.message}`,
                 });
+            } else if (tb.name === 'query_database') {
+                const content = await executeQueryDatabase(orgId, tb.input);
+                toolResultContents.push({ type: 'tool_result', tool_use_id: tb.id, content });
             }
         }
         if (toolResultContents.length > 0) {
@@ -449,8 +576,8 @@ exports.autoResponder = onDocumentCreated(
             const userText = messageData.text || '';
             const systemPrompt = await buildSystemPrompt(agent, orgId, userText);
 
-            // Herramientas disponibles para el agente
-            const tools = buildToolDefinitions();
+            // Herramientas disponibles para el agente (incluyendo query_database si tiene KBs)
+            const tools = buildToolDefinitions(agent);
 
             // Llamar al proveedor de IA (la API key viene de Firestore)
             let aiResponse;
