@@ -24,31 +24,39 @@ const FUNNEL_STAGES = [
 // ========== FUNCIONES DE NOTIFICACION (MODAL) ==========
 
 function showNotification(title, message, type = 'error') {
-    const overlay = document.getElementById('notificationOverlay');
-    const box = document.getElementById('notificationBox');
-    const iconEl = document.getElementById('notificationIcon');
-    const titleEl = document.getElementById('notificationTitle');
-    const messageEl = document.getElementById('notificationMessage');
+    const container = document.getElementById('toastContainer');
+    if (!container) return;
 
-    // Centrar en el área de contenido (excluyendo el sidebar de 280px) cuando la app está activa
-    const appLayout = document.getElementById('appLayout');
-    const isAppActive = appLayout && appLayout.classList.contains('active');
-    overlay.style.paddingLeft = (isAppActive && window.innerWidth > 768) ? '280px' : '';
+    // error persists until dismissed; others auto-dismiss
+    const durations = { success: 4000, info: 4000, warning: 6000, error: 0 };
+    const duration  = durations[type] ?? 4000;
+    const icons     = { error: '⛔', success: '✅', warning: '⚠️', info: 'ℹ️' };
+    const id = 'toast-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6);
 
-    if (type === 'error') iconEl.textContent = '⚠️';
-    else if (type === 'success') iconEl.textContent = '✅';
-    else if (type === 'warning') iconEl.textContent = '⚠️';
-    else iconEl.textContent = 'ℹ️';
+    const toast = document.createElement('div');
+    toast.className = `toast toast-${type}`;
+    toast.id = id;
+    toast.innerHTML =
+        `<span class="toast-icon">${icons[type] || 'ℹ️'}</span>` +
+        `<div class="toast-content">` +
+            `<div class="toast-title">${escapeHtml(title)}</div>` +
+            (message ? `<div class="toast-msg">${escapeHtml(message)}</div>` : '') +
+        `</div>` +
+        `<button class="toast-close" onclick="dismissToast('${id}')">×</button>` +
+        (duration > 0 ? `<div class="toast-progress" style="animation-duration:${duration}ms"></div>` : '');
 
-    titleEl.textContent = title;
-    messageEl.textContent = message;
-    box.className = 'notification-box ' + type;
-    overlay.classList.remove('hidden');
+    container.appendChild(toast);
+    if (duration > 0) setTimeout(() => dismissToast(id), duration);
 }
 
-function closeNotification() {
-    document.getElementById('notificationOverlay').classList.add('hidden');
+function dismissToast(id) {
+    const toast = document.getElementById(id);
+    if (!toast) return;
+    toast.classList.add('toast-out');
+    toast.addEventListener('animationend', () => toast.remove(), { once: true });
 }
+
+function closeNotification() {} // backwards compatibility
 
 function getFirebaseAuthErrorMessage(error) {
     const currentDomain = window.location.hostname || window.location.href;
@@ -595,6 +603,7 @@ async function loadApp(userId) {
         await loadTeamMembers();
         await loadContacts();
         await loadConversations();
+        loadOrders();
         if (userData.role !== 'agente') {
             await loadIntegrationConfigs();
             await loadKnowledgeBases();
@@ -661,7 +670,7 @@ function showPage(page) {
         return;
     }
 
-    const pages = ['dashboard', 'conversations', 'contacts', 'team', 'integrations', 'aiAgents', 'settings'];
+    const pages = ['dashboard', 'conversations', 'contacts', 'orders', 'team', 'integrations', 'aiAgents', 'settings'];
     pages.forEach(p => {
         const el = document.getElementById(p + 'Page');
         if (el) el.classList.add('hidden');
@@ -680,6 +689,7 @@ function showPage(page) {
         dashboard: { title: 'Panel Principal', subtitle: 'Resumen de tu actividad de mensajería' },
         conversations: { title: 'Conversaciones', subtitle: 'Gestiona todas tus conversaciones y funnel de ventas' },
         contacts: { title: 'Contactos', subtitle: 'Directorio de contactos enriquecido' },
+        orders: { title: 'Pedidos', subtitle: 'Pedidos generados por el agente IA desde las conversaciones' },
         team: { title: 'Equipo', subtitle: 'Gestiona los miembros de tu equipo' },
         integrations: { title: 'Integraciones', subtitle: 'Conecta plataformas de mensajería y pasarelas de pago' },
         aiAgents: { title: 'Agentes IA', subtitle: 'Configura agentes de inteligencia artificial para tus canales' },
@@ -697,6 +707,8 @@ function showPage(page) {
     } else if (page === 'conversations') {
         renderFunnel();
         loadConversations();
+    } else if (page === 'orders') {
+        loadOrders();
     } else if (page === 'integrations') {
         loadIntegrationConfigs();
     } else if (page === 'aiAgents') {
@@ -1030,6 +1042,165 @@ function openConvFromFunnel(contactId) {
 
     // El funnel está en la misma página de conversaciones; abrir directamente sin recargar
     openConversation(conv.id);
+}
+
+// ========== PEDIDOS ==========
+
+async function loadOrders() {
+    if (!currentOrganization) return;
+    try {
+        const ref = window.firestore.collection(window.db, 'organizations', currentOrganization.id, 'orders');
+        const q   = window.firestore.query(ref, window.firestore.orderBy('createdAt', 'desc'));
+        const snap = await window.firestore.getDocs(q);
+        orders = [];
+        snap.forEach(doc => orders.push({ id: doc.id, ...doc.data() }));
+        renderOrdersTable();
+        renderOrdersBadge();
+    } catch (err) {
+        console.error('Error cargando pedidos:', err);
+    }
+}
+
+function renderOrdersBadge() {
+    const badge = document.getElementById('ordersBadge');
+    if (!badge) return;
+    const nuevos = orders.filter(o => o.status === 'nuevo').length;
+    badge.textContent = nuevos;
+    badge.classList.toggle('hidden', nuevos === 0);
+    const el = document.getElementById('statOrdersTotal');
+    if (el) el.textContent = orders.length;
+    const elN = document.getElementById('statOrdersNuevos');
+    if (elN) elN.textContent = orders.filter(o => o.status === 'nuevo').length;
+    const elP = document.getElementById('statOrdersEnProceso');
+    if (elP) elP.textContent = orders.filter(o => o.status === 'en_proceso' || o.status === 'confirmado').length;
+    const elR = document.getElementById('statOrdersRevenue');
+    if (elR) {
+        const total = orders
+            .filter(o => o.status === 'entregado' || o.status === 'confirmado')
+            .reduce((s, o) => s + (o.total || 0), 0);
+        elR.textContent = '$' + total.toLocaleString('es-MX', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+    }
+}
+
+function setOrderFilter(filter, btn) {
+    currentOrderFilter = filter;
+    document.querySelectorAll('.orders-filter').forEach(b => b.classList.remove('active'));
+    if (btn) btn.classList.add('active');
+    renderOrdersTable();
+}
+
+const ORDER_STATUS_LABELS = {
+    nuevo: 'Nuevo', confirmado: 'Confirmado', en_proceso: 'En proceso',
+    entregado: 'Entregado', cancelado: 'Cancelado'
+};
+
+const ORDER_PLATFORM_ICONS = { whatsapp: '📱', instagram: '📷', messenger: '💬', manual: '✉️' };
+
+function renderOrdersTable() {
+    const tbody   = document.getElementById('ordersTableBody');
+    const empty   = document.getElementById('ordersEmptyState');
+    if (!tbody) return;
+
+    const filtered = currentOrderFilter === 'all'
+        ? orders
+        : orders.filter(o => o.status === currentOrderFilter);
+
+    if (filtered.length === 0) {
+        tbody.innerHTML = '';
+        if (empty) empty.classList.remove('hidden');
+        return;
+    }
+    if (empty) empty.classList.add('hidden');
+
+    tbody.innerHTML = filtered.map(order => {
+        const itemsPreview = (order.items || []).map(i => `${i.quantity}x ${i.product}`).join(', ');
+        const total = (order.total || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 });
+        const status = order.status || 'nuevo';
+        const date = order.createdAt
+            ? (order.createdAt.toDate ? order.createdAt.toDate() : new Date(order.createdAt))
+            : new Date();
+        return `
+        <tr>
+            <td><span class="order-number">${escapeHtml(order.orderNumber || order.id.slice(-6))}</span></td>
+            <td>${escapeHtml(order.contactName || '—')}</td>
+            <td><span class="order-items-preview" title="${escapeHtml(itemsPreview)}">${escapeHtml(itemsPreview || '—')}</span></td>
+            <td><span class="order-total">$${total}</span></td>
+            <td><span class="order-status ${status}">${ORDER_STATUS_LABELS[status] || status}</span></td>
+            <td>${ORDER_PLATFORM_ICONS[order.platform] || '—'} ${escapeHtml(order.platform || '—')}</td>
+            <td>${formatTimeAgo(date)}</td>
+            <td>
+                <select class="conv-stage-select" style="font-size:12px" onchange="updateOrderStatus('${order.id}', this.value)">
+                    ${['nuevo','confirmado','en_proceso','entregado','cancelado'].map(s =>
+                        `<option value="${s}" ${s === status ? 'selected' : ''}>${ORDER_STATUS_LABELS[s]}</option>`
+                    ).join('')}
+                </select>
+            </td>
+        </tr>`;
+    }).join('');
+}
+
+async function updateOrderStatus(orderId, newStatus) {
+    try {
+        await window.firestore.updateDoc(
+            window.firestore.doc(window.db, 'organizations', currentOrganization.id, 'orders', orderId),
+            { status: newStatus, updatedAt: window.firestore.serverTimestamp() }
+        );
+        const order = orders.find(o => o.id === orderId);
+        if (order) order.status = newStatus;
+        renderOrdersBadge();
+    } catch (err) {
+        console.error('Error actualizando pedido:', err);
+        showNotification('Error', 'No se pudo actualizar el estado del pedido.', 'error');
+    }
+}
+
+async function generateOrderNumber() {
+    const snap = await window.firestore.getDocs(
+        window.firestore.collection(window.db, 'organizations', currentOrganization.id, 'orders')
+    );
+    return 'PED-' + String(snap.size + 1).padStart(5, '0');
+}
+
+async function createOrderFromAI(orderData) {
+    if (!currentOrganization) return { success: false, message: 'No hay organización activa.' };
+
+    const items = (orderData.items || []).map(item => ({
+        product:   String(item.product   || ''),
+        quantity:  Number(item.quantity)  || 1,
+        unitPrice: Number(item.unitPrice) || 0,
+        notes:     String(item.notes     || '')
+    }));
+
+    const total = items.reduce((sum, i) => sum + i.quantity * i.unitPrice, 0);
+    const orderNumber = await generateOrderNumber();
+
+    const order = {
+        orderNumber,
+        contactId:      currentConversation?.contactId      || null,
+        contactName:    currentConversation?.contactName    || orderData.contactName || 'Cliente',
+        conversationId: currentConversation?.id             || null,
+        platform:       currentConversation?.platform       || 'manual',
+        items,
+        total,
+        status:    'nuevo',
+        notes:     orderData.notes || '',
+        createdAt: window.firestore.serverTimestamp(),
+        updatedAt: window.firestore.serverTimestamp(),
+        createdBy: 'ai'
+    };
+
+    try {
+        const docRef = await window.firestore.addDoc(
+            window.firestore.collection(window.db, 'organizations', currentOrganization.id, 'orders'),
+            order
+        );
+        orders.unshift({ id: docRef.id, ...order, createdAt: new Date(), updatedAt: new Date() });
+        renderOrdersBadge();
+        return { success: true, orderNumber, orderId: docRef.id, total };
+    } catch (err) {
+        console.error('Error creando pedido desde IA:', err);
+        return { success: false, message: err.message };
+    }
 }
 
 // ========== CONTACTOS CRUD ==========
@@ -1743,6 +1914,11 @@ async function loadIntegrationConfigs() {
         console.error('Error cargando configuraciones de integración:', error);
     }
 }
+
+// ========== PEDIDOS ==========
+
+let orders = [];
+let currentOrderFilter = 'all';
 
 // ========== SISTEMA DE CHAT / CONVERSACIONES ==========
 
@@ -3210,6 +3386,16 @@ async function callOpenAI(agent, systemPrompt, messages, tools) {
                         ? `Contacto ${result.action === 'created' ? 'creado' : 'actualizado'} correctamente: ${result.name}`
                         : `Error al guardar contacto: ${result.message}`
                 });
+            } else if (tc.function.name === 'create_order') {
+                const args = JSON.parse(tc.function.arguments);
+                const result = await createOrderFromAI(args);
+                toolResults.push({
+                    role: 'tool',
+                    tool_call_id: tc.id,
+                    content: result.success
+                        ? `Pedido creado correctamente. Número: ${result.orderNumber}. Total: $${result.total.toLocaleString('es-MX', { minimumFractionDigits: 2 })}.`
+                        : `Error al crear pedido: ${result.message}`
+                });
             }
         }
 
@@ -3313,6 +3499,15 @@ async function callAnthropic(agent, systemPrompt, messages, tools) {
                     content: result.success
                         ? `Contacto ${result.action === 'created' ? 'creado' : 'actualizado'} correctamente: ${result.name}`
                         : `Error al guardar contacto: ${result.message}`
+                });
+            } else if (tb.name === 'create_order') {
+                const result = await createOrderFromAI(tb.input);
+                toolResultContents.push({
+                    type: 'tool_result',
+                    tool_use_id: tb.id,
+                    content: result.success
+                        ? `Pedido creado correctamente. Número: ${result.orderNumber}. Total: $${result.total.toLocaleString('es-MX', { minimumFractionDigits: 2 })}.`
+                        : `Error al crear pedido: ${result.message}`
                 });
             }
         }
@@ -4034,7 +4229,37 @@ function buildAIToolDefinitions(agent) {
         },
     });
 
-    // --- Herramienta 2: consultar base de datos (solo si hay KBs) ---
+    // --- Herramienta 2: crear pedido ---
+    tools.push({
+        type: 'function',
+        function: {
+            name: 'create_order',
+            description: 'Crea un nuevo pedido cuando el cliente confirma los productos que desea comprar. Úsala SIEMPRE que el cliente confirme su pedido indicando productos y/o cantidades. Si tienes el precio del producto, inclúyelo.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    items: {
+                        type: 'array',
+                        description: 'Lista de productos del pedido',
+                        items: {
+                            type: 'object',
+                            properties: {
+                                product:   { type: 'string', description: 'Nombre del producto o servicio' },
+                                quantity:  { type: 'number', description: 'Cantidad solicitada' },
+                                unitPrice: { type: 'number', description: 'Precio unitario (sin símbolo de moneda, solo número)' },
+                                notes:     { type: 'string', description: 'Notas adicionales del producto' }
+                            },
+                            required: ['product', 'quantity']
+                        }
+                    },
+                    notes: { type: 'string', description: 'Notas generales del pedido' }
+                },
+                required: ['items']
+            }
+        }
+    });
+
+    // --- Herramienta 3: consultar base de datos (solo si hay KBs) ---
     const agentKBs = (agent.knowledgeBases || [])
         .map(kbId => knowledgeBases.find(kb => kb.id === kbId))
         .filter(Boolean);
