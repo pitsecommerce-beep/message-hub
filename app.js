@@ -30,6 +30,11 @@ function showNotification(title, message, type = 'error') {
     const titleEl = document.getElementById('notificationTitle');
     const messageEl = document.getElementById('notificationMessage');
 
+    // Centrar en el área de contenido (excluyendo el sidebar de 280px) cuando la app está activa
+    const appLayout = document.getElementById('appLayout');
+    const isAppActive = appLayout && appLayout.classList.contains('active');
+    overlay.style.paddingLeft = (isAppActive && window.innerWidth > 768) ? '280px' : '';
+
     if (type === 'error') iconEl.textContent = '⚠️';
     else if (type === 'success') iconEl.textContent = '✅';
     else if (type === 'warning') iconEl.textContent = '⚠️';
@@ -1014,7 +1019,7 @@ function openConvFromFunnel(contactId) {
     const contact = contacts.find(c => c.id === contactId);
     if (!contact) return;
 
-    // Buscar conversación abierta del contacto (por contactId o por teléfono)
+    // Buscar conversación del contacto (por contactId o por teléfono)
     const conv = conversations.find(c => c.contactId === contactId) ||
                  conversations.find(c => contact.phone && c.contactPhone === contact.phone);
 
@@ -1023,9 +1028,8 @@ function openConvFromFunnel(contactId) {
         return;
     }
 
-    showPage('conversations');
-    // Dar tiempo al DOM para renderizarse antes de abrir la conversación
-    setTimeout(() => openConversation(conv.id), 100);
+    // El funnel está en la misma página de conversaciones; abrir directamente sin recargar
+    openConversation(conv.id);
 }
 
 // ========== CONTACTOS CRUD ==========
@@ -4128,6 +4132,11 @@ async function saveContactFromAI(contactData) {
 // Ejecuta una consulta a la base de datos (usa caché interna)
 async function queryKnowledgeBase(kbId, searchQuery, filters, limit = 10) {
     if (!currentOrganization) return [];
+
+    // No hacer consulta a Firebase si no hay búsqueda ni filtros definidos
+    const hasQuery = searchQuery && searchQuery.trim().length > 0;
+    const hasFilters = filters && typeof filters === 'object' && Object.keys(filters).length > 0;
+    if (!hasQuery && !hasFilters) return [];
 
     try {
         let results = await getKBRows(kbId);
