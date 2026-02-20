@@ -812,21 +812,21 @@
                             <div class="stat-value" id="statConversations">0</div>
                             <div class="stat-change">Sin chats activos</div>
                         </div>
-                        <div class="stat-card" onclick="showPage('contacts')">
+                        <div class="stat-card" onclick="showPage('orders')">
                             <div class="stat-header">
-                                <span class="stat-label">Contactos</span>
-                                <div class="stat-icon accent">📇</div>
+                                <span class="stat-label">Ingresos Confirmados</span>
+                                <div class="stat-icon success">💰</div>
                             </div>
-                            <div class="stat-value" id="statContacts">0</div>
-                            <div class="stat-change">En directorio</div>
+                            <div class="stat-value" id="statDashRevenue">$0</div>
+                            <div class="stat-change">Pedidos confirmados + entregados</div>
                         </div>
-                        <div class="stat-card" onclick="showPage('team')">
+                        <div class="stat-card" onclick="showPage('orders')">
                             <div class="stat-header">
-                                <span class="stat-label">Miembros del Equipo</span>
-                                <div class="stat-icon success">👥</div>
+                                <span class="stat-label">Pedidos en Proceso</span>
+                                <div class="stat-icon accent">📦</div>
                             </div>
-                            <div class="stat-value" id="teamCount">1</div>
-                            <div class="stat-change">Todos activos</div>
+                            <div class="stat-value" id="statDashOrders">0</div>
+                            <div class="stat-change">Nuevo + Confirmado + En proceso</div>
                         </div>
                     </div>
 
@@ -1351,11 +1351,9 @@
                                 <tr>
                                     <th># Pedido</th>
                                     <th>Cliente</th>
-                                    <th>Productos</th>
+                                    <th>SKU / Uds. / Descripción</th>
+                                    <th>Status</th>
                                     <th>Total</th>
-                                    <th>Estado</th>
-                                    <th>Canal</th>
-                                    <th>Creado</th>
                                     <th>Acciones</th>
                                 </tr>
                             </thead>

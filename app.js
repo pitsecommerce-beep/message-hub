@@ -9,6 +9,9 @@ let appNotifications = [];
 let teamMembers = [];
 let contacts = [];
 let pendingRegistration = null; // Para registro diferido
+let pendingConvToOpen = null;           // Conversation ID to auto-open after loadConversations()
+let pendingOrderPaymentLinkData = null; // {total, description, orderId} to pre-fill payment modal after conv opens
+let pendingPaymentOrderId = null;       // orderId to link to the next payment link created
 window.suppressAuthRedirect = false;
 
 // Etapas del funnel de ventas
@@ -1063,23 +1066,32 @@ async function loadOrders() {
 
 function renderOrdersBadge() {
     const badge = document.getElementById('ordersBadge');
-    if (!badge) return;
-    const nuevos = orders.filter(o => o.status === 'nuevo').length;
-    badge.textContent = nuevos;
-    badge.classList.toggle('hidden', nuevos === 0);
+    if (badge) {
+        const nuevos = orders.filter(o => o.status === 'nuevo').length;
+        badge.textContent = nuevos;
+        badge.classList.toggle('hidden', nuevos === 0);
+    }
+
     const el = document.getElementById('statOrdersTotal');
     if (el) el.textContent = orders.length;
     const elN = document.getElementById('statOrdersNuevos');
     if (elN) elN.textContent = orders.filter(o => o.status === 'nuevo').length;
     const elP = document.getElementById('statOrdersEnProceso');
     if (elP) elP.textContent = orders.filter(o => o.status === 'en_proceso' || o.status === 'confirmado').length;
+
+    const confirmedRevenue = orders
+        .filter(o => o.status === 'entregado' || o.status === 'confirmado')
+        .reduce((s, o) => s + (o.total || 0), 0);
+    const revenueStr = '$' + confirmedRevenue.toLocaleString('es-MX', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+
     const elR = document.getElementById('statOrdersRevenue');
-    if (elR) {
-        const total = orders
-            .filter(o => o.status === 'entregado' || o.status === 'confirmado')
-            .reduce((s, o) => s + (o.total || 0), 0);
-        elR.textContent = '$' + total.toLocaleString('es-MX', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
-    }
+    if (elR) elR.textContent = revenueStr;
+
+    // Update dashboard summary cards
+    const dashRevenue = document.getElementById('statDashRevenue');
+    if (dashRevenue) dashRevenue.textContent = revenueStr;
+    const dashOrders = document.getElementById('statDashOrders');
+    if (dashOrders) dashOrders.textContent = orders.filter(o => ['nuevo','confirmado','en_proceso'].includes(o.status)).length;
 }
 
 function setOrderFilter(filter, btn) {
@@ -1113,28 +1125,44 @@ function renderOrdersTable() {
     if (empty) empty.classList.add('hidden');
 
     tbody.innerHTML = filtered.map(order => {
-        const itemsPreview = (order.items || []).map(i => `${i.quantity}x ${i.product}`).join(', ');
-        const total = (order.total || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 });
         const status = order.status || 'nuevo';
-        const date = order.createdAt
-            ? (order.createdAt.toDate ? order.createdAt.toDate() : new Date(order.createdAt))
-            : new Date();
+        const total  = (order.total || 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        const clientName = escapeHtml(order.contactCompany || order.contactName || '—');
+
+        // Build inline items rows
+        const items = order.items || [];
+        const itemsHtml = items.length > 0
+            ? items.map(item => {
+                const sku  = escapeHtml(item.sku  || item.product || '—');
+                const uds  = Number(item.quantity) || 1;
+                const desc = escapeHtml(item.product || item.notes || '');
+                return `<div class="order-item-inline"><span class="order-item-sku">${sku}</span><span class="order-item-units">${uds} uds.</span><span class="order-item-desc">${desc}</span></div>`;
+              }).join('')
+            : '<span class="text-muted">Sin artículos</span>';
+
+        // Action buttons
+        const btnConv = order.conversationId
+            ? `<button class="btn-order-action" title="Abrir conversación" onclick="openConvFromOrder('${order.conversationId}')">💬</button>`
+            : '';
+        const btnPay = status === 'nuevo'
+            ? `<button class="btn-order-action btn-order-pay" title="Enviar liga de pago" onclick="sendPaymentLinkFromOrder('${order.id}')">💳</button>`
+            : '';
+
+        const statusSelect = `
+            <select class="conv-stage-select order-status-select" onchange="updateOrderStatus('${order.id}', this.value)">
+                ${['nuevo','confirmado','en_proceso','entregado','cancelado'].map(s =>
+                    `<option value="${s}" ${s === status ? 'selected' : ''}>${ORDER_STATUS_LABELS[s]}</option>`
+                ).join('')}
+            </select>`;
+
         return `
         <tr>
             <td><span class="order-number">${escapeHtml(order.orderNumber || order.id.slice(-6))}</span></td>
-            <td>${escapeHtml(order.contactName || '—')}</td>
-            <td><span class="order-items-preview" title="${escapeHtml(itemsPreview)}">${escapeHtml(itemsPreview || '—')}</span></td>
+            <td class="order-client">${clientName}</td>
+            <td class="order-items-cell">${itemsHtml}</td>
+            <td><span class="order-status ${status}">${ORDER_STATUS_LABELS[status] || status}</span>${statusSelect}</td>
             <td><span class="order-total">$${total}</span></td>
-            <td><span class="order-status ${status}">${ORDER_STATUS_LABELS[status] || status}</span></td>
-            <td>${ORDER_PLATFORM_ICONS[order.platform] || '—'} ${escapeHtml(order.platform || '—')}</td>
-            <td>${formatTimeAgo(date)}</td>
-            <td>
-                <select class="conv-stage-select" style="font-size:12px" onchange="updateOrderStatus('${order.id}', this.value)">
-                    ${['nuevo','confirmado','en_proceso','entregado','cancelado'].map(s =>
-                        `<option value="${s}" ${s === status ? 'selected' : ''}>${ORDER_STATUS_LABELS[s]}</option>`
-                    ).join('')}
-                </select>
-            </td>
+            <td class="order-actions-cell">${btnConv}${btnPay}</td>
         </tr>`;
     }).join('');
 }
@@ -1152,6 +1180,32 @@ async function updateOrderStatus(orderId, newStatus) {
         console.error('Error actualizando pedido:', err);
         showNotification('Error', 'No se pudo actualizar el estado del pedido.', 'error');
     }
+}
+
+function openConvFromOrder(conversationId) {
+    if (!conversationId) return;
+    // If already on conversations page and conversations are loaded, open directly
+    if (document.getElementById('conversationsPage') && !document.getElementById('conversationsPage').classList.contains('hidden')) {
+        const conv = conversations.find(c => c.id === conversationId);
+        if (conv) { openConversation(conversationId); return; }
+    }
+    pendingConvToOpen = conversationId;
+    showPage('conversations');
+}
+
+function sendPaymentLinkFromOrder(orderId) {
+    const order = orders.find(o => o.id === orderId);
+    if (!order || !order.conversationId) {
+        showNotification('Sin conversación', 'Este pedido no tiene una conversación asociada.', 'warning');
+        return;
+    }
+    // Store payment pre-fill data; open conversation which will trigger the modal
+    pendingOrderPaymentLinkData = {
+        total: order.total || 0,
+        description: `Pedido ${order.orderNumber || order.id.slice(-6)}`,
+        orderId: order.id
+    };
+    openConvFromOrder(order.conversationId);
 }
 
 async function generateOrderNumber() {
@@ -1174,12 +1228,19 @@ async function createOrderFromAI(orderData) {
     const total = items.reduce((sum, i) => sum + i.quantity * i.unitPrice, 0);
     const orderNumber = await generateOrderNumber();
 
+    // Resolve contact company name from contacts array
+    const contactId = currentConversation?.contactId || null;
+    const contact = contactId ? contacts.find(c => c.id === contactId) : null;
+    const contactCompany = contact?.company || null;
+    const contactName = contact?.name || currentConversation?.contactName || orderData.contactName || 'Cliente';
+
     const order = {
         orderNumber,
-        contactId:      currentConversation?.contactId      || null,
-        contactName:    currentConversation?.contactName    || orderData.contactName || 'Cliente',
-        conversationId: currentConversation?.id             || null,
-        platform:       currentConversation?.platform       || 'manual',
+        contactId,
+        contactName,
+        contactCompany,
+        conversationId: currentConversation?.id  || null,
+        platform:       currentConversation?.platform || 'manual',
         items,
         total,
         status:    'nuevo',
@@ -1216,7 +1277,7 @@ async function loadContacts() {
             contacts.push({ id: doc.id, ...doc.data() });
         });
 
-        document.getElementById('statContacts').textContent = contacts.length;
+        const _sc = document.getElementById('statContacts'); if (_sc) _sc.textContent = contacts.length;
         renderContactsTable();
         renderFunnel();
     } catch (error) {
@@ -1375,7 +1436,7 @@ async function saveContact() {
             showNotification('Contacto agregado', `${name} fue agregado al directorio.`, 'success');
         }
 
-        document.getElementById('statContacts').textContent = contacts.length;
+        const _sc = document.getElementById('statContacts'); if (_sc) _sc.textContent = contacts.length;
         renderContactsTable();
         renderFunnel();
         closeContactModal();
@@ -1396,7 +1457,7 @@ async function deleteContact(contactId) {
             window.firestore.doc(window.db, 'organizations', currentOrganization.id, 'contacts', contactId)
         );
         contacts = contacts.filter(c => c.id !== contactId);
-        document.getElementById('statContacts').textContent = contacts.length;
+        const _sc = document.getElementById('statContacts'); if (_sc) _sc.textContent = contacts.length;
         renderContactsTable();
         renderFunnel();
         showNotification('Contacto eliminado', `${contact.name} fue eliminado del directorio.`, 'success');
@@ -1952,6 +2013,12 @@ async function loadConversations() {
         renderConversationsList();
         document.getElementById('statConversations').textContent = conversations.filter(c => c.status === 'open').length;
         document.getElementById('convBadge').textContent = conversations.filter(c => c.status === 'open').length;
+        // Auto-open conversation requested from another page (e.g. funnel, orders)
+        if (pendingConvToOpen) {
+            const convId = pendingConvToOpen;
+            pendingConvToOpen = null;
+            openConversation(convId);
+        }
     } catch (error) {
         console.error('Error cargando conversaciones:', error);
     }
@@ -2109,6 +2176,20 @@ async function openConversation(convId) {
     }
 
     loadMessages(convId);
+
+    // If a payment link was requested from orders page, pre-fill and open the modal
+    if (pendingOrderPaymentLinkData) {
+        const { total, description, orderId } = pendingOrderPaymentLinkData;
+        pendingOrderPaymentLinkData = null;
+        pendingPaymentOrderId = orderId || null;
+        setTimeout(() => {
+            openPaymentLinkModal();
+            const amountEl = document.getElementById('paymentLinkAmount');
+            const descEl   = document.getElementById('paymentLinkDescription');
+            if (amountEl) amountEl.value = total;
+            if (descEl)   descEl.value   = description;
+        }, 150);
+    }
 }
 
 function closeConversation() {
@@ -2429,10 +2510,12 @@ async function sendPaymentLink() {
             gateway: selectedPaymentGateway,
             status: 'pending',
             trackingRef: trackingRef,
+            orderId: pendingPaymentOrderId || null,
             createdAt: window.firestore.serverTimestamp(),
             createdBy: currentUser.uid,
             createdByName: userName
         };
+        pendingPaymentOrderId = null; // consume
 
         const paymentRef = await window.firestore.addDoc(
             window.firestore.collection(window.db, 'organizations', currentOrganization.id, 'paymentLinks'),
@@ -4134,6 +4217,8 @@ function scoreRow(row, terms, years) {
 // userMessage: último mensaje del usuario para filtrar filas relevantes (máx 30)
 async function buildAISystemPromptWithData(agent, userMessage) {
     let prompt = agent.systemPrompt || '';
+    // Always remind AI to call save_contact before create_order
+    prompt += '\n\nNOTA DE HERRAMIENTAS: Si necesitas crear un pedido (create_order), SIEMPRE llama primero a save_contact con los datos del cliente (nombre, empresa, teléfono, etc.) para registrarlo correctamente antes de crear el pedido.';
 
     const agentKBs = (agent.knowledgeBases || [])
         .map(kbId => knowledgeBases.find(kb => kb.id === kbId))
@@ -4198,6 +4283,7 @@ async function buildAISystemPromptWithData(agent, userMessage) {
     prompt += '- Si un producto no está en los datos, dile al cliente que no lo tienes disponible.\n';
     prompt += '- Puedes mencionar productos similares que sí estén en los datos.\n';
     prompt += '- Si además tienes la herramienta query_database, úsala para búsquedas más precisas.\n';
+    prompt += '- SIEMPRE llama primero a save_contact (con el nombre completo y empresa del cliente) ANTES de llamar a create_order. Esto asegura que el pedido quede asociado al cliente correcto.\n';
 
     return prompt;
 }

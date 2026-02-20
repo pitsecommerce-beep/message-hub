@@ -13,6 +13,9 @@ const { whatsappWebhook } = require('./src/webhooks/whatsapp');
 const { instagramWebhook } = require('./src/webhooks/instagram');
 const { messengerWebhook } = require('./src/webhooks/messenger');
 
+// Webhook de pagos MercadoPago
+const { mercadopagoWebhook } = require('./src/webhooks/mercadopago');
+
 // Trigger Firestore: auto-responder de IA
 const { autoResponder } = require('./src/ai/autoResponder');
 
@@ -20,5 +23,6 @@ module.exports = {
     whatsappWebhook,
     instagramWebhook,
     messengerWebhook,
+    mercadopagoWebhook,
     autoResponder,
 };
