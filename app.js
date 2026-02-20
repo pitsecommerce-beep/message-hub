@@ -928,6 +928,7 @@ function renderFunnel() {
                     ${contact.phone ? `<div class="funnel-card-phone">${escapeHtml(contact.phone)}</div>` : ''}
                     <div class="funnel-card-time">${timeInStage}</div>
                     <div class="funnel-card-actions">
+                        <button class="funnel-card-btn" onclick="openConvFromFunnel('${contact.id}')" title="Ver conversación">💬</button>
                         <button class="funnel-card-btn" onclick="editContactFromFunnel('${contact.id}')" title="Editar">✏️</button>
                     </div>
                 </div>
@@ -1007,6 +1008,24 @@ function getStageName(stageId) {
 function editContactFromFunnel(contactId) {
     const contact = contacts.find(c => c.id === contactId);
     if (contact) openContactModal(contact);
+}
+
+function openConvFromFunnel(contactId) {
+    const contact = contacts.find(c => c.id === contactId);
+    if (!contact) return;
+
+    // Buscar conversación abierta del contacto (por contactId o por teléfono)
+    const conv = conversations.find(c => c.contactId === contactId) ||
+                 conversations.find(c => contact.phone && c.contactPhone === contact.phone);
+
+    if (!conv) {
+        showNotification('Sin conversación', `No hay conversaciones registradas para ${contact.name}.`, 'info');
+        return;
+    }
+
+    showPage('conversations');
+    // Dar tiempo al DOM para renderizarse antes de abrir la conversación
+    setTimeout(() => openConversation(conv.id), 100);
 }
 
 // ========== CONTACTOS CRUD ==========
@@ -1883,6 +1902,7 @@ async function openConversation(convId) {
                     <option value="">Sin etapa</option>
                     ${FUNNEL_STAGES.map(s => `<option value="${s.id}" ${conv.funnelStage === s.id ? 'selected' : ''}>${s.name}</option>`).join('')}
                 </select>
+                <button class="btn-icon btn-sm btn-danger-icon" onclick="deleteConversation('${conv.id}')" title="Eliminar conversación">🗑️</button>
                 <button class="btn-icon btn-sm" onclick="closeConversation()" title="Cerrar">✕</button>
             </div>
         </div>
@@ -1926,6 +1946,28 @@ function closeConversation() {
         </div>
     `;
     renderConversationsList();
+}
+
+async function deleteConversation(convId) {
+    const conv = conversations.find(c => c.id === convId);
+    if (!conv) return;
+
+    if (!confirm(`¿Eliminar la conversación con "${conv.contactName || 'Sin nombre'}"? Esta acción no se puede deshacer.`)) return;
+
+    try {
+        await window.firestore.deleteDoc(
+            window.firestore.doc(window.db, 'organizations', currentOrganization.id, 'conversations', convId)
+        );
+        conversations = conversations.filter(c => c.id !== convId);
+        document.getElementById('statConversations').textContent = conversations.filter(c => c.status === 'open').length;
+        document.getElementById('convBadge').textContent = conversations.filter(c => c.status === 'open').length;
+        closeConversation();
+        renderConversationsList();
+        showNotification('Conversación eliminada', `La conversación con "${conv.contactName || 'Sin nombre'}" fue eliminada.`, 'success');
+    } catch (error) {
+        console.error('Error al eliminar conversación:', error);
+        showNotification('Error', 'No se pudo eliminar la conversación.', 'error');
+    }
 }
 
 async function loadMessages(convId) {

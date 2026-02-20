@@ -863,6 +863,12 @@ body {
     border-color: var(--border-light);
 }
 
+.btn-danger-icon:hover {
+    background: rgba(239, 68, 68, 0.15);
+    color: #EF4444;
+    border-color: #EF4444;
+}
+
 .mobile-menu-btn {
     display: none;
 }
