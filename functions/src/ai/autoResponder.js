@@ -294,7 +294,7 @@ async function executeQueryDatabase(orgId, args) {
     try {
         const kbId       = args.knowledgeBaseId;
         const searchQuery = args.searchQuery || '';
-        const limit       = Math.min(Number(args.limit) || 10, 30);
+        const limit       = Math.min(Number(args.limit) || 25, 50);
 
         // Parte: primero filtro explícito de la IA, luego detección automática
         const parteFilter = (args.filters && args.filters.parte)
@@ -309,16 +309,15 @@ async function executeQueryDatabase(orgId, args) {
                 : 'No se encontraron productos en la base de datos.';
         }
 
-        // Scoring semántico sobre los resultados ya filtrados por Firestore
+        // Scoring semántico: ordenar por relevancia sin descartar score=0.
         let results = rows;
         if (searchQuery) {
             const { terms, years } = expandSearchTerms(searchQuery);
             if (terms.size > 0 || years.length > 0) {
-                const scored = rows
+                results = rows
                     .map(row => ({ row, score: scoreRow(row, terms, years) }))
-                    .filter(({ score }) => score > 0)
-                    .sort((a, b) => b.score - a.score);
-                if (scored.length > 0) results = scored.map(({ row }) => row);
+                    .sort((a, b) => b.score - a.score)
+                    .map(({ row }) => row);
             }
         }
 
@@ -328,7 +327,8 @@ async function executeQueryDatabase(orgId, args) {
             return `${i + 1}. ${columns.map(col => `${col}: ${row[col] ?? ''}`).join(' | ')}`;
         }).join('\n');
 
-        return `Encontrados ${results.length} resultados${parteFilter ? ` (parte: ${parteFilter})` : ''}:\n${formatted}`;
+        const totalInfo = rows.length > limit ? ` (top ${results.length} de ${rows.length})` : ` (${results.length})`;
+        return `Resultados${totalInfo}:\n${formatted}`;
     } catch (err) {
         console.error('[executeQueryDatabase] Error:', err);
         return 'Error al consultar la base de datos.';

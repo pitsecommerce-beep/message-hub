@@ -4336,14 +4336,22 @@ function expandSearchTerms(text) {
 
     const terms = new Set();
     for (const token of tokens) {
-        // Saltar tokens que sean solo años (ya los manejamos aparte)
         if (/^\d{4}$/.test(token) && parseInt(token) >= 1930 && parseInt(token) <= 2030) continue;
         if (/^\d{2}$/.test(token)) continue;
-        // Agregar el término si tiene al menos una letra
         if (/[a-záéíóúüñ]/i.test(token)) terms.add(token);
-        // Agregar expansiones del diccionario
         for (const exp of (AUTOPARTE_EXPANSIONS[token] || [])) terms.add(exp.toLowerCase());
     }
+
+    // Normalización de plurales en español: "faros" → también buscar "faro"
+    // Resuelve el caso en que el usuario escribe el plural pero la KB tiene el singular.
+    const singulars = [];
+    for (const term of terms) {
+        if (term.length >= 4 && term.endsWith('s') && /[a-záéíóúüñ]/.test(term)) {
+            singulars.push(term.slice(0, -1)); // "faros"→"faro", "espejos"→"espejo"
+        }
+    }
+    for (const s of singulars) terms.add(s);
+
     return { terms, years };
 }
 
@@ -4380,13 +4388,15 @@ function scoreRow(row, terms, years) {
 
     if (years.length > 0) {
         const ranges = extractYearRanges(rowText);
-        const anyMatch = years.some(y => ranges.some(r => y >= r.from && y <= r.to));
-        if (anyMatch) {
-            score += 5; // El año correcto es muy relevante
-        } else if (score > 0 && ranges.length > 0) {
-            // Fila con años incompatibles: leve penalización
-            score = Math.max(0, score - 1);
+        // 1. Coincidencia por rango (ej. "2018-2022" contiene 2020)
+        const rangeMatch = years.some(y => ranges.some(r => y >= r.from && y <= r.to));
+        // 2. Coincidencia por año exacto en el texto (ej. la KB guarda "2020" suelto)
+        const exactMatch = years.some(y => new RegExp(`(?<!\\d)${y}(?!\\d)`).test(rowText));
+        if (rangeMatch || exactMatch) {
+            score += 5;
         }
+        // Se elimina la penalización: una parte con año distinto puede ser compatible
+        // y el AI decide; la penalización causaba falsos negativos.
     }
     return score;
 }
@@ -4664,22 +4674,22 @@ async function queryKnowledgeBase(kbId, searchQuery, filters, limit = 10) {
         // Sin parte → usa caché de todas las filas
         let results = await getKBRows(kbId, parteFilter);
 
-        // Scoring semántico sobre los resultados ya filtrados
+        // Scoring semántico: ordenar por relevancia sin descartar score=0.
+        // Así la IA siempre recibe resultados, priorizados del más al menos relevante.
         if (searchQuery) {
             const { terms: qTerms, years: qYears } = expandSearchTerms(searchQuery);
             if (qTerms.size > 0 || qYears.length > 0) {
-                const scored = results
+                results = results
                     .map(row => ({ row, score: scoreRow(row, qTerms, qYears) }))
-                    .filter(({ score }) => score > 0)
-                    .sort((a, b) => b.score - a.score);
-                if (scored.length > 0) results = scored.map(({ row }) => row);
+                    .sort((a, b) => b.score - a.score)
+                    .map(({ row }) => row);
             }
         }
 
         // Aplicar otros filtros de columna (excepto "parte" que ya fue a Firestore)
         if (filters && typeof filters === 'object') {
             Object.entries(filters).forEach(([key, value]) => {
-                if (key === 'parte') return; // ya aplicado en Firestore
+                if (key === 'parte') return;
                 results = results.filter(row => {
                     const rowVal = String(row[key] || '').toLowerCase();
                     return rowVal.includes(String(value).toLowerCase());
@@ -4687,7 +4697,7 @@ async function queryKnowledgeBase(kbId, searchQuery, filters, limit = 10) {
             });
         }
 
-        return results.slice(0, Math.min(limit, 30));
+        return results.slice(0, Math.min(limit, 50));
     } catch (error) {
         console.error('Error consultando base de datos:', error);
         return [];

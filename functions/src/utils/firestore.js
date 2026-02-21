@@ -537,6 +537,16 @@ function expandSearchTerms(text) {
         if (/[a-záéíóúüñ]/i.test(token)) terms.add(token);
         for (const exp of (AUTOPARTE_EXPANSIONS[token] || [])) terms.add(exp.toLowerCase());
     }
+
+    // Normalización de plurales: "faros"→"faro", "espejos"→"espejo"
+    const singulars = [];
+    for (const term of terms) {
+        if (term.length >= 4 && term.endsWith('s') && /[a-záéíóúüñ]/.test(term)) {
+            singulars.push(term.slice(0, -1));
+        }
+    }
+    for (const s of singulars) terms.add(s);
+
     return { terms, years };
 }
 
@@ -569,12 +579,13 @@ function scoreRow(row, terms, years) {
 
     if (years.length > 0) {
         const ranges = extractYearRanges(rowText);
-        const anyMatch = years.some(y => ranges.some(r => y >= r.from && y <= r.to));
-        if (anyMatch) {
+        const rangeMatch = years.some(y => ranges.some(r => y >= r.from && y <= r.to));
+        const exactMatch = years.some(y => new RegExp(`(?<!\\d)${y}(?!\\d)`).test(rowText));
+        if (rangeMatch || exactMatch) {
             score += 5;
-        } else if (score > 0 && ranges.length > 0) {
-            score = Math.max(0, score - 1);
         }
+        // Eliminada la penalización: causaba falsos negativos cuando la KB
+        // usa año distinto pero la pieza puede ser compatible.
     }
     return score;
 }
