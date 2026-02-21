@@ -1911,58 +1911,163 @@ body {
     overflow: hidden;
 }
 
-.orders-table {
-    width: 100%;
-    border-collapse: collapse;
+/* ── Order cards (Mercado Libre style) ── */
+.orders-list {
+    display: flex;
+    flex-direction: column;
 }
 
-.orders-table thead tr {
-    background: var(--bg-elevated);
+.order-card {
+    position: relative;
+    padding: 16px 20px 16px 26px;
     border-bottom: 1px solid var(--border);
+    transition: background 0.15s;
 }
+.order-card:last-child { border-bottom: none; }
+.order-card:hover { background: var(--bg-hover); }
 
-.orders-table th {
-    padding: 12px 16px;
-    text-align: left;
-    font-size: 11px;
-    font-weight: 700;
-    color: var(--text-secondary);
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    white-space: nowrap;
+/* Left accent stripe by status */
+.order-card::before {
+    content: '';
+    position: absolute;
+    left: 0; top: 0; bottom: 0;
+    width: 5px;
+    border-radius: 4px 0 0 4px;
 }
+.order-card.nuevo::before      { background: #818cf8; }
+.order-card.confirmado::before  { background: #34d399; }
+.order-card.en_proceso::before  { background: #fbbf24; }
+.order-card.entregado::before   { background: #10b981; }
+.order-card.cancelado::before   { background: #f87171; }
 
-.orders-table td {
-    padding: 14px 16px;
-    font-size: 13px;
-    color: var(--text-primary);
-    border-bottom: 1px solid rgba(55, 65, 81, 0.3);
-    vertical-align: middle;
+/* Header row: order # + date | status + select */
+.order-card-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 10px;
 }
-
-.orders-table tbody tr:last-child td { border-bottom: none; }
-
-.orders-table tbody tr:hover td { background: var(--bg-hover); }
-
-.order-number {
+.order-card-meta {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+.order-card-num {
     font-family: 'JetBrains Mono', monospace;
-    font-size: 12px;
-    font-weight: 600;
+    font-size: 13px;
+    font-weight: 700;
     color: var(--primary);
 }
-
-.order-items-preview {
-    max-width: 220px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    color: var(--text-secondary);
+.order-card-date {
     font-size: 12px;
+    color: var(--text-muted, var(--text-secondary));
+}
+.order-card-status-wrap {
+    display: flex;
+    align-items: center;
+    gap: 8px;
 }
 
-.order-total {
+/* Client row */
+.order-card-client {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 10px;
+}
+.order-card-client-icon {
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-secondary);
+    flex-shrink: 0;
+}
+
+/* Items list */
+.order-card-items {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin-bottom: 14px;
+}
+.order-card-item {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    padding: 6px 10px;
+    background: var(--bg-elevated);
+    border-radius: 8px;
+    font-size: 13px;
+}
+.order-card-item-empty {
+    padding: 6px 10px;
+    color: var(--text-secondary);
+    font-size: 12px;
+    font-style: italic;
+}
+.oitem-qty {
     font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
     font-weight: 700;
+    color: var(--primary);
+    min-width: 24px;
+    flex-shrink: 0;
+}
+.oitem-name {
+    flex: 1;
+    color: var(--text-primary);
+    font-size: 13px;
+}
+.oitem-unit-price {
+    font-size: 11px;
+    color: var(--text-secondary);
+    white-space: nowrap;
+}
+.oitem-price {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--text-primary);
+    white-space: nowrap;
+}
+
+/* Footer: total + actions */
+.order-card-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding-top: 12px;
+    border-top: 1px solid var(--border);
+}
+.order-card-total {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+}
+.order-card-total-label {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-secondary);
+}
+.order-card-total-amount {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 20px;
+    font-weight: 800;
+    color: var(--text-primary);
+}
+.order-card-actions {
+    display: flex;
+    gap: 6px;
 }
 
 .order-status {
@@ -2029,51 +2134,14 @@ body {
 .order-item-price   { font-family: 'JetBrains Mono', monospace; font-weight: 700; white-space: nowrap; }
 .order-item-notes   { color: var(--text-secondary); font-size: 11px; }
 
-/* Order table – inline item rows */
-.order-items-cell { min-width: 220px; }
-
-.order-item-inline {
-    display: flex;
-    align-items: baseline;
-    gap: 6px;
-    padding: 2px 0;
-    font-size: 12px;
-    line-height: 1.5;
-}
-
-.order-item-sku {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 11px;
-    font-weight: 700;
-    color: var(--primary);
-    white-space: nowrap;
-    min-width: 52px;
-}
-
-.order-item-units {
-    color: var(--text-secondary);
-    white-space: nowrap;
-    font-size: 11px;
-}
-
-.order-item-desc {
-    color: var(--text-primary);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    max-width: 160px;
-}
-
-/* Order table – status + select */
+/* Status select inside card */
 .order-status-select {
-    display: block;
-    margin-top: 4px;
     font-size: 11px;
-    padding: 2px 4px;
+    padding: 3px 6px;
     border-radius: 6px;
 }
 
-/* Order action buttons */
+/* (legacy — kept for potential modal use) */
 .order-actions-cell {
     display: flex;
     gap: 6px;

@@ -45,7 +45,11 @@ const {
 async function buildSystemPrompt(agent, orgId, userMessage) {
     let prompt = agent.systemPrompt || '';
     // Instrucción de herramientas (aplica con o sin KB)
-    prompt += '\n\nNOTA DE HERRAMIENTAS: Si el cliente confirma un pedido, llama primero a save_contact (con nombre/empresa/datos del cliente) y LUEGO a create_order.';
+    prompt += '\n\nREGLAS OBLIGATORIAS DE HERRAMIENTAS:\n'
+           + '1. CONTACTO: Si el cliente dice su nombre o empresa en CUALQUIER mensaje → llama a save_contact DE INMEDIATO, sin esperar.\n'
+           + '2. CONTACTO: Si llevas 2+ mensajes sin saber el nombre del cliente → pregúntaselo ("¿Con quién tengo el gusto?" o similar).\n'
+           + '3. PEDIDO: SIEMPRE llama primero a save_contact y después a create_order. Nunca al revés.\n'
+           + '4. save_contact se puede llamar varias veces para ir actualizando datos del cliente.';
 
     const kbIds = agent.knowledgeBases || [];
     if (kbIds.length === 0) return prompt;
@@ -120,9 +124,10 @@ async function buildSystemPrompt(agent, orgId, userMessage) {
     prompt += 'INSTRUCCIONES IMPORTANTES:\n';
     prompt += '- Responde SIEMPRE basándote en los datos anteriores.\n';
     prompt += '- Si te preguntan precios, da el precio exacto de los datos.\n';
-    prompt += '- Si un producto no está en los datos, usa la herramienta query_database con el filtro "parte" correcto para buscar más registros.\n';
+    prompt += '- Si un producto no está en los datos, usa query_database con el filtro "parte" correcto para buscar más registros.\n';
     prompt += '- Si el cliente no mencionó una categoría específica, puedes preguntar qué tipo de parte necesita.\n';
     prompt += '- Puedes mencionar productos similares que sí estén en los datos.\n';
+    prompt += '- Si el cliente da su nombre o empresa en cualquier momento, llama a save_contact de inmediato.\n';
 
     return prompt;
 }
@@ -181,7 +186,7 @@ function buildToolDefinitions(agent) {
             type: 'function',
             function: {
                 name: 'save_contact',
-                description: 'Guarda o actualiza los datos del contacto cuando el cliente proporciona su nombre, dirección, nombre del taller o empresa, RFC u otros datos personales. Úsala SIEMPRE que el cliente comparta cualquiera de estos datos.',
+                description: 'Registra o actualiza los datos del cliente en el CRM. LLÁMALA INMEDIATAMENTE cuando el cliente mencione su nombre, empresa, taller o cualquier dato personal — no esperes a que haga un pedido. Si llevas varios mensajes sin saber el nombre del cliente, pregúntaselo y en cuanto lo dé, llama a esta función.',
                 parameters: {
                     type: 'object',
                     properties: {
