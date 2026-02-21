@@ -193,18 +193,25 @@ async function loadKBMeta(orgId, kbId) {
 }
 
 /**
- * Carga todas las filas de una knowledge base.
+ * Carga filas de una knowledge base.
+ * Si se proporciona `parteFilter` (valor exacto de la columna "parte"),
+ * ejecuta una query filtrada en Firestore con limit(30) — reads mínimos.
+ * Sin filtro, carga todas las filas (para scoring semántico amplio).
  *
  * @param {string} orgId
  * @param {string} kbId
+ * @param {string|null} parteFilter - Valor exacto de la columna "parte", o null
  * @returns {object[]}
  */
-async function loadKBRows(orgId, kbId) {
-    const snapshot = await db
+async function loadKBRows(orgId, kbId, parteFilter = null) {
+    const rowsRef = db
         .collection('organizations').doc(orgId)
         .collection('knowledgeBases').doc(kbId)
-        .collection('rows')
-        .get();
+        .collection('rows');
+
+    const snapshot = parteFilter
+        ? await rowsRef.where('parte', '==', parteFilter).limit(30).get()
+        : await rowsRef.get();
 
     const rows = [];
     snapshot.forEach(doc => rows.push({ id: doc.id, ...doc.data() }));
@@ -277,6 +284,124 @@ async function saveOrUpdateContact(orgId, convId, contactData) {
             });
         return { success: true, action: 'created', name: data.name, contactId: docRef.id };
     }
+}
+
+// ---------------------------------------------------------------------------
+// Detección de categoría "parte" a partir del mensaje del cliente
+// ---------------------------------------------------------------------------
+
+/**
+ * Mapa de valores exactos de la columna "parte" → keywords que el cliente
+ * podría usar para referirse a esa categoría.
+ * Las frases más largas (multi-palabra) puntúan más alto en detectParte().
+ */
+const PARTE_KEYWORDS = {
+    'ALERONES':                           ['aleron', 'alerón', 'wing'],
+    'ANTIMPACTOS':                        ['antimpacto', 'anti impacto'],
+    'BANDAS DEFENSA':                     ['banda defensa', 'tira defensa'],
+    'BASE FARO':                          ['base faro', 'soporte faro', 'bracket faro'],
+    'BISAGRAS':                           ['bisagra', 'gozne', 'hinge'],
+    'BISEL FARO':                         ['bisel faro', 'aro faro', 'marco faro'],
+    'BISEL FARO NIEBLA':                  ['bisel faro niebla', 'bisel niebla'],
+    'BISEL MANIJA':                       ['bisel manija'],
+    'BRACKS':                             ['brack', 'bracket', 'soporte'],
+    'CALAVERAS':                          ['calavera', 'stop', 'luz trasera', 'faro trasero'],
+    'CARCASA DE ESPEJO':                  ['carcasa espejo', 'concha espejo', 'tapa espejo', 'carcasa retrovisor'],
+    'CHAPAS':                             ['chapa', 'cerradura', 'lock'],
+    'CHICOTE TAPA BATEA':                 ['chicote', 'cable batea', 'jalador batea'],
+    'COFRES':                             ['cofre', 'capo', 'capó', 'hood', 'cofre motor'],
+    'CORAZAS':                            ['coraza', 'protector puerta'],
+    'COSTADOS':                           ['costado'],
+    'CUARTOS FRONTAL':                    ['cuarto frontal', 'cuarto delantero frontal'],
+    'CUARTOS LATERALES':                  ['cuarto lateral'],
+    'CUARTOS PUNTA':                      ['cuarto punta'],
+    'CUARTOS TRASEROS':                   ['cuarto trasero'],
+    'DEFENSAS DELANTERAS':                ['defensa delantera', 'defensa frontal', 'bumper delantero', 'defensa del frente'],
+    'DEFENSAS TRASERAS':                  ['defensa trasera', 'bumper trasero', 'defensa posterior'],
+    'DEPOSITO LIMPIA PARABRISAS':         ['deposito limpia', 'deposito limpiaparabrisas', 'botella agua limpia', 'tanque limpia'],
+    'DEPOSITO RECUPERADOR':               ['deposito recuperador', 'tanque recuperador'],
+    'ELEVADORES':                         ['elevador', 'elevavidrio', 'regulador vidrio', 'motor vidrio', 'sube baja vidrio'],
+    'ESPEJOS':                            ['espejo', 'retrovisor', 'mirror'],
+    'FAROS':                              ['faro delantero', 'faro frontal', 'faro principal', 'optico', 'headlight'],
+    'FAROS NIEBLA':                       ['faro niebla', 'luz niebla', 'neblinero', 'fog light', 'antiniebla', 'niebla'],
+    'FASCIAS DELANTERAS':                 ['fascia delantera', 'fascia frontal', 'fascia del'],
+    'FASCIAS TRASERAS':                   ['fascia trasera', 'fascia pos', 'fascia posterior'],
+    'FOCOS':                              ['foco', 'bombilla', 'bulbo', 'bulb', 'lamp', 'ampolleta'],
+    'FILTROS':                            ['filtro', 'filter'],
+    'GUIAS FASCIA':                       ['guia fascia', 'guía fascia', 'guia de fascia'],
+    'LUNA ESPEJO':                        ['luna espejo', 'cristal espejo', 'vidrio espejo', 'luna retrovisor'],
+    'MANIJAS ELEVADOR':                   ['manija elevador', 'tirador ventana', 'manija sube vidrio'],
+    'MANIJAS EXTERIORES':                 ['manija exterior', 'jaladera exterior', 'handle exterior', 'tirador puerta exterior'],
+    'MANIJAS INTERIORES':                 ['manija interior', 'jaladera interior', 'handle interior', 'tirador interior'],
+    'MANIJAS TAPA BATEA':                 ['manija batea', 'jaladera batea', 'manija tapa batea'],
+    'MARCOS PARRILLA':                    ['marco parrilla', 'marco de parrilla'],
+    'MARCOS RADIADOR':                    ['marco radiador', 'marco de radiador'],
+    'MOLDURAS ARCO':                      ['moldura arco', 'moldura rueda', 'arco rueda', 'moldura guardalodo'],
+    'MOLDURAS FARO':                      ['moldura faro', 'moldura de faro'],
+    'MOLDURAS FASCIA':                    ['moldura fascia', 'moldura de fascia'],
+    'MOLDURAS PARRILLA':                  ['moldura parrilla', 'moldura de parrilla'],
+    'MOLDURAS PARRILLA FASCIA':           ['moldura parrilla fascia'],
+    'MOLDURA PUERTA':                     ['moldura puerta', 'moldura lateral puerta', 'moldura de puerta'],
+    'MOTOVENTILADORES':                   ['motoventilador', 'electroventilador', 'ventilador motor', 'fan motor', 'electroventi'],
+    'PARRILLAS':                          ['parrilla', 'grille', 'rejilla frontal'],
+    'PARRILLAS DE FASCIA':                ['parrilla fascia', 'rejilla fascia', 'parrilla de fascia'],
+    'PORTA PLACAS':                       ['porta placa', 'portaplaca', 'marco placa', 'porta placa'],
+    'PRODUCTOS SPORT':                    ['sport', 'deportivo', 'tuning'],
+    'PRODUCTOS TRACTOCAMION':             ['tractocamion', 'tractocamión', 'tracto camion', 'trailer', 'camion pesado'],
+    'PUERTAS':                            ['puerta', 'door', 'panel puerta'],
+    'RADIADORES':                         ['radiador', 'radiator'],
+    'REFUERZOS DEFENSA DELANTEROS':       ['refuerzo defensa delantera', 'refuerzo delantero', 'reinforcement delantero'],
+    'REFUERZOS DEFENSA TRASEROS':         ['refuerzo defensa trasera', 'refuerzo trasero', 'reinforcement trasero'],
+    'SALPICADERAS':                       ['salpicadera', 'fender', 'aleta', 'guardafango'],
+    'SETS':                               ['set de', 'kit de', 'juego de', 'par de'],
+    'SPOILERS':                           ['spoiler', 'alerón trasero', 'aleron trasero'],
+    'TANQUES DE GASOLINA':                ['tanque gasolina', 'deposito gasolina', 'tanque combustible', 'tanque de gasolina'],
+    'TAPAS DE BATEA / TAPAS  CAJUELA':    ['tapa batea', 'tapa cajuela', 'tapa maletero', 'cajuela', 'batea'],
+    'TAPA DEFENSA DELANTERA':             ['tapa defensa delantera'],
+    'TAPA FASCIA DELANTERA':              ['tapa fascia delantera'],
+    'TAPA GUANTERA':                      ['tapa guantera', 'guantera'],
+    'TAPON DE LLANTA':                    ['tapon llanta', 'tapa llanta', 'embellecedor', 'wheel cover', 'tapon rueda'],
+    'TOLVAS DE COSTADO':                  ['tolva costado', 'tolva de costado'],
+    'TOLVAS SALPICADERA':                 ['tolva salpicadera'],
+    'TOLVAS CALAVERAS':                   ['tolva calavera', 'tolva stop'],
+    'TOLVA INFERIOR MOTOR':               ['tolva inferior motor', 'tolva inferior', 'protector inferior motor', 'under cover'],
+    'TOLVAS SUPERIOR DEFENSA':            ['tolva superior defensa'],
+    'TOLVAS RADIADOR':                    ['tolva radiador'],
+};
+
+/**
+ * Detecta la categoría "parte" más probable a partir del texto del usuario.
+ * Usa matching de subcadena; las frases multi-palabra puntúan más alto.
+ * Costo: cero tokens de IA — se ejecuta localmente antes de llamar a Firestore.
+ *
+ * @param {string} text  - Mensaje del usuario
+ * @returns {string|null} - Valor exacto de la columna "parte", o null si no detectado
+ */
+function detectParte(text) {
+    if (!text) return null;
+    const norm = text.toLowerCase()
+        .normalize('NFD').replace(/[\u0300-\u036f]/g, ''); // strip accents
+
+    let bestParte = null;
+    let bestScore = 0;
+
+    for (const [parte, keywords] of Object.entries(PARTE_KEYWORDS)) {
+        let score = 0;
+        for (const kw of keywords) {
+            const normKw = kw.toLowerCase()
+                .normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+            if (norm.includes(normKw)) {
+                // Multi-word phrases score higher → better specificity
+                score += normKw.split(/\s+/).length;
+            }
+        }
+        if (score > bestScore) {
+            bestScore = score;
+            bestParte = parte;
+        }
+    }
+
+    return bestScore > 0 ? bestParte : null;
 }
 
 // ---------------------------------------------------------------------------
@@ -539,6 +664,8 @@ module.exports = {
     loadKBRows,
     saveOrUpdateContact,
     createOrder,
+    detectParte,
+    PARTE_KEYWORDS,
     expandSearchTerms,
     scoreRow,
 };

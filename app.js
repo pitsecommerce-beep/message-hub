@@ -4010,15 +4010,39 @@ function buildAISystemPrompt(agent) {
 }
 
 // Obtiene las filas de una KB usando caché con TTL de 5 minutos
-async function getKBRows(kbId) {
+/**
+ * Carga filas de una KB.
+ * - Con parteFilter: query filtrada en Firestore (.where('parte','==',…).limit(30)).
+ *   Lee máximo 30 documentos sin tocar el caché (ya son pocos datos).
+ * - Sin parteFilter: carga todas las filas con caché de 5 min (comportamiento anterior).
+ *
+ * @param {string} kbId
+ * @param {string|null} parteFilter - Valor exacto de la columna "parte", o null
+ */
+async function getKBRows(kbId, parteFilter = null) {
+    const rowsRef = window.firestore.collection(
+        window.db, 'organizations', currentOrganization.id, 'knowledgeBases', kbId, 'rows'
+    );
+
+    // Filtered query → bypass cache (reads are cheap already)
+    if (parteFilter) {
+        const q = window.firestore.query(
+            rowsRef,
+            window.firestore.where('parte', '==', parteFilter),
+            window.firestore.limit(30)
+        );
+        const snapshot = await window.firestore.getDocs(q);
+        const rows = [];
+        snapshot.forEach(doc => rows.push({ id: doc.id, ...doc.data() }));
+        return rows;
+    }
+
+    // Unfiltered → use cache
     const now = Date.now();
     const cached = kbDataCache[kbId];
     if (cached && (now - cached.loadedAt) < KB_CACHE_TTL) {
         return cached.rows;
     }
-    const rowsRef = window.firestore.collection(
-        window.db, 'organizations', currentOrganization.id, 'knowledgeBases', kbId, 'rows'
-    );
     const snapshot = await window.firestore.getDocs(rowsRef);
     const rows = [];
     snapshot.forEach(doc => rows.push({ id: doc.id, ...doc.data() }));
@@ -4027,6 +4051,117 @@ async function getKBRows(kbId) {
 }
 
 // ===== MOTOR DE BÚSQUEDA SEMÁNTICA PARA AUTOPARTES =====
+
+// ===== DETECCIÓN DE CATEGORÍA "PARTE" (SIN TOKENS DE IA) =====
+// Mapea cada valor exacto de la columna "parte" a keywords que el usuario podría decir.
+// Las frases multi-palabra puntúan más alto → mejor especificidad.
+const PARTE_KEYWORDS = {
+    'ALERONES':                           ['aleron', 'alerón', 'wing'],
+    'ANTIMPACTOS':                        ['antimpacto', 'anti impacto'],
+    'BANDAS DEFENSA':                     ['banda defensa', 'tira defensa'],
+    'BASE FARO':                          ['base faro', 'soporte faro', 'bracket faro'],
+    'BISAGRAS':                           ['bisagra', 'gozne', 'hinge'],
+    'BISEL FARO':                         ['bisel faro', 'aro faro', 'marco faro'],
+    'BISEL FARO NIEBLA':                  ['bisel faro niebla', 'bisel niebla'],
+    'BISEL MANIJA':                       ['bisel manija'],
+    'BRACKS':                             ['brack', 'bracket', 'soporte'],
+    'CALAVERAS':                          ['calavera', 'stop', 'luz trasera', 'faro trasero'],
+    'CARCASA DE ESPEJO':                  ['carcasa espejo', 'concha espejo', 'tapa espejo', 'carcasa retrovisor'],
+    'CHAPAS':                             ['chapa', 'cerradura', 'lock'],
+    'CHICOTE TAPA BATEA':                 ['chicote', 'cable batea', 'jalador batea'],
+    'COFRES':                             ['cofre', 'capo', 'capó', 'hood', 'cofre motor'],
+    'CORAZAS':                            ['coraza', 'protector puerta'],
+    'COSTADOS':                           ['costado'],
+    'CUARTOS FRONTAL':                    ['cuarto frontal', 'cuarto delantero frontal'],
+    'CUARTOS LATERALES':                  ['cuarto lateral'],
+    'CUARTOS PUNTA':                      ['cuarto punta'],
+    'CUARTOS TRASEROS':                   ['cuarto trasero'],
+    'DEFENSAS DELANTERAS':                ['defensa delantera', 'defensa frontal', 'bumper delantero', 'defensa del frente'],
+    'DEFENSAS TRASERAS':                  ['defensa trasera', 'bumper trasero', 'defensa posterior'],
+    'DEPOSITO LIMPIA PARABRISAS':         ['deposito limpia', 'deposito limpiaparabrisas', 'botella agua limpia', 'tanque limpia'],
+    'DEPOSITO RECUPERADOR':               ['deposito recuperador', 'tanque recuperador'],
+    'ELEVADORES':                         ['elevador', 'elevavidrio', 'regulador vidrio', 'motor vidrio', 'sube baja vidrio'],
+    'ESPEJOS':                            ['espejo', 'retrovisor', 'mirror'],
+    'FAROS':                              ['faro delantero', 'faro frontal', 'faro principal', 'optico', 'headlight'],
+    'FAROS NIEBLA':                       ['faro niebla', 'luz niebla', 'neblinero', 'fog light', 'antiniebla', 'niebla'],
+    'FASCIAS DELANTERAS':                 ['fascia delantera', 'fascia frontal', 'fascia del'],
+    'FASCIAS TRASERAS':                   ['fascia trasera', 'fascia pos', 'fascia posterior'],
+    'FOCOS':                              ['foco', 'bombilla', 'bulbo', 'bulb', 'lamp', 'ampolleta'],
+    'FILTROS':                            ['filtro', 'filter'],
+    'GUIAS FASCIA':                       ['guia fascia', 'guía fascia', 'guia de fascia'],
+    'LUNA ESPEJO':                        ['luna espejo', 'cristal espejo', 'vidrio espejo', 'luna retrovisor'],
+    'MANIJAS ELEVADOR':                   ['manija elevador', 'tirador ventana', 'manija sube vidrio'],
+    'MANIJAS EXTERIORES':                 ['manija exterior', 'jaladera exterior', 'handle exterior', 'tirador puerta exterior'],
+    'MANIJAS INTERIORES':                 ['manija interior', 'jaladera interior', 'handle interior', 'tirador interior'],
+    'MANIJAS TAPA BATEA':                 ['manija batea', 'jaladera batea', 'manija tapa batea'],
+    'MARCOS PARRILLA':                    ['marco parrilla', 'marco de parrilla'],
+    'MARCOS RADIADOR':                    ['marco radiador', 'marco de radiador'],
+    'MOLDURAS ARCO':                      ['moldura arco', 'moldura rueda', 'arco rueda', 'moldura guardalodo'],
+    'MOLDURAS FARO':                      ['moldura faro', 'moldura de faro'],
+    'MOLDURAS FASCIA':                    ['moldura fascia', 'moldura de fascia'],
+    'MOLDURAS PARRILLA':                  ['moldura parrilla', 'moldura de parrilla'],
+    'MOLDURAS PARRILLA FASCIA':           ['moldura parrilla fascia'],
+    'MOLDURA PUERTA':                     ['moldura puerta', 'moldura lateral puerta', 'moldura de puerta'],
+    'MOTOVENTILADORES':                   ['motoventilador', 'electroventilador', 'ventilador motor', 'fan motor', 'electroventi'],
+    'PARRILLAS':                          ['parrilla', 'grille', 'rejilla frontal'],
+    'PARRILLAS DE FASCIA':                ['parrilla fascia', 'rejilla fascia', 'parrilla de fascia'],
+    'PORTA PLACAS':                       ['porta placa', 'portaplaca', 'marco placa'],
+    'PRODUCTOS SPORT':                    ['sport', 'deportivo', 'tuning'],
+    'PRODUCTOS TRACTOCAMION':             ['tractocamion', 'tractocamión', 'tracto camion', 'trailer', 'camion pesado'],
+    'PUERTAS':                            ['puerta', 'door', 'panel puerta'],
+    'RADIADORES':                         ['radiador', 'radiator'],
+    'REFUERZOS DEFENSA DELANTEROS':       ['refuerzo defensa delantera', 'refuerzo delantero defensa'],
+    'REFUERZOS DEFENSA TRASEROS':         ['refuerzo defensa trasera', 'refuerzo trasero defensa'],
+    'SALPICADERAS':                       ['salpicadera', 'fender', 'aleta', 'guardafango'],
+    'SETS':                               ['set de', 'kit de', 'juego de', 'par de'],
+    'SPOILERS':                           ['spoiler', 'alerón trasero', 'aleron trasero'],
+    'TANQUES DE GASOLINA':                ['tanque gasolina', 'deposito gasolina', 'tanque combustible', 'tanque de gasolina'],
+    'TAPAS DE BATEA / TAPAS  CAJUELA':    ['tapa batea', 'tapa cajuela', 'tapa maletero', 'cajuela', 'batea'],
+    'TAPA DEFENSA DELANTERA':             ['tapa defensa delantera'],
+    'TAPA FASCIA DELANTERA':              ['tapa fascia delantera'],
+    'TAPA GUANTERA':                      ['tapa guantera', 'guantera'],
+    'TAPON DE LLANTA':                    ['tapon llanta', 'tapa llanta', 'embellecedor llanta', 'wheel cover', 'tapon rueda'],
+    'TOLVAS DE COSTADO':                  ['tolva costado', 'tolva de costado'],
+    'TOLVAS SALPICADERA':                 ['tolva salpicadera'],
+    'TOLVAS CALAVERAS':                   ['tolva calavera', 'tolva stop'],
+    'TOLVA INFERIOR MOTOR':               ['tolva inferior motor', 'tolva inferior', 'protector inferior motor', 'under cover'],
+    'TOLVAS SUPERIOR DEFENSA':            ['tolva superior defensa'],
+    'TOLVAS RADIADOR':                    ['tolva radiador'],
+};
+
+/**
+ * Detecta el valor de la columna "parte" más probable a partir del texto del usuario.
+ * Costo: cero tokens de IA — se ejecuta localmente antes de consultar Firestore.
+ *
+ * @param {string} text - Mensaje del usuario
+ * @returns {string|null} - Valor exacto de la columna "parte", o null si no detectado
+ */
+function detectParte(text) {
+    if (!text) return null;
+    const norm = text.toLowerCase()
+        .normalize('NFD').replace(/[\u0300-\u036f]/g, ''); // strip accents
+
+    let bestParte = null;
+    let bestScore = 0;
+
+    for (const [parte, keywords] of Object.entries(PARTE_KEYWORDS)) {
+        let score = 0;
+        for (const kw of keywords) {
+            const normKw = kw.toLowerCase()
+                .normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+            if (norm.includes(normKw)) {
+                // Frases multi-palabra puntúan más alto → mejor especificidad
+                score += normKw.split(/\s+/).length;
+            }
+        }
+        if (score > bestScore) {
+            bestScore = score;
+            bestParte = parte;
+        }
+    }
+
+    return bestScore > 0 ? bestParte : null;
+}
 
 // Diccionario bidireccional: términos en español/inglés ↔ abreviaturas de la KB.
 // El usuario escribe "eléctrico" → se busca también "ELEC" en las filas.
@@ -4227,11 +4362,16 @@ async function buildAISystemPromptWithData(agent, userMessage) {
 
     if (agentKBs.length === 0) return prompt;
 
+    // Detectar categoría "parte" sin gastar tokens de IA
+    const detectedParte = detectParte(userMessage || '');
     const { terms, years } = expandSearchTerms(userMessage || '');
 
     prompt += '\n\n=== DATOS DE REFERENCIA ===\n';
     prompt += 'A continuación tienes los datos reales de tus bases de datos. SIEMPRE usa estos datos para responder preguntas sobre productos, precios, disponibilidad, etc.\n';
     prompt += 'NUNCA inventes datos. Si el cliente pregunta algo que no está en estos datos, dile que no tienes esa información disponible.\n\n';
+    if (detectedParte) {
+        prompt += `(Filtro activo: parte="${detectedParte}" — mostrando solo esa categoría)\n\n`;
+    }
 
     for (const kb of agentKBs) {
         prompt += `--- ${kb.name.toUpperCase()} ---\n`;
@@ -4239,30 +4379,36 @@ async function buildAISystemPromptWithData(agent, userMessage) {
         prompt += `Columnas: ${(kb.columns || []).join(' | ')}\n\n`;
 
         try {
-            const allRows = await getKBRows(kb.id);
+            // Con parte detectada → query filtrada Firestore (≤30 docs, costo mínimo)
+            // Sin parte → todas las filas con caché, después scoring semántico
+            const rows = await getKBRows(kb.id, detectedParte || null);
 
-            if (allRows.length === 0) {
-                prompt += '(Sin datos cargados en esta base)\n\n';
+            if (rows.length === 0) {
+                prompt += detectedParte
+                    ? `(Sin registros de "${detectedParte}" en esta base)\n\n`
+                    : '(Sin datos cargados en esta base)\n\n';
                 continue;
             }
 
-            const columns = kb.columns || Object.keys(allRows[0]).filter(k => k !== 'id');
+            const columns = kb.columns || Object.keys(rows[0]).filter(k => k !== 'id');
 
-            // Filtrar y ordenar por relevancia semántica (máximo 5 filas)
             let rowsToInclude;
-            if (terms.size > 0 || years.length > 0) {
-                const scored = allRows
+            if (detectedParte) {
+                // Ya filtrados por Firestore → mostrar todos (máx 30)
+                rowsToInclude = rows;
+            } else if (terms.size > 0 || years.length > 0) {
+                const scored = rows
                     .map(row => ({ row, score: scoreRow(row, terms, years) }))
                     .filter(({ score }) => score > 0)
                     .sort((a, b) => b.score - a.score);
                 rowsToInclude = scored.length > 0
                     ? scored.slice(0, 5).map(({ row }) => row)
-                    : allRows.slice(0, 5);
+                    : rows.slice(0, 5);
             } else {
-                rowsToInclude = allRows.slice(0, 5);
+                rowsToInclude = rows.slice(0, 5);
             }
 
-            prompt += `Total en base: ${allRows.length} registros (mostrando ${rowsToInclude.length} relevantes)\n\n`;
+            prompt += `Mostrando ${rowsToInclude.length} registros relevantes:\n\n`;
 
             rowsToInclude.forEach((row, i) => {
                 const parts = columns.map(col => `${col}: ${row[col] ?? ''}`);
@@ -4280,10 +4426,8 @@ async function buildAISystemPromptWithData(agent, userMessage) {
     prompt += 'INSTRUCCIONES IMPORTANTES:\n';
     prompt += '- Responde SIEMPRE basándote en los datos anteriores.\n';
     prompt += '- Si te preguntan precios, busca el producto en los datos y da el precio exacto.\n';
-    prompt += '- Si te preguntan disponibilidad, busca en los datos.\n';
-    prompt += '- Si un producto no está en los datos, dile al cliente que no lo tienes disponible.\n';
+    prompt += '- Si un producto no está en los datos mostrados, usa la herramienta query_database con el filtro "parte" correcto para buscar más registros antes de decir que no está disponible.\n';
     prompt += '- Puedes mencionar productos similares que sí estén en los datos.\n';
-    prompt += '- Si además tienes la herramienta query_database, úsala para búsquedas más precisas.\n';
     prompt += '- SIEMPRE llama primero a save_contact (con el nombre completo y empresa del cliente) ANTES de llamar a create_order. Esto asegura que el pedido quede asociado al cliente correcto.\n';
 
     return prompt;
@@ -4352,12 +4496,15 @@ function buildAIToolDefinitions(agent) {
         .filter(Boolean);
 
     if (agentKBs.length > 0) {
+        const parteEnum = Object.keys(PARTE_KEYWORDS);
         tools.push({
             type: 'function',
             function: {
                 name: 'query_database',
-                description: 'Consulta una base de datos de conocimiento para buscar productos, precios, disponibilidad u otra información. Bases disponibles: ' +
-                    agentKBs.map(kb => `"${kb.name}" (${(kb.columns || []).join(', ')})`).join('; '),
+                description: 'Consulta la base de datos de productos para buscar precios, disponibilidad o características. '
+                    + 'Úsala cuando el cliente pregunte por un producto y los datos del prompt no sean suficientes. '
+                    + 'IMPORTANTE: proporciona siempre el filtro "parte" para limitar la búsqueda a la categoría correcta y reducir tokens. '
+                    + 'Bases disponibles: ' + agentKBs.map(kb => `"${kb.name}" (${(kb.columns || []).join(', ')})`).join('; '),
                 parameters: {
                     type: 'object',
                     properties: {
@@ -4368,18 +4515,25 @@ function buildAIToolDefinitions(agent) {
                         },
                         searchQuery: {
                             type: 'string',
-                            description: 'Texto de búsqueda libre para encontrar registros relevantes',
+                            description: 'Texto de búsqueda: marca, modelo, año, SKU u otras características del producto',
                         },
                         filters: {
                             type: 'object',
-                            description: 'Filtros por columna. Ej: {"categoria": "electrónica"}',
+                            description: 'Filtros exactos por columna. Usar "parte" siempre que se conozca la categoría del producto.',
+                            properties: {
+                                parte: {
+                                    type: 'string',
+                                    enum: parteEnum,
+                                    description: 'Categoría exacta del producto. Incluirla SIEMPRE que sea posible para reducir lecturas.',
+                                },
+                            },
                         },
                         limit: {
                             type: 'number',
-                            description: 'Máximo de resultados a devolver (default: 10)',
+                            description: 'Máximo de resultados a devolver (default: 10, máx: 30)',
                         },
                     },
-                    required: ['knowledgeBaseId'],
+                    required: ['knowledgeBaseId', 'searchQuery'],
                 },
             },
         });
@@ -4451,32 +4605,40 @@ async function queryKnowledgeBase(kbId, searchQuery, filters, limit = 10) {
     if (!hasQuery && !hasFilters) return [];
 
     try {
-        let results = await getKBRows(kbId);
+        // Determinar filtro de "parte":
+        // 1. Filtro explícito de la IA (más preciso) → 2. Detección automática del texto
+        const explicitParte = (filters && filters.parte) ? filters.parte : null;
+        const autoParte     = explicitParte ? null : detectParte(searchQuery);
+        const parteFilter   = explicitParte || autoParte || null;
 
-        // Búsqueda semántica: expande abreviaturas y maneja rangos de año
+        // getKBRows con parte filter → query de Firestore filtrada (≤30 docs)
+        // Sin parte → usa caché de todas las filas
+        let results = await getKBRows(kbId, parteFilter);
+
+        // Scoring semántico sobre los resultados ya filtrados
         if (searchQuery) {
             const { terms: qTerms, years: qYears } = expandSearchTerms(searchQuery);
             if (qTerms.size > 0 || qYears.length > 0) {
-                results = results
+                const scored = results
                     .map(row => ({ row, score: scoreRow(row, qTerms, qYears) }))
                     .filter(({ score }) => score > 0)
-                    .sort((a, b) => b.score - a.score)
-                    .map(({ row }) => row);
+                    .sort((a, b) => b.score - a.score);
+                if (scored.length > 0) results = scored.map(({ row }) => row);
             }
         }
 
-        // Apply filters
+        // Aplicar otros filtros de columna (excepto "parte" que ya fue a Firestore)
         if (filters && typeof filters === 'object') {
             Object.entries(filters).forEach(([key, value]) => {
+                if (key === 'parte') return; // ya aplicado en Firestore
                 results = results.filter(row => {
                     const rowVal = String(row[key] || '').toLowerCase();
-                    const filterVal = String(value).toLowerCase();
-                    return rowVal.includes(filterVal);
+                    return rowVal.includes(String(value).toLowerCase());
                 });
             });
         }
 
-        return results.slice(0, limit);
+        return results.slice(0, Math.min(limit, 30));
     } catch (error) {
         console.error('Error consultando base de datos:', error);
         return [];
