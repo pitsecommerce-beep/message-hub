@@ -90,24 +90,24 @@ async function buildSystemPrompt(agent, orgId, userMessage) {
 
             const columns = kb.columns || Object.keys(rows[0]).filter(k => k !== 'id');
 
-            // Si parte detectada → mostrar todos (ya filtrados por Firestore)
-            // Sin parte → scoring semántico, máx 5
+            const PROMPT_MAX_ROWS = 15;
             let rowsToInclude;
             if (detectedParte) {
-                rowsToInclude = rows; // ya filtrados, máx 30
+                rowsToInclude = rows; // ya filtrados por Firestore, máx 30
             } else if (terms.size > 0 || years.length > 0) {
-                const scored = rows
+                // Ordenar por relevancia sin filtrar score > 0: si el scoring no
+                // hace match perfecto, igual se muestran los más relevantes disponibles
+                rowsToInclude = rows
                     .map(row => ({ row, score: scoreRow(row, terms, years) }))
-                    .filter(({ score }) => score > 0)
-                    .sort((a, b) => b.score - a.score);
-                rowsToInclude = scored.length > 0
-                    ? scored.slice(0, 5).map(({ row }) => row)
-                    : rows.slice(0, 5);
+                    .sort((a, b) => b.score - a.score)
+                    .slice(0, PROMPT_MAX_ROWS)
+                    .map(({ row }) => row);
             } else {
-                rowsToInclude = rows.slice(0, 5);
+                rowsToInclude = rows.slice(0, PROMPT_MAX_ROWS);
             }
 
-            prompt += `Mostrando ${rowsToInclude.length} registros relevantes:\n\n`;
+            const totalInfo = detectedParte ? '' : ` (de ${rows.length} totales)`;
+            prompt += `Mostrando ${rowsToInclude.length}${totalInfo} registros relevantes:\n\n`;
 
             rowsToInclude.forEach((row, i) => {
                 const parts = columns.map(col => `${col}: ${row[col] ?? ''}`);
@@ -217,6 +217,7 @@ function buildToolDefinitions(agent) {
                                 type: 'object',
                                 properties: {
                                     product:   { type: 'string', description: 'Nombre del producto o servicio' },
+                                    sku:       { type: 'string', description: 'SKU o código del producto tal como aparece en la base de datos' },
                                     quantity:  { type: 'number', description: 'Cantidad solicitada' },
                                     unitPrice: { type: 'number', description: 'Precio unitario (sin símbolo de moneda)' },
                                     notes:     { type: 'string', description: 'Notas adicionales del producto' }
@@ -239,7 +240,7 @@ function buildToolDefinitions(agent) {
             type: 'function',
             function: {
                 name: 'query_database',
-                description: 'Consulta la base de datos de productos para buscar información exacta (precios, disponibilidad, características). Úsala cuando el cliente pregunte por un producto y los datos del prompt no sean suficientes. IMPORTANTE: proporciona siempre el filtro "parte" para reducir la búsqueda a la categoría correcta.',
+                description: 'Consulta la base de datos de productos cuando necesitas buscar precios, SKUs, disponibilidad o características específicas. Úsala siempre que el cliente pregunte por un producto concreto y los datos del prompt no sean suficientes. Si conoces la categoría del producto (columna "parte"), agrégala como filtro para acotar la búsqueda.',
                 parameters: {
                     type: 'object',
                     properties: {

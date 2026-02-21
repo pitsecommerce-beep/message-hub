@@ -1145,11 +1145,13 @@ function renderOrdersTable() {
             ? items.map(item => {
                 const qty    = Number(item.quantity) || 1;
                 const name   = escapeHtml(item.product || item.notes || '—');
+                const sku    = item.sku ? escapeHtml(item.sku) : '';
                 const unitP  = item.unitPrice ? Number(item.unitPrice) : null;
                 const lineT  = unitP ? (qty * unitP).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '';
                 const unitStr= unitP ? `<span class="oitem-unit-price">$${unitP.toLocaleString('es-MX', { minimumFractionDigits: 2 })}/u</span>` : '';
                 const priceStr = lineT ? `<span class="oitem-price">$${lineT}</span>` : '';
                 return `<div class="order-card-item">
+                    ${sku ? `<span class="oitem-sku">${sku}</span>` : ''}
                     <span class="oitem-qty">${qty}×</span>
                     <span class="oitem-name">${name}</span>
                     ${unitStr}${priceStr}
@@ -1255,6 +1257,7 @@ async function createOrderFromAI(orderData) {
 
     const items = (orderData.items || []).map(item => ({
         product:   String(item.product   || ''),
+        sku:       String(item.sku       || ''),
         quantity:  Number(item.quantity)  || 1,
         unitPrice: Number(item.unitPrice) || 0,
         notes:     String(item.notes     || '')
@@ -4058,20 +4061,25 @@ async function getKBRows(kbId, parteFilter = null) {
         window.db, 'organizations', currentOrganization.id, 'knowledgeBases', kbId, 'rows'
     );
 
-    // Filtered query → bypass cache (reads are cheap already)
+    // Filtered query: try Firestore where('parte','==',…).limit(30) first.
+    // If 0 results (parte value doesn't match exactly in the KB), fall through
+    // to the full-load cache so the AI still gets data to work with.
     if (parteFilter) {
         const q = window.firestore.query(
             rowsRef,
             window.firestore.where('parte', '==', parteFilter),
             window.firestore.limit(30)
         );
-        const snapshot = await window.firestore.getDocs(q);
-        const rows = [];
-        snapshot.forEach(doc => rows.push({ id: doc.id, ...doc.data() }));
-        return rows;
+        const snap = await window.firestore.getDocs(q);
+        if (!snap.empty) {
+            const rows = [];
+            snap.forEach(doc => rows.push({ id: doc.id, ...doc.data() }));
+            return rows;
+        }
+        // 0 matches → parte value in KB may differ (case/spelling) → fall through
     }
 
-    // Unfiltered → use cache
+    // Full load with 5-min cache
     const now = Date.now();
     const cached = kbDataCache[kbId];
     if (cached && (now - cached.loadedAt) < KB_CACHE_TTL) {
@@ -4430,23 +4438,25 @@ async function buildAISystemPromptWithData(agent, userMessage) {
 
             const columns = kb.columns || Object.keys(rows[0]).filter(k => k !== 'id');
 
+            const PROMPT_MAX_ROWS = 15; // balance: contexto amplio sin exceso de tokens
             let rowsToInclude;
             if (detectedParte) {
-                // Ya filtrados por Firestore → mostrar todos (máx 30)
+                // Filtrados por Firestore → mostrar todos (ya son ≤30)
                 rowsToInclude = rows;
             } else if (terms.size > 0 || years.length > 0) {
-                const scored = rows
+                // Ordenar por relevancia (sin filtrar por score > 0, para no descartar
+                // filas útiles cuando el scoring no hace match perfecto)
+                rowsToInclude = rows
                     .map(row => ({ row, score: scoreRow(row, terms, years) }))
-                    .filter(({ score }) => score > 0)
-                    .sort((a, b) => b.score - a.score);
-                rowsToInclude = scored.length > 0
-                    ? scored.slice(0, 5).map(({ row }) => row)
-                    : rows.slice(0, 5);
+                    .sort((a, b) => b.score - a.score)
+                    .slice(0, PROMPT_MAX_ROWS)
+                    .map(({ row }) => row);
             } else {
-                rowsToInclude = rows.slice(0, 5);
+                rowsToInclude = rows.slice(0, PROMPT_MAX_ROWS);
             }
 
-            prompt += `Mostrando ${rowsToInclude.length} registros relevantes:\n\n`;
+            const totalInfo = detectedParte ? '' : ` (de ${rows.length} totales)`;
+            prompt += `Mostrando ${rowsToInclude.length}${totalInfo} registros relevantes:\n\n`;
 
             rowsToInclude.forEach((row, i) => {
                 const parts = columns.map(col => `${col}: ${row[col] ?? ''}`);
@@ -4514,6 +4524,7 @@ function buildAIToolDefinitions(agent) {
                             type: 'object',
                             properties: {
                                 product:   { type: 'string', description: 'Nombre del producto o servicio' },
+                                sku:       { type: 'string', description: 'SKU o código del producto tal como aparece en la base de datos' },
                                 quantity:  { type: 'number', description: 'Cantidad solicitada' },
                                 unitPrice: { type: 'number', description: 'Precio unitario (sin símbolo de moneda, solo número)' },
                                 notes:     { type: 'string', description: 'Notas adicionales del producto' }
@@ -4539,9 +4550,9 @@ function buildAIToolDefinitions(agent) {
             type: 'function',
             function: {
                 name: 'query_database',
-                description: 'Consulta la base de datos de productos para buscar precios, disponibilidad o características. '
-                    + 'Úsala cuando el cliente pregunte por un producto y los datos del prompt no sean suficientes. '
-                    + 'IMPORTANTE: proporciona siempre el filtro "parte" para limitar la búsqueda a la categoría correcta y reducir tokens. '
+                description: 'Consulta la base de datos de productos cuando necesitas buscar precios, SKUs, disponibilidad o características específicas. '
+                    + 'Úsala siempre que el cliente pregunte por un producto concreto y los datos del prompt no sean suficientes. '
+                    + 'Si conoces la categoría del producto (columna "parte"), agrégala como filtro para acotar la búsqueda. '
                     + 'Bases disponibles: ' + agentKBs.map(kb => `"${kb.name}" (${(kb.columns || []).join(', ')})`).join('; '),
                 parameters: {
                     type: 'object',
