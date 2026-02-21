@@ -1110,36 +1110,52 @@ const ORDER_STATUS_LABELS = {
 const ORDER_PLATFORM_ICONS = { whatsapp: '📱', instagram: '📷', messenger: '💬', manual: '✉️' };
 
 function renderOrdersTable() {
-    const tbody   = document.getElementById('ordersTableBody');
-    const empty   = document.getElementById('ordersEmptyState');
-    if (!tbody) return;
+    const container = document.getElementById('ordersTableBody');
+    const empty     = document.getElementById('ordersEmptyState');
+    if (!container) return;
 
     const filtered = currentOrderFilter === 'all'
         ? orders
         : orders.filter(o => o.status === currentOrderFilter);
 
     if (filtered.length === 0) {
-        tbody.innerHTML = '';
+        container.innerHTML = '';
         if (empty) empty.classList.remove('hidden');
         return;
     }
     if (empty) empty.classList.add('hidden');
 
-    tbody.innerHTML = filtered.map(order => {
-        const status = order.status || 'nuevo';
-        const total  = (order.total || 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-        const clientName = escapeHtml(order.contactCompany || order.contactName || '—');
+    container.innerHTML = filtered.map(order => {
+        const status      = order.status || 'nuevo';
+        const statusLabel = ORDER_STATUS_LABELS[status] || status;
+        const total       = (order.total || 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        const clientName  = escapeHtml(order.contactCompany || order.contactName || 'Cliente sin nombre');
+        const orderNum    = escapeHtml(order.orderNumber || ('#' + order.id.slice(-6).toUpperCase()));
 
-        // Build inline items rows
+        // Date
+        let dateStr = '';
+        if (order.createdAt) {
+            const d = order.createdAt.toDate ? order.createdAt.toDate() : new Date(order.createdAt);
+            dateStr = d.toLocaleDateString('es-MX', { day: 'numeric', month: 'short', year: 'numeric' });
+        }
+
+        // Items
         const items = order.items || [];
         const itemsHtml = items.length > 0
             ? items.map(item => {
-                const sku  = escapeHtml(item.sku  || item.product || '—');
-                const uds  = Number(item.quantity) || 1;
-                const desc = escapeHtml(item.product || item.notes || '');
-                return `<div class="order-item-inline"><span class="order-item-sku">${sku}</span><span class="order-item-units">${uds} uds.</span><span class="order-item-desc">${desc}</span></div>`;
-              }).join('')
-            : '<span class="text-muted">Sin artículos</span>';
+                const qty    = Number(item.quantity) || 1;
+                const name   = escapeHtml(item.product || item.notes || '—');
+                const unitP  = item.unitPrice ? Number(item.unitPrice) : null;
+                const lineT  = unitP ? (qty * unitP).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '';
+                const unitStr= unitP ? `<span class="oitem-unit-price">$${unitP.toLocaleString('es-MX', { minimumFractionDigits: 2 })}/u</span>` : '';
+                const priceStr = lineT ? `<span class="oitem-price">$${lineT}</span>` : '';
+                return `<div class="order-card-item">
+                    <span class="oitem-qty">${qty}×</span>
+                    <span class="oitem-name">${name}</span>
+                    ${unitStr}${priceStr}
+                </div>`;
+            }).join('')
+            : '<div class="order-card-item-empty">Sin artículos</div>';
 
         // Action buttons
         const btnConv = order.conversationId
@@ -1157,14 +1173,32 @@ function renderOrdersTable() {
             </select>`;
 
         return `
-        <tr>
-            <td><span class="order-number">${escapeHtml(order.orderNumber || order.id.slice(-6))}</span></td>
-            <td class="order-client">${clientName}</td>
-            <td class="order-items-cell">${itemsHtml}</td>
-            <td><span class="order-status ${status}">${ORDER_STATUS_LABELS[status] || status}</span>${statusSelect}</td>
-            <td><span class="order-total">$${total}</span></td>
-            <td class="order-actions-cell">${btnConv}${btnPay}</td>
-        </tr>`;
+        <div class="order-card ${status}">
+            <div class="order-card-header">
+                <div class="order-card-meta">
+                    <span class="order-card-num">${orderNum}</span>
+                    ${dateStr ? `<span class="order-card-date">${dateStr}</span>` : ''}
+                </div>
+                <div class="order-card-status-wrap">
+                    <span class="order-status ${status}">${statusLabel}</span>
+                    ${statusSelect}
+                </div>
+            </div>
+            <div class="order-card-client">
+                <div class="order-card-client-icon">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+                </div>
+                <span>${clientName}</span>
+            </div>
+            <div class="order-card-items">${itemsHtml}</div>
+            <div class="order-card-footer">
+                <div class="order-card-total">
+                    <span class="order-card-total-label">Total</span>
+                    <span class="order-card-total-amount">$${total}</span>
+                </div>
+                <div class="order-card-actions">${btnConv}${btnPay}</div>
+            </div>
+        </div>`;
     }).join('');
 }
 
@@ -4354,7 +4388,11 @@ function scoreRow(row, terms, years) {
 async function buildAISystemPromptWithData(agent, userMessage) {
     let prompt = agent.systemPrompt || '';
     // Always remind AI to call save_contact before create_order
-    prompt += '\n\nNOTA DE HERRAMIENTAS: Si necesitas crear un pedido (create_order), SIEMPRE llama primero a save_contact con los datos del cliente (nombre, empresa, teléfono, etc.) para registrarlo correctamente antes de crear el pedido.';
+    prompt += '\n\nREGLAS OBLIGATORIAS DE HERRAMIENTAS:\n'
+           + '1. CONTACTO: Si el cliente dice su nombre o empresa en CUALQUIER mensaje → llama a save_contact DE INMEDIATO, sin esperar.\n'
+           + '2. CONTACTO: Si llevas 2+ mensajes sin saber el nombre del cliente → pregúntaselo ("¿Con quién tengo el gusto?" o similar).\n'
+           + '3. PEDIDO: SIEMPRE llama primero a save_contact y después a create_order. Nunca al revés.\n'
+           + '4. save_contact se puede llamar varias veces para ir actualizando datos del cliente.';
 
     const agentKBs = (agent.knowledgeBases || [])
         .map(kbId => knowledgeBases.find(kb => kb.id === kbId))
@@ -4443,7 +4481,7 @@ function buildAIToolDefinitions(agent) {
         type: 'function',
         function: {
             name: 'save_contact',
-            description: 'Guarda o actualiza los datos del contacto cuando el cliente proporciona su nombre, dirección, nombre del taller o empresa, RFC u otros datos personales. Úsala SIEMPRE que el cliente comparta cualquiera de estos datos, aunque sea de forma parcial.',
+            description: 'Registra o actualiza los datos del cliente en el CRM. LLÁMALA INMEDIATAMENTE cuando el cliente mencione su nombre, empresa, taller o cualquier dato personal — no esperes a que haga un pedido. Si llevas varios mensajes sin saber el nombre del cliente, pregúntaselo y en cuanto lo dé, llama a esta función.',
             parameters: {
                 type: 'object',
                 properties: {
