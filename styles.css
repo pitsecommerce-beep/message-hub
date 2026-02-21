@@ -2013,6 +2013,18 @@ body {
     font-size: 12px;
     font-style: italic;
 }
+.oitem-sku {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    font-weight: 700;
+    color: var(--text-secondary);
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 1px 5px;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
 .oitem-qty {
     font-family: 'JetBrains Mono', monospace;
     font-size: 12px;
