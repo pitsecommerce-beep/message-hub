@@ -193,34 +193,17 @@ async function loadKBMeta(orgId, kbId) {
 }
 
 /**
- * Carga filas de una knowledge base.
- * Si se proporciona `parteFilter` (valor exacto de la columna "parte"),
- * ejecuta una query filtrada en Firestore con limit(30) — reads mínimos.
- * Sin filtro, carga todas las filas (para scoring semántico amplio).
+ * Carga todas las filas de una knowledge base.
  *
  * @param {string} orgId
  * @param {string} kbId
- * @param {string|null} parteFilter - Valor exacto de la columna "parte", o null
  * @returns {object[]}
  */
-async function loadKBRows(orgId, kbId, parteFilter = null) {
+async function loadKBRows(orgId, kbId) {
     const rowsRef = db
         .collection('organizations').doc(orgId)
         .collection('knowledgeBases').doc(kbId)
         .collection('rows');
-
-    // Filtered query: if parteFilter matches rows → return those (≤30 reads).
-    // If 0 results (KB "parte" values may differ in case/spelling) → fall back
-    // to full load so the AI still gets data to work with.
-    if (parteFilter) {
-        const snap = await rowsRef.where('parte', '==', parteFilter).limit(30).get();
-        if (!snap.empty) {
-            const rows = [];
-            snap.forEach(doc => rows.push({ id: doc.id, ...doc.data() }));
-            return rows;
-        }
-        // 0 matches → fall through to full load
-    }
 
     const snapshot = await rowsRef.get();
     const rows = [];
