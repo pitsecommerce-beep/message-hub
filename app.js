@@ -1881,15 +1881,25 @@ function openIntegrationConfig(platform) {
 
     // Webhook URL note para Meta
     if (config.webhookNote) {
-        const webhookUrl = `https://us-central1-crm-meta-e56f4.cloudfunctions.net/webhook/${platform}`;
+        const WEBHOOK_NAMES = { whatsapp: 'whatsappWebhook', instagram: 'instagramWebhook', messenger: 'messengerWebhook' };
+        const defaultUrl = `https://us-central1-crm-meta-e56f4.cloudfunctions.net/${WEBHOOK_NAMES[platform] || platform}`;
+        const customUrl  = savedConfig.customWebhookUrl || '';
+        const activeUrl  = customUrl || defaultUrl;
         html += `
             <div class="integ-webhook-note">
                 <span class="integ-webhook-label">${config.webhookNote}</span>
                 <div class="integ-webhook-url">
-                    <code>${webhookUrl}</code>
-                    <button class="copy-btn" onclick="navigator.clipboard.writeText('${webhookUrl}')" title="Copiar">📋</button>
+                    <code id="integWebhookDisplay">${escapeHtml(activeUrl)}</code>
+                    <button class="copy-btn" onclick="navigator.clipboard.writeText(document.getElementById('integWebhookDisplay').textContent)" title="Copiar">📋</button>
                 </div>
-                <span class="integ-webhook-hint">Copia esta URL y pégala en la configuración de webhook de tu app en Meta for Developers.</span>
+                <div class="form-group integ-custom-url-group">
+                    <label class="form-label">URL personalizada <span class="integ-field-optional">(opcional)</span></label>
+                    <input type="url" class="form-input" id="integ_customWebhookUrl"
+                           placeholder="${escapeHtml(defaultUrl)}"
+                           value="${escapeHtml(customUrl)}"
+                           oninput="const v=this.value.trim();document.getElementById('integWebhookDisplay').textContent=v||'${escapeHtml(defaultUrl)}'">
+                    <span class="integ-field-hint">Deja vacío para usar la URL generada automáticamente. Útil si tu función tiene un nombre o proyecto diferente.</span>
+                </div>
             </div>
         `;
     }
@@ -1930,6 +1940,13 @@ async function saveIntegrationConfig() {
             if (data[field.key]) hasValue = true;
         }
     });
+
+    // URL personalizada de webhook (campo especial, no en config.fields)
+    const customUrlEl = document.getElementById('integ_customWebhookUrl');
+    if (customUrlEl !== null) {
+        data.customWebhookUrl = customUrlEl.value.trim();
+        if (data.customWebhookUrl) hasValue = true;
+    }
 
     if (!hasValue) {
         showNotification('Sin datos', 'Ingresa al menos un campo para guardar la configuración.', 'warning');
