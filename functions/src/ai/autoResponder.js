@@ -54,8 +54,6 @@ async function buildSystemPrompt(agent, orgId, userMessage) {
     const kbIds = agent.knowledgeBases || [];
     if (kbIds.length === 0) return prompt;
 
-    // Detectar categoría "parte" para filtrar la query de Firestore
-    const detectedParte = detectParte(userMessage);
     const { terms, years } = expandSearchTerms(userMessage);
 
     prompt += '\n\n=== DATOS DE REFERENCIA ===\n';
@@ -64,9 +62,6 @@ async function buildSystemPrompt(agent, orgId, userMessage) {
         + 'precios, disponibilidad, etc.\n';
     prompt += 'NUNCA inventes datos. Si el cliente pregunta algo que no está '
         + 'en estos datos, dile que no tienes esa información disponible.\n\n';
-    if (detectedParte) {
-        prompt += `(Filtro activo: parte="${detectedParte}" — mostrando solo esa categoría)\n\n`;
-    }
 
     for (const kbId of kbIds) {
         try {
@@ -77,14 +72,10 @@ async function buildSystemPrompt(agent, orgId, userMessage) {
             if (kb.description) prompt += `(${kb.description})\n`;
             prompt += `Columnas: ${(kb.columns || []).join(' | ')}\n\n`;
 
-            // Si se detectó parte → query filtrada (máx 30 docs, reads mínimos)
-            // Sin parte → query sin filtro, después scoring semántico
-            const rows = await loadKBRows(orgId, kbId, detectedParte || null);
+            const rows = await loadKBRows(orgId, kbId);
 
             if (rows.length === 0) {
-                prompt += detectedParte
-                    ? `(Sin registros de "${detectedParte}" en esta base)\n\n`
-                    : '(Sin datos cargados en esta base)\n\n';
+                prompt += '(Sin datos cargados en esta base)\n\n';
                 continue;
             }
 
@@ -92,11 +83,7 @@ async function buildSystemPrompt(agent, orgId, userMessage) {
 
             const PROMPT_MAX_ROWS = 15;
             let rowsToInclude;
-            if (detectedParte) {
-                rowsToInclude = rows; // ya filtrados por Firestore, máx 30
-            } else if (terms.size > 0 || years.length > 0) {
-                // Ordenar por relevancia sin filtrar score > 0: si el scoring no
-                // hace match perfecto, igual se muestran los más relevantes disponibles
+            if (terms.size > 0 || years.length > 0) {
                 rowsToInclude = rows
                     .map(row => ({ row, score: scoreRow(row, terms, years) }))
                     .sort((a, b) => b.score - a.score)
@@ -106,8 +93,7 @@ async function buildSystemPrompt(agent, orgId, userMessage) {
                 rowsToInclude = rows.slice(0, PROMPT_MAX_ROWS);
             }
 
-            const totalInfo = detectedParte ? '' : ` (de ${rows.length} totales)`;
-            prompt += `Mostrando ${rowsToInclude.length}${totalInfo} registros relevantes:\n\n`;
+            prompt += `Mostrando ${rowsToInclude.length} de ${rows.length} registros relevantes:\n\n`;
 
             rowsToInclude.forEach((row, i) => {
                 const parts = columns.map(col => `${col}: ${row[col] ?? ''}`);
@@ -179,7 +165,6 @@ async function loadConversationHistory(orgId, convId, limit = 10) {
  * @param {object} agent - Documento del agente (para obtener knowledgeBases)
  */
 function buildToolDefinitions(agent) {
-    const parteEnum = Object.keys(PARTE_KEYWORDS);
 
     const tools = [
         {
@@ -240,7 +225,7 @@ function buildToolDefinitions(agent) {
             type: 'function',
             function: {
                 name: 'query_database',
-                description: 'Consulta la base de datos de productos cuando necesitas buscar precios, SKUs, disponibilidad o características específicas. Úsala siempre que el cliente pregunte por un producto concreto y los datos del prompt no sean suficientes. Si conoces la categoría del producto (columna "parte"), agrégala como filtro para acotar la búsqueda.',
+                description: 'Consulta la base de datos de productos cuando necesitas buscar precios, SKUs, disponibilidad o características específicas. Úsala siempre que el cliente pregunte por un producto concreto y los datos del prompt no sean suficientes.',
                 parameters: {
                     type: 'object',
                     properties: {
@@ -251,22 +236,11 @@ function buildToolDefinitions(agent) {
                         },
                         searchQuery: {
                             type: 'string',
-                            description: 'Texto de búsqueda: marca, modelo, año, SKU u otras características',
-                        },
-                        filters: {
-                            type: 'object',
-                            description: 'Filtros exactos por columna. Usa "parte" para filtrar por categoría de producto y reducir lecturas en base de datos.',
-                            properties: {
-                                parte: {
-                                    type: 'string',
-                                    enum: parteEnum,
-                                    description: 'Categoría exacta del producto. Usar SIEMPRE que se conozca.',
-                                },
-                            },
+                            description: 'Texto de búsqueda: describe el producto con marca, modelo, año, SKU u otras características',
                         },
                         limit: {
                             type: 'number',
-                            description: 'Máximo de resultados a devolver (default: 10, máx: 30)',
+                            description: 'Máximo de resultados a devolver (default: 25, máx: 50)',
                         },
                     },
                     required: ['knowledgeBaseId', 'searchQuery'],
@@ -283,11 +257,10 @@ function buildToolDefinitions(agent) {
 // ---------------------------------------------------------------------------
 
 /**
- * Ejecuta una consulta a la KB con filtro de parte opcional.
- * Prioridad: filtro explícito de la IA → detección automática de parte → sin filtro.
+ * Ejecuta una consulta semántica a la KB.
  *
  * @param {string} orgId
- * @param {{ knowledgeBaseId: string, searchQuery?: string, filters?: object, limit?: number }} args
+ * @param {{ knowledgeBaseId: string, searchQuery?: string, limit?: number }} args
  * @returns {Promise<string>} - Resultado formateado para el modelo de IA
  */
 async function executeQueryDatabase(orgId, args) {
@@ -296,17 +269,10 @@ async function executeQueryDatabase(orgId, args) {
         const searchQuery = args.searchQuery || '';
         const limit       = Math.min(Number(args.limit) || 25, 50);
 
-        // Parte: primero filtro explícito de la IA, luego detección automática
-        const parteFilter = (args.filters && args.filters.parte)
-            ? args.filters.parte
-            : detectParte(searchQuery);
-
-        const rows = await loadKBRows(orgId, kbId, parteFilter || null);
+        const rows = await loadKBRows(orgId, kbId);
 
         if (rows.length === 0) {
-            return parteFilter
-                ? `No se encontraron productos de la categoría "${parteFilter}".`
-                : 'No se encontraron productos en la base de datos.';
+            return 'No se encontraron productos en la base de datos.';
         }
 
         // Scoring semántico: ordenar por relevancia sin descartar score=0.

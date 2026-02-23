@@ -4047,37 +4047,10 @@ function buildAISystemPrompt(agent) {
 }
 
 // Obtiene las filas de una KB usando caché con TTL de 5 minutos
-/**
- * Carga filas de una KB.
- * - Con parteFilter: query filtrada en Firestore (.where('parte','==',…).limit(30)).
- *   Lee máximo 30 documentos sin tocar el caché (ya son pocos datos).
- * - Sin parteFilter: carga todas las filas con caché de 5 min (comportamiento anterior).
- *
- * @param {string} kbId
- * @param {string|null} parteFilter - Valor exacto de la columna "parte", o null
- */
-async function getKBRows(kbId, parteFilter = null) {
+async function getKBRows(kbId) {
     const rowsRef = window.firestore.collection(
         window.db, 'organizations', currentOrganization.id, 'knowledgeBases', kbId, 'rows'
     );
-
-    // Filtered query: try Firestore where('parte','==',…).limit(30) first.
-    // If 0 results (parte value doesn't match exactly in the KB), fall through
-    // to the full-load cache so the AI still gets data to work with.
-    if (parteFilter) {
-        const q = window.firestore.query(
-            rowsRef,
-            window.firestore.where('parte', '==', parteFilter),
-            window.firestore.limit(30)
-        );
-        const snap = await window.firestore.getDocs(q);
-        if (!snap.empty) {
-            const rows = [];
-            snap.forEach(doc => rows.push({ id: doc.id, ...doc.data() }));
-            return rows;
-        }
-        // 0 matches → parte value in KB may differ (case/spelling) → fall through
-    }
 
     // Full load with 5-min cache
     const now = Date.now();
@@ -4418,16 +4391,11 @@ async function buildAISystemPromptWithData(agent, userMessage) {
 
     if (agentKBs.length === 0) return prompt;
 
-    // Detectar categoría "parte" sin gastar tokens de IA
-    const detectedParte = detectParte(userMessage || '');
     const { terms, years } = expandSearchTerms(userMessage || '');
 
     prompt += '\n\n=== DATOS DE REFERENCIA ===\n';
     prompt += 'A continuación tienes los datos reales de tus bases de datos. SIEMPRE usa estos datos para responder preguntas sobre productos, precios, disponibilidad, etc.\n';
     prompt += 'NUNCA inventes datos. Si el cliente pregunta algo que no está en estos datos, dile que no tienes esa información disponible.\n\n';
-    if (detectedParte) {
-        prompt += `(Filtro activo: parte="${detectedParte}" — mostrando solo esa categoría)\n\n`;
-    }
 
     for (const kb of agentKBs) {
         prompt += `--- ${kb.name.toUpperCase()} ---\n`;
@@ -4435,14 +4403,10 @@ async function buildAISystemPromptWithData(agent, userMessage) {
         prompt += `Columnas: ${(kb.columns || []).join(' | ')}\n\n`;
 
         try {
-            // Con parte detectada → query filtrada Firestore (≤30 docs, costo mínimo)
-            // Sin parte → todas las filas con caché, después scoring semántico
-            const rows = await getKBRows(kb.id, detectedParte || null);
+            const rows = await getKBRows(kb.id);
 
             if (rows.length === 0) {
-                prompt += detectedParte
-                    ? `(Sin registros de "${detectedParte}" en esta base)\n\n`
-                    : '(Sin datos cargados en esta base)\n\n';
+                prompt += '(Sin datos cargados en esta base)\n\n';
                 continue;
             }
 
@@ -4555,14 +4519,12 @@ function buildAIToolDefinitions(agent) {
         .filter(Boolean);
 
     if (agentKBs.length > 0) {
-        const parteEnum = Object.keys(PARTE_KEYWORDS);
         tools.push({
             type: 'function',
             function: {
                 name: 'query_database',
                 description: 'Consulta la base de datos de productos cuando necesitas buscar precios, SKUs, disponibilidad o características específicas. '
                     + 'Úsala siempre que el cliente pregunte por un producto concreto y los datos del prompt no sean suficientes. '
-                    + 'Si conoces la categoría del producto (columna "parte"), agrégala como filtro para acotar la búsqueda. '
                     + 'Bases disponibles: ' + agentKBs.map(kb => `"${kb.name}" (${(kb.columns || []).join(', ')})`).join('; '),
                 parameters: {
                     type: 'object',
@@ -4574,22 +4536,11 @@ function buildAIToolDefinitions(agent) {
                         },
                         searchQuery: {
                             type: 'string',
-                            description: 'Texto de búsqueda: marca, modelo, año, SKU u otras características del producto',
-                        },
-                        filters: {
-                            type: 'object',
-                            description: 'Filtros exactos por columna. Usar "parte" siempre que se conozca la categoría del producto.',
-                            properties: {
-                                parte: {
-                                    type: 'string',
-                                    enum: parteEnum,
-                                    description: 'Categoría exacta del producto. Incluirla SIEMPRE que sea posible para reducir lecturas.',
-                                },
-                            },
+                            description: 'Texto de búsqueda: describe el producto con marca, modelo, año, SKU u otras características',
                         },
                         limit: {
                             type: 'number',
-                            description: 'Máximo de resultados a devolver (default: 10, máx: 30)',
+                            description: 'Máximo de resultados a devolver (default: 25, máx: 50)',
                         },
                     },
                     required: ['knowledgeBaseId', 'searchQuery'],
@@ -4664,15 +4615,7 @@ async function queryKnowledgeBase(kbId, searchQuery, filters, limit = 10) {
     if (!hasQuery && !hasFilters) return [];
 
     try {
-        // Determinar filtro de "parte":
-        // 1. Filtro explícito de la IA (más preciso) → 2. Detección automática del texto
-        const explicitParte = (filters && filters.parte) ? filters.parte : null;
-        const autoParte     = explicitParte ? null : detectParte(searchQuery);
-        const parteFilter   = explicitParte || autoParte || null;
-
-        // getKBRows con parte filter → query de Firestore filtrada (≤30 docs)
-        // Sin parte → usa caché de todas las filas
-        let results = await getKBRows(kbId, parteFilter);
+        let results = await getKBRows(kbId);
 
         // Scoring semántico: ordenar por relevancia sin descartar score=0.
         // Así la IA siempre recibe resultados, priorizados del más al menos relevante.
@@ -4686,10 +4629,9 @@ async function queryKnowledgeBase(kbId, searchQuery, filters, limit = 10) {
             }
         }
 
-        // Aplicar otros filtros de columna (excepto "parte" que ya fue a Firestore)
+        // Aplicar filtros de columna adicionales
         if (filters && typeof filters === 'object') {
             Object.entries(filters).forEach(([key, value]) => {
-                if (key === 'parte') return;
                 results = results.filter(row => {
                     const rowVal = String(row[key] || '').toLowerCase();
                     return rowVal.includes(String(value).toLowerCase());
