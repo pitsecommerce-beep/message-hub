@@ -194,14 +194,25 @@ export type KnowledgeBase = z.infer<typeof KnowledgeBaseSchema>
 export const IntegrationPlatformSchema = z.enum(['whatsapp', 'instagram', 'messenger'])
 export type IntegrationPlatform = z.infer<typeof IntegrationPlatformSchema>
 
+export const IntegrationMethodSchema = z.enum(['meta', 'evolution'])
+export type IntegrationMethod = z.infer<typeof IntegrationMethodSchema>
+
 export const IntegrationConfigSchema = z.object({
   id: z.string(),
   platform: IntegrationPlatformSchema,
+  /** 'meta' = Meta Cloud API (default), 'evolution' = Evolution API via QR */
+  method: IntegrationMethodSchema.optional(),
   connected: z.boolean(),
+  // ── Meta Cloud API fields ──────────────────────────────────────────────────
   phoneNumberId: z.string().optional(),
   accessToken: z.string().optional(),
   verifyToken: z.string().optional(),
   webhookUrl: z.string().optional(),
+  // ── Evolution API fields ───────────────────────────────────────────────────
+  evolutionApiUrl: z.string().optional(),
+  evolutionApiKey: z.string().optional(),
+  evolutionInstanceName: z.string().optional(),
+  evolutionPhone: z.string().optional(),
   orgId: z.string(),
   updatedAt: z.any().optional(),
 })

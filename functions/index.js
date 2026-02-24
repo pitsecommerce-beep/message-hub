@@ -13,6 +13,9 @@ const { whatsappWebhook } = require('./src/webhooks/whatsapp');
 const { instagramWebhook } = require('./src/webhooks/instagram');
 const { messengerWebhook } = require('./src/webhooks/messenger');
 
+// Webhook de WhatsApp vía Evolution API (QR, sin aprobación Meta)
+const { whatsappEvolutionWebhook } = require('./src/webhooks/whatsappEvolution');
+
 // Webhook de pagos MercadoPago
 const { mercadopagoWebhook } = require('./src/webhooks/mercadopago');
 
@@ -23,6 +26,7 @@ module.exports = {
     whatsappWebhook,
     instagramWebhook,
     messengerWebhook,
+    whatsappEvolutionWebhook,
     mercadopagoWebhook,
     autoResponder,
 };
