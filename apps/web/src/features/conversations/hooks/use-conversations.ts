@@ -1,0 +1,177 @@
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import {
+  collection,
+  query,
+  where,
+  orderBy,
+  getDocs,
+  doc,
+  addDoc,
+  updateDoc,
+  deleteDoc,
+  onSnapshot,
+  serverTimestamp,
+} from 'firebase/firestore'
+import { useEffect, useState } from 'react'
+import { toast } from 'sonner'
+import { db } from '@/lib/firebase'
+import type { Conversation, Message, FunnelStage, Platform } from '@/types'
+
+export function useConversations(orgId: string | undefined) {
+  return useQuery({
+    queryKey: ['conversations', orgId],
+    queryFn: async (): Promise<Conversation[]> => {
+      if (!orgId) return []
+      const snap = await getDocs(
+        query(
+          collection(db, 'conversations'),
+          where('orgId', '==', orgId),
+          orderBy('lastMessageAt', 'desc'),
+        ),
+      )
+      return snap.docs.map((d) => ({ id: d.id, ...d.data() } as Conversation))
+    },
+    enabled: !!orgId,
+  })
+}
+
+export function useMessages(convId: string | undefined) {
+  const [messages, setMessages] = useState<Message[]>([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    if (!convId) {
+      setLoading(false)
+      return
+    }
+
+    const q = query(
+      collection(db, 'conversations', convId, 'messages'),
+      orderBy('timestamp', 'asc'),
+    )
+
+    const unsub = onSnapshot(q, (snap) => {
+      setMessages(snap.docs.map((d) => ({ id: d.id, ...d.data() } as Message)))
+      setLoading(false)
+    })
+
+    return unsub
+  }, [convId])
+
+  return { messages, loading }
+}
+
+interface SendMessageInput {
+  convId: string
+  text: string
+  senderName: string
+  role: 'agent'
+}
+
+export function useSendMessage() {
+  return useMutation({
+    mutationFn: async ({ convId, text, senderName, role }: SendMessageInput) => {
+      await addDoc(collection(db, 'conversations', convId, 'messages'), {
+        text,
+        senderName,
+        role,
+        timestamp: serverTimestamp(),
+      })
+      await updateDoc(doc(db, 'conversations', convId), {
+        lastMessage: text,
+        lastMessageAt: serverTimestamp(),
+      })
+    },
+    onError: (err: Error) => toast.error(err.message),
+  })
+}
+
+export function useDeleteConversation(orgId: string | undefined) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (convId: string) => {
+      await deleteDoc(doc(db, 'conversations', convId))
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['conversations', orgId] })
+      toast.success('Conversación eliminada')
+    },
+    onError: (err: Error) => toast.error(err.message),
+  })
+}
+
+export function useUpdateConvStage(orgId: string | undefined) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ convId, stage }: { convId: string; stage: FunnelStage }) => {
+      await updateDoc(doc(db, 'conversations', convId), {
+        funnelStage: stage,
+        updatedAt: serverTimestamp(),
+      })
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['conversations', orgId] })
+    },
+    onError: (err: Error) => toast.error(err.message),
+  })
+}
+
+export function useToggleConvAI(orgId: string | undefined) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ convId, enabled }: { convId: string; enabled: boolean }) => {
+      await updateDoc(doc(db, 'conversations', convId), { aiEnabled: enabled })
+    },
+    onSuccess: (_, { enabled }) => {
+      qc.invalidateQueries({ queryKey: ['conversations', orgId] })
+      toast.success(enabled ? 'IA activada' : 'IA desactivada')
+    },
+    onError: (err: Error) => toast.error(err.message),
+  })
+}
+
+interface CreateConversationInput {
+  contactId: string
+  contactName: string
+  contactPhone?: string
+  platform: Platform
+  orgId: string
+  initialMessage?: string
+  senderName: string
+}
+
+export function useCreateConversation(orgId: string | undefined) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async ({
+      contactId, contactName, contactPhone, platform, orgId: org, initialMessage, senderName,
+    }: CreateConversationInput) => {
+      const convRef = await addDoc(collection(db, 'conversations'), {
+        contactId,
+        contactName,
+        contactPhone: contactPhone ?? '',
+        platform,
+        orgId: org,
+        createdAt: serverTimestamp(),
+        lastMessageAt: serverTimestamp(),
+      })
+
+      if (initialMessage) {
+        await addDoc(collection(db, 'conversations', convRef.id, 'messages'), {
+          text: initialMessage,
+          senderName,
+          role: 'agent',
+          timestamp: serverTimestamp(),
+        })
+        await updateDoc(convRef, { lastMessage: initialMessage })
+      }
+
+      return convRef.id
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['conversations', orgId] })
+      toast.success('Conversación iniciada')
+    },
+    onError: (err: Error) => toast.error(err.message),
+  })
+}
