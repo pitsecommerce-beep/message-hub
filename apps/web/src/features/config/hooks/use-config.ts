@@ -111,6 +111,8 @@ export function useIntegrations(orgId: string | undefined) {
   })
 }
 
+// All IntegrationConfig fields are already typed correctly (including the new
+// method / evolutionApi* fields added to the schema), so we just re-use them.
 interface SaveIntegrationInput extends Omit<IntegrationConfig, 'id'> {
   id?: string
 }

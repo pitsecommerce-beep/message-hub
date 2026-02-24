@@ -1,8 +1,26 @@
-import { useState } from 'react'
+/**
+ * IntegrationsPage.tsx
+ *
+ * Gestiona las integraciones de plataformas de mensajería:
+ *  - WhatsApp vía Meta Cloud API  (credenciales manuales)
+ *  - WhatsApp vía Evolution API   (escaneo de QR)
+ *  - Instagram DM                 (Meta Cloud API)
+ *  - Facebook Messenger           (Meta Cloud API)
+ */
+import { useState, useEffect, useRef } from 'react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
-import { Copy, CheckCircle, AlertCircle } from 'lucide-react'
+import {
+  Copy,
+  CheckCircle,
+  AlertCircle,
+  Loader2,
+  RefreshCw,
+  QrCode,
+  Wifi,
+  WifiOff,
+} from 'lucide-react'
 import { toast } from 'sonner'
 import { useAppStore } from '@/store/app.store'
 import {
@@ -14,66 +32,104 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
-import { cn } from '@/lib/utils'
-import type { IntegrationPlatform, IntegrationConfig } from '@/types'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from '@/components/ui/dialog'
+import { createEvolutionClient } from '@/lib/evolution-api'
+import type { IntegrationPlatform, IntegrationConfig, IntegrationMethod } from '@/types'
 
-const configSchema = z.object({
-  phoneNumberId: z.string().optional(),
-  accessToken: z.string().optional(),
-  verifyToken: z.string().optional(),
-  customWebhookUrl: z.string().optional(),
-})
-type ConfigForm = z.infer<typeof configSchema>
+// ─── Constants ─────────────────────────────────────────────────────────────────
 
 const INTEGRATION_INFO: Record<
   IntegrationPlatform,
-  { name: string; icon: string; color: string; description: string }
+  { name: string; icon: string; color: string; bgColor: string; description: string }
 > = {
   whatsapp: {
     name: 'WhatsApp Business',
     icon: '📱',
-    color: 'text-green-400 bg-green-600/15',
-    description: 'Conecta tu número de WhatsApp Business a través de la API de Meta',
+    color: 'text-green-400',
+    bgColor: 'bg-green-600/15',
+    description:
+      'Conecta tu número de WhatsApp vía Meta Cloud API o Evolution API (QR)',
   },
   instagram: {
     name: 'Instagram DM',
     icon: '📷',
-    color: 'text-pink-400 bg-pink-600/15',
+    color: 'text-pink-400',
+    bgColor: 'bg-pink-600/15',
     description: 'Conecta tu cuenta de Instagram Business para recibir DMs',
   },
   messenger: {
     name: 'Facebook Messenger',
     icon: '💬',
-    color: 'text-blue-400 bg-blue-600/15',
-    description: 'Conecta tu Página de Facebook para gestionar mensajes de Messenger',
+    color: 'text-blue-400',
+    bgColor: 'bg-blue-600/15',
+    description:
+      'Conecta tu Página de Facebook para gestionar mensajes de Messenger',
   },
 }
+
+const QR_POLL_INTERVAL_MS = 8_000 // refresh QR every 8 s
+
+// ─── Schemas ───────────────────────────────────────────────────────────────────
+
+const metaSchema = z.object({
+  phoneNumberId: z.string().min(1, 'Requerido'),
+  accessToken: z.string().min(1, 'Requerido'),
+  verifyToken: z.string().optional(),
+  customWebhookUrl: z.string().optional(),
+})
+type MetaForm = z.infer<typeof metaSchema>
+
+const evolutionSchema = z.object({
+  serverUrl: z
+    .string()
+    .url('Debe ser una URL válida, p. ej. https://api.tuservidor.com')
+    .min(1, 'Requerido'),
+  apiKey: z.string().min(1, 'Requerido'),
+  instanceName: z
+    .string()
+    .min(2, 'Mínimo 2 caracteres')
+    .regex(/^[a-zA-Z0-9_-]+$/, 'Solo letras, números, guiones y guiones bajos'),
+})
+type EvolutionForm = z.infer<typeof evolutionSchema>
+
+// ─── IntegrationCard ───────────────────────────────────────────────────────────
 
 function IntegrationCard({
   platform,
   config,
-  onConfigure,
+  onConfigureMeta,
+  onConfigureEvolution,
   onDisconnect,
 }: {
   platform: IntegrationPlatform
   config: IntegrationConfig | undefined
-  onConfigure: () => void
+  onConfigureMeta: () => void
+  onConfigureEvolution: () => void
   onDisconnect: () => void
 }) {
   const info = INTEGRATION_INFO[platform]
   const isConnected = config?.connected ?? false
+  const method = config?.method ?? 'meta'
 
   return (
     <div className="rounded-xl border border-white/10 bg-white/5 p-5 space-y-4 hover:border-white/20 transition-colors">
+      {/* Header */}
       <div className="flex items-start justify-between gap-3">
         <div className="flex items-center gap-3">
-          <div className={`h-10 w-10 rounded-xl flex items-center justify-center text-xl ${info.color.split(' ')[1]}`}>
+          <div className={`h-10 w-10 rounded-xl flex items-center justify-center text-xl ${info.bgColor}`}>
             {info.icon}
           </div>
           <div>
             <p className="font-medium text-white">{info.name}</p>
-            <p className="text-xs text-gray-500 mt-0.5 max-w-[200px]">{info.description}</p>
+            <p className="text-xs text-gray-500 mt-0.5 max-w-[220px]">
+              {info.description}
+            </p>
           </div>
         </div>
         <Badge variant={isConnected ? 'success' : 'secondary'}>
@@ -85,33 +141,93 @@ function IntegrationCard({
         </Badge>
       </div>
 
-      {isConnected && config?.phoneNumberId && (
-        <div className="rounded-lg bg-white/5 px-3 py-2">
-          <p className="text-xs text-gray-500">Phone Number ID</p>
-          <p className="text-sm text-gray-300 font-mono">{config.phoneNumberId}</p>
+      {/* Connected info */}
+      {isConnected && (
+        <div className="rounded-lg bg-white/5 px-3 py-2 space-y-1">
+          {method === 'evolution' ? (
+            <>
+              <p className="text-xs text-gray-500">Evolution API · instancia</p>
+              <p className="text-sm text-gray-300 font-mono">
+                {config?.evolutionInstanceName}
+              </p>
+              {config?.evolutionPhone && (
+                <p className="text-xs text-gray-500">{config.evolutionPhone}</p>
+              )}
+            </>
+          ) : (
+            <>
+              <p className="text-xs text-gray-500">Meta Cloud API · Phone Number ID</p>
+              <p className="text-sm text-gray-300 font-mono">{config?.phoneNumberId}</p>
+            </>
+          )}
         </div>
       )}
 
-      <div className="flex gap-2">
-        <Button variant={isConnected ? 'outline' : 'default'} size="sm" className="flex-1" onClick={onConfigure}>
-          {isConnected ? 'Reconfigurar' : 'Configurar'}
-        </Button>
-        {isConnected && (
-          <Button
-            variant="outline"
-            size="sm"
-            className="text-red-400 border-red-500/30 hover:bg-red-500/10"
-            onClick={onDisconnect}
-          >
-            Desconectar
-          </Button>
+      {/* Actions */}
+      <div className="flex flex-col gap-2">
+        {platform === 'whatsapp' && !isConnected && (
+          <div className="grid grid-cols-2 gap-2">
+            <Button variant="outline" size="sm" onClick={onConfigureEvolution}>
+              <QrCode size={13} className="mr-1.5" />
+              QR (Evolution)
+            </Button>
+            <Button variant="default" size="sm" onClick={onConfigureMeta}>
+              Meta Cloud API
+            </Button>
+          </div>
+        )}
+
+        {platform === 'whatsapp' && isConnected && (
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              className="flex-1"
+              onClick={method === 'evolution' ? onConfigureEvolution : onConfigureMeta}
+            >
+              Reconfigurar
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="text-red-400 border-red-500/30 hover:bg-red-500/10"
+              onClick={onDisconnect}
+            >
+              Desconectar
+            </Button>
+          </div>
+        )}
+
+        {platform !== 'whatsapp' && (
+          <div className="flex gap-2">
+            <Button
+              variant={isConnected ? 'outline' : 'default'}
+              size="sm"
+              className="flex-1"
+              onClick={onConfigureMeta}
+            >
+              {isConnected ? 'Reconfigurar' : 'Configurar'}
+            </Button>
+            {isConnected && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="text-red-400 border-red-500/30 hover:bg-red-500/10"
+                onClick={onDisconnect}
+              >
+                Desconectar
+              </Button>
+            )}
+          </div>
         )}
       </div>
     </div>
   )
 }
 
-function ConfigDialog({
+// ─── MetaConfigDialog ──────────────────────────────────────────────────────────
+
+function MetaConfigDialog({
   open,
   onOpenChange,
   platform,
@@ -125,8 +241,13 @@ function ConfigDialog({
   orgId: string | undefined
 }) {
   const saveIntegration = useSaveIntegration(orgId)
-  const { register, handleSubmit, reset, formState: { isSubmitting } } = useForm<ConfigForm>({
-    resolver: zodResolver(configSchema),
+  const {
+    register,
+    handleSubmit,
+    reset,
+    formState: { isSubmitting, errors },
+  } = useForm<MetaForm>({
+    resolver: zodResolver(metaSchema),
     defaultValues: {
       phoneNumberId: existing?.phoneNumberId ?? '',
       accessToken: '',
@@ -137,16 +258,17 @@ function ConfigDialog({
 
   if (!platform) return null
   const info = INTEGRATION_INFO[platform]
-
-  // Generate webhook URL
-  const webhookBase = import.meta.env.VITE_WEBHOOK_BASE_URL ?? 'https://your-functions-url/webhook'
+  const webhookBase =
+    import.meta.env.VITE_WEBHOOK_BASE_URL ??
+    'https://your-region-your-project.cloudfunctions.net/webhook'
   const webhookUrl = `${webhookBase}/${platform}`
 
-  async function onSubmit(data: ConfigForm) {
+  async function onSubmit(data: MetaForm) {
     if (!orgId || !platform) return
     await saveIntegration.mutateAsync({
       id: existing?.id,
       platform,
+      method: 'meta',
       connected: true,
       phoneNumberId: data.phoneNumberId,
       accessToken: data.accessToken,
@@ -159,36 +281,60 @@ function ConfigDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={(o) => { if (!isSubmitting) { onOpenChange(o); reset() } }}>
+    <Dialog
+      open={open}
+      onOpenChange={(o) => {
+        if (!isSubmitting) {
+          onOpenChange(o)
+          reset()
+        }
+      }}
+    >
       <DialogContent>
         <DialogHeader>
           <DialogTitle>
-            {info.icon} Configurar {info.name}
+            {info.icon} Configurar {info.name} — Meta Cloud API
           </DialogTitle>
         </DialogHeader>
 
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
-          {(platform === 'whatsapp' || platform === 'instagram' || platform === 'messenger') && (
-            <div className="space-y-1.5">
-              <Label>Phone Number ID / Page ID</Label>
-              <Input placeholder="123456789012345" {...register('phoneNumberId')} />
-              <p className="text-xs text-gray-500">Desde Meta Developer Console → App → {info.name}</p>
-            </div>
-          )}
+          <div className="space-y-1.5">
+            <Label>Phone Number ID / Page ID</Label>
+            <Input placeholder="123456789012345" {...register('phoneNumberId')} />
+            {errors.phoneNumberId && (
+              <p className="text-xs text-red-400">{errors.phoneNumberId.message}</p>
+            )}
+            <p className="text-xs text-gray-500">
+              Meta Developer Console → App → {info.name}
+            </p>
+          </div>
 
           <div className="space-y-1.5">
             <Label>Access Token</Label>
-            <Input type="password" placeholder="EAAxxxx..." {...register('accessToken')} />
-            <p className="text-xs text-gray-500">Token de acceso permanente desde Meta Developer Console</p>
+            <Input
+              type="password"
+              placeholder="EAAxxxx..."
+              {...register('accessToken')}
+            />
+            {errors.accessToken && (
+              <p className="text-xs text-red-400">{errors.accessToken.message}</p>
+            )}
+            <p className="text-xs text-gray-500">
+              Token de acceso permanente desde Meta Developer Console
+            </p>
           </div>
 
           <div className="space-y-1.5">
             <Label>Verify Token (Webhook)</Label>
-            <Input placeholder="mi_token_secreto" {...register('verifyToken')} />
-            <p className="text-xs text-gray-500">Crea un token secreto para verificar el webhook con Meta</p>
+            <Input
+              placeholder="mi_token_secreto"
+              {...register('verifyToken')}
+            />
+            <p className="text-xs text-gray-500">
+              Token secreto para verificar el webhook con Meta
+            </p>
           </div>
 
-          {/* Webhook URL display */}
           <div className="space-y-1.5">
             <Label>URL del Webhook</Label>
             <div className="flex items-center gap-2">
@@ -209,11 +355,21 @@ function ConfigDialog({
                 <Copy size={14} />
               </Button>
             </div>
-            <p className="text-xs text-gray-500">Pega esta URL en la configuración del webhook de Meta</p>
+            <p className="text-xs text-gray-500">
+              Pega esta URL en la configuración del webhook de Meta
+            </p>
           </div>
 
           <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => { onOpenChange(false); reset() }} disabled={isSubmitting}>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                onOpenChange(false)
+                reset()
+              }}
+              disabled={isSubmitting}
+            >
               Cancelar
             </Button>
             <Button type="submit" loading={isSubmitting}>
@@ -226,22 +382,424 @@ function ConfigDialog({
   )
 }
 
+// ─── EvolutionQRDialog ─────────────────────────────────────────────────────────
+
+type QRStep = 'config' | 'qr' | 'connected'
+
+interface EvolutionConnectConfig {
+  serverUrl: string
+  apiKey: string
+  instanceName: string
+}
+
+function EvolutionQRDialog({
+  open,
+  onOpenChange,
+  existing,
+  orgId,
+}: {
+  open: boolean
+  onOpenChange: (o: boolean) => void
+  existing: IntegrationConfig | undefined
+  orgId: string | undefined
+}) {
+  const saveIntegration = useSaveIntegration(orgId)
+
+  const [step, setStep] = useState<QRStep>('config')
+  const [connectConfig, setConnectConfig] = useState<EvolutionConnectConfig | null>(null)
+  const [qrCode, setQrCode] = useState<string>('')
+  const [qrError, setQrError] = useState<string>('')
+  const [isCreating, setIsCreating] = useState(false)
+  const [statusLabel, setStatusLabel] = useState('Esperando escaneo…')
+
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const savedRef = useRef(false)
+
+  const {
+    register,
+    handleSubmit,
+    reset,
+    formState: { errors },
+  } = useForm<EvolutionForm>({
+    resolver: zodResolver(evolutionSchema),
+    defaultValues: {
+      serverUrl: existing?.evolutionApiUrl ?? '',
+      apiKey: '',
+      instanceName: existing?.evolutionInstanceName ?? '',
+    },
+  })
+
+  // Clear poll on unmount / close
+  useEffect(() => {
+    if (!open) {
+      stopPolling()
+      setStep('config')
+      setQrCode('')
+      setQrError('')
+      setConnectConfig(null)
+      savedRef.current = false
+    }
+  }, [open])
+
+  function stopPolling() {
+    if (pollRef.current) {
+      clearInterval(pollRef.current)
+      pollRef.current = null
+    }
+  }
+
+  // Start polling once we enter the QR step
+  useEffect(() => {
+    if (step !== 'qr' || !connectConfig) return
+
+    stopPolling()
+    savedRef.current = false
+
+    async function tick() {
+      if (!connectConfig || savedRef.current) return
+      const client = createEvolutionClient(connectConfig.serverUrl, connectConfig.apiKey)
+
+      try {
+        // 1. Check connection state
+        const stateRes = await client.getConnectionState(connectConfig.instanceName)
+        const state = stateRes.instance?.state
+
+        if (state === 'open') {
+          stopPolling()
+          savedRef.current = true
+          setStatusLabel('¡Conectado!')
+          setStep('connected')
+
+          // Configure webhook on the Evolution API instance
+          const evolutionWebhookUrl = import.meta.env.VITE_EVOLUTION_WEBHOOK_URL ?? ''
+          if (evolutionWebhookUrl) {
+            try {
+              await client.setWebhook(connectConfig.instanceName, evolutionWebhookUrl)
+            } catch {
+              // Non-fatal – user can configure webhook manually
+            }
+          }
+
+          // Persist to Firestore
+          await saveIntegration.mutateAsync({
+            id: existing?.id,
+            platform: 'whatsapp',
+            method: 'evolution',
+            connected: true,
+            evolutionApiUrl: connectConfig.serverUrl,
+            evolutionApiKey: connectConfig.apiKey,
+            evolutionInstanceName: connectConfig.instanceName,
+            orgId: orgId!,
+          })
+
+          // Auto-close after 2 s
+          setTimeout(() => onOpenChange(false), 2_000)
+          return
+        }
+
+        // 2. Refresh QR code while not yet connected
+        try {
+          const qrRes = await client.getQR(connectConfig.instanceName)
+          if (qrRes.code) {
+            setQrCode(qrRes.code)
+            setQrError('')
+          }
+        } catch {
+          // QR fetch can fail transiently – keep showing the last good QR
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'Error de conexión'
+        setStatusLabel(msg)
+      }
+    }
+
+    // First tick immediately, then poll
+    tick()
+    pollRef.current = setInterval(tick, QR_POLL_INTERVAL_MS)
+
+    return stopPolling
+  }, [step, connectConfig]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function onConfigSubmit(data: EvolutionForm) {
+    setIsCreating(true)
+    setQrError('')
+
+    const client = createEvolutionClient(data.serverUrl, data.apiKey)
+
+    try {
+      // Try to create the instance (409 = already exists → fine)
+      try {
+        await client.createInstance(data.instanceName)
+      } catch (err: unknown) {
+        const status = (err as { response?: { status?: number } })?.response?.status
+        if (status !== 409) throw err
+      }
+
+      // Fetch initial QR
+      const qrRes = await client.getQR(data.instanceName)
+      if (!qrRes.code) throw new Error('No se recibió QR del servidor')
+
+      setQrCode(qrRes.code)
+      setConnectConfig({ serverUrl: data.serverUrl, apiKey: data.apiKey, instanceName: data.instanceName })
+      setStatusLabel('Esperando escaneo…')
+      setStep('qr')
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Error desconocido'
+      setQrError(msg)
+      toast.error(`Error: ${msg}`)
+    } finally {
+      setIsCreating(false)
+    }
+  }
+
+  async function handleManualRefresh() {
+    if (!connectConfig) return
+    const client = createEvolutionClient(connectConfig.serverUrl, connectConfig.apiKey)
+    try {
+      const qrRes = await client.getQR(connectConfig.instanceName)
+      if (qrRes.code) {
+        setQrCode(qrRes.code)
+        setQrError('')
+        toast.success('QR actualizado')
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Error'
+      setQrError(msg)
+    }
+  }
+
+  function handleClose() {
+    if (isCreating) return
+    stopPolling()
+    onOpenChange(false)
+    reset()
+  }
+
+  // Render: Step config
+  const renderConfig = () => (
+    <form onSubmit={handleSubmit(onConfigSubmit)} className="space-y-4">
+      <div className="rounded-lg border border-green-500/20 bg-green-500/5 p-3 text-xs text-green-300 space-y-1">
+        <p className="font-semibold">¿Qué es Evolution API?</p>
+        <p>
+          Evolution API es un servidor auto-hospedado que conecta WhatsApp sin necesidad
+          de aprobación de Meta. Solo escaneas el QR con tu teléfono y listo.
+        </p>
+      </div>
+
+      <div className="space-y-1.5">
+        <Label>URL del servidor Evolution API</Label>
+        <Input
+          placeholder="https://api.tuservidor.com"
+          {...register('serverUrl')}
+        />
+        {errors.serverUrl && (
+          <p className="text-xs text-red-400">{errors.serverUrl.message}</p>
+        )}
+        <p className="text-xs text-gray-500">
+          URL base de tu instancia de Evolution API (sin barra final)
+        </p>
+      </div>
+
+      <div className="space-y-1.5">
+        <Label>API Key global</Label>
+        <Input
+          type="password"
+          placeholder="tu-api-key-global"
+          {...register('apiKey')}
+        />
+        {errors.apiKey && (
+          <p className="text-xs text-red-400">{errors.apiKey.message}</p>
+        )}
+        <p className="text-xs text-gray-500">
+          La clave definida en AUTHENTICATION_API_KEY de tu servidor
+        </p>
+      </div>
+
+      <div className="space-y-1.5">
+        <Label>Nombre de la instancia</Label>
+        <Input
+          placeholder="mi-empresa-wa"
+          {...register('instanceName')}
+        />
+        {errors.instanceName && (
+          <p className="text-xs text-red-400">{errors.instanceName.message}</p>
+        )}
+        <p className="text-xs text-gray-500">
+          Identificador único (letras, números, guiones). Se creará si no existe.
+        </p>
+      </div>
+
+      {qrError && (
+        <div className="rounded-lg bg-red-500/10 border border-red-500/20 px-3 py-2 text-xs text-red-400">
+          {qrError}
+        </div>
+      )}
+
+      <DialogFooter>
+        <Button type="button" variant="outline" onClick={handleClose}>
+          Cancelar
+        </Button>
+        <Button type="submit" loading={isCreating}>
+          <QrCode size={14} className="mr-1.5" />
+          Obtener QR
+        </Button>
+      </DialogFooter>
+    </form>
+  )
+
+  // Render: Step QR
+  const renderQR = () => (
+    <div className="flex flex-col items-center gap-4">
+      <div className="text-center space-y-1">
+        <p className="text-sm text-gray-300">
+          Abre WhatsApp en tu teléfono → <span className="font-semibold">Dispositivos vinculados</span> → <span className="font-semibold">Vincular dispositivo</span>
+        </p>
+        <p className="text-xs text-gray-500">
+          El QR se actualiza automáticamente cada ~30 s
+        </p>
+      </div>
+
+      {qrCode ? (
+        <div className="relative">
+          <img
+            src={qrCode.startsWith('data:') ? qrCode : `data:image/png;base64,${qrCode}`}
+            alt="WhatsApp QR Code"
+            className="w-56 h-56 rounded-xl border border-white/10 bg-white p-2"
+          />
+          <div className="absolute -bottom-3 -right-3">
+            <button
+              type="button"
+              title="Actualizar QR"
+              onClick={handleManualRefresh}
+              className="rounded-full bg-white/10 hover:bg-white/20 p-1.5 transition-colors"
+            >
+              <RefreshCw size={12} className="text-gray-400" />
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="w-56 h-56 rounded-xl border border-white/10 flex items-center justify-center">
+          <Loader2 size={32} className="animate-spin text-gray-500" />
+        </div>
+      )}
+
+      <div className="flex items-center gap-2 text-sm">
+        <Loader2 size={14} className="animate-spin text-yellow-400" />
+        <span className="text-gray-400">{statusLabel}</span>
+      </div>
+
+      <div className="flex gap-2 w-full">
+        <Button variant="outline" size="sm" className="flex-1" onClick={handleClose}>
+          Cancelar
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          className="flex-1"
+          onClick={() => {
+            stopPolling()
+            setStep('config')
+            setQrCode('')
+          }}
+        >
+          Cambiar config
+        </Button>
+      </div>
+    </div>
+  )
+
+  // Render: Step connected
+  const renderConnected = () => (
+    <div className="flex flex-col items-center gap-4 py-4">
+      <div className="h-16 w-16 rounded-full bg-green-500/20 flex items-center justify-center">
+        <Wifi size={32} className="text-green-400" />
+      </div>
+      <div className="text-center">
+        <p className="text-lg font-semibold text-white">¡WhatsApp Conectado!</p>
+        <p className="text-sm text-gray-400 mt-1">
+          Instancia <span className="font-mono text-gray-300">{connectConfig?.instanceName}</span> activa
+        </p>
+        <p className="text-xs text-gray-500 mt-2">Cerrando automáticamente…</p>
+      </div>
+      <CheckCircle size={20} className="text-green-400" />
+    </div>
+  )
+
+  const stepTitles: Record<QRStep, string> = {
+    config: '📱 Conectar WhatsApp via Evolution API',
+    qr: '📷 Escanea el código QR',
+    connected: '✅ WhatsApp Conectado',
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => { if (!o) handleClose() }}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>{stepTitles[step]}</DialogTitle>
+        </DialogHeader>
+
+        {step === 'config' && renderConfig()}
+        {step === 'qr' && renderQR()}
+        {step === 'connected' && renderConnected()}
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+// ─── DisconnectEvolutionHelper ─────────────────────────────────────────────────
+// Tries to logout the Evolution instance before removing it from Firestore.
+
+async function tryLogoutEvolution(config: IntegrationConfig) {
+  if (
+    config.method !== 'evolution' ||
+    !config.evolutionApiUrl ||
+    !config.evolutionApiKey ||
+    !config.evolutionInstanceName
+  )
+    return
+  try {
+    const client = createEvolutionClient(config.evolutionApiUrl, config.evolutionApiKey)
+    await client.logout(config.evolutionInstanceName)
+  } catch {
+    // Best-effort – proceed with Firestore deletion regardless
+  }
+}
+
+// ─── IntegrationsPage ─────────────────────────────────────────────────────────
+
 export default function IntegrationsPage() {
   const { userData, organization } = useAppStore()
   const orgId = userData?.orgId ?? organization?.id
   const { data: integrations = [] } = useIntegrations(orgId)
   const deleteIntegration = useDeleteIntegration(orgId)
 
-  const [configPlatform, setConfigPlatform] = useState<IntegrationPlatform | null>(null)
+  const [metaPlatform, setMetaPlatform] = useState<IntegrationPlatform | null>(null)
+  const [evolutionOpen, setEvolutionOpen] = useState(false)
+
   const platforms: IntegrationPlatform[] = ['whatsapp', 'instagram', 'messenger']
+
+  async function handleDisconnect(config: IntegrationConfig, platform: IntegrationPlatform) {
+    const name = INTEGRATION_INFO[platform].name
+    if (!confirm(`¿Desconectar ${name}? Esta acción no se puede deshacer.`)) return
+    await tryLogoutEvolution(config)
+    deleteIntegration.mutate(config.id)
+  }
+
+  const whatsappConfig = integrations.find((i) => i.platform === 'whatsapp')
 
   return (
     <div className="space-y-6">
+      {/* Header */}
       <div>
-        <h3 className="text-sm font-semibold text-white mb-1">Plataformas de Mensajería</h3>
-        <p className="text-xs text-gray-500">Conecta tus canales de comunicación con MessageHub</p>
+        <h3 className="text-sm font-semibold text-white mb-1">
+          Plataformas de Mensajería
+        </h3>
+        <p className="text-xs text-gray-500">
+          Conecta tus canales de comunicación con MessageHub
+        </p>
       </div>
 
+      {/* Cards */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {platforms.map((platform) => {
           const config = integrations.find((i) => i.platform === platform)
@@ -250,22 +808,65 @@ export default function IntegrationsPage() {
               key={platform}
               platform={platform}
               config={config}
-              onConfigure={() => setConfigPlatform(platform)}
+              onConfigureMeta={() => setMetaPlatform(platform)}
+              onConfigureEvolution={() => setEvolutionOpen(true)}
               onDisconnect={() => {
-                if (config && confirm(`¿Desconectar ${INTEGRATION_INFO[platform].name}?`)) {
-                  deleteIntegration.mutate(config.id)
-                }
+                if (config) handleDisconnect(config, platform)
               }}
             />
           )
         })}
       </div>
 
-      <ConfigDialog
-        open={configPlatform !== null}
-        onOpenChange={(o) => { if (!o) setConfigPlatform(null) }}
-        platform={configPlatform}
-        existing={configPlatform ? integrations.find((i) => i.platform === configPlatform) : undefined}
+      {/* Status panel (Evolution) */}
+      {whatsappConfig?.method === 'evolution' && whatsappConfig.connected && (
+        <div className="rounded-xl border border-green-500/20 bg-green-500/5 p-4 flex items-start gap-3">
+          <Wifi size={16} className="text-green-400 mt-0.5 shrink-0" />
+          <div className="text-xs space-y-0.5">
+            <p className="text-green-300 font-medium">WhatsApp activo vía Evolution API</p>
+            <p className="text-gray-400">
+              Instancia:{' '}
+              <span className="font-mono text-gray-300">
+                {whatsappConfig.evolutionInstanceName}
+              </span>
+            </p>
+            {whatsappConfig.evolutionApiUrl && (
+              <p className="text-gray-500 truncate max-w-xs">
+                Servidor: {whatsappConfig.evolutionApiUrl}
+              </p>
+            )}
+            <p className="text-gray-500 mt-1">
+              Los mensajes entrantes se reciben via webhook automáticamente.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Disconnected banner */}
+      {whatsappConfig?.method === 'evolution' && !whatsappConfig.connected && (
+        <div className="rounded-xl border border-yellow-500/20 bg-yellow-500/5 p-4 flex items-center gap-3">
+          <WifiOff size={16} className="text-yellow-400 shrink-0" />
+          <p className="text-xs text-yellow-300">
+            La instancia de Evolution API está desconectada. Vuelve a escanear el QR para
+            reconectar.
+          </p>
+        </div>
+      )}
+
+      {/* Meta config dialog */}
+      <MetaConfigDialog
+        open={metaPlatform !== null}
+        onOpenChange={(o) => { if (!o) setMetaPlatform(null) }}
+        platform={metaPlatform}
+        existing={metaPlatform ? integrations.find((i) => i.platform === metaPlatform) : undefined}
+        orgId={orgId}
+      />
+
+      {/* Evolution QR dialog */}
+      <EvolutionQRDialog
+        open={evolutionOpen}
+        onOpenChange={setEvolutionOpen}
+        existing={whatsappConfig?.method === 'evolution' ? whatsappConfig : undefined}
         orgId={orgId}
       />
     </div>
