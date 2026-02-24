@@ -1,4 +1,4 @@
-import { lazy, Suspense } from 'react'
+import { lazy, Suspense, useEffect } from 'react'
 import {
   createBrowserRouter,
   RouterProvider,
@@ -30,10 +30,12 @@ function AuthGuard() {
   const { user, userData, loading } = useAuth()
   const { setUserData } = useAppStore()
 
-  // Sync to zustand when auth resolves
-  if (!loading) {
-    setUserData(userData)
-  }
+  // Sync to zustand after auth resolves — must be in useEffect, never during render
+  useEffect(() => {
+    if (!loading) {
+      setUserData(userData)
+    }
+  }, [userData, loading, setUserData])
 
   if (loading) return <LoadingScreen />
   if (!user) return <Navigate to="/login" replace />
@@ -77,7 +79,7 @@ const router = createBrowserRouter([
     ],
   },
   { path: '*', element: <Navigate to="/" replace /> },
-], { basename: import.meta.env.BASE_URL })
+], { basename: import.meta.env.BASE_URL.replace(/\/$/, '') })
 
 export default function App() {
   return (
