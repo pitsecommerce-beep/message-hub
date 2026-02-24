@@ -594,3 +594,227 @@ Recomendado: **Cloud Run** — ya están en GCP con Firebase, evita cambiar de p
 | Curva de aprendizaje del equipo con TypeScript | Empezar con `"strict": false` y habilitar reglas gradualmente |
 | Aumento de complejidad del build | Vite es extremadamente rápido y simple de configurar vs webpack |
 | Costo de Cloud Run vs Cloud Functions | Cloud Run tiene free tier generoso, similar en costo a Cloud Functions 2nd gen |
+
+---
+
+## 11. Los 10 Pasos de Migración del Frontend
+
+> **Estructura resultante:** `legacy/` conserva el frontend actual intacto. `apps/web/` es la nueva app React.
+
+### Paso 1 ✅ Scaffolding + Tooling (COMPLETADO)
+**Objetivo:** Estructura lista para empezar a escribir componentes reales.
+
+**Qué se hizo:**
+- `legacy/` — copia del frontend actual (`index.html`, `app.js`, `styles.css`)
+- `apps/web/` — app Vite + React 19 + TypeScript 5.x
+- Dependencias instaladas: React Router v7, TanStack Query, Zustand, Axios, Zod, Firebase, Sonner, Tailwind v4
+- `vite.config.ts` — plugin `@tailwindcss/vite`, alias `@/` → `src/`
+- `tsconfig.app.json` — strict mode + path aliases
+- `.prettierrc` — Prettier con `prettier-plugin-tailwindcss`
+- `.nvmrc` — Node 22
+- `src/lib/firebase.ts` — Firebase app init con env vars
+- `src/lib/query-client.ts` — TanStack Query con defaults
+- `src/lib/api.ts` — Axios con interceptor de Firebase JWT automático
+- `src/store/app.store.ts` — Zustand para estado de UI
+- `src/hooks/use-auth.ts` — Hook de Firebase Auth state
+- `src/types/index.ts` — Zod schemas para todas las entidades (Conversation, Message, Contact, Order, AiAgent)
+- `src/App.tsx` — Router con todas las rutas + AuthGuard + GuestGuard + lazy loading
+- Páginas placeholder en `src/routes/` para cada módulo
+- `0 errores de TypeScript`
+
+---
+
+### Paso 2: Design System + Layout Shell
+**Objetivo:** Sidebar, TopBar y sistema de componentes UI base. Todas las rutas muestran el layout real.
+
+**Qué hacer:**
+1. Instalar Radix UI primitives: `@radix-ui/react-dialog`, `@radix-ui/react-dropdown-menu`, `@radix-ui/react-tooltip`, `@radix-ui/react-select`, `@radix-ui/react-avatar`, `class-variance-authority`, `clsx`, `tailwind-merge`
+2. Crear `src/lib/utils.ts` con función `cn()` (merge de clases Tailwind)
+3. Crear componentes UI base en `src/components/ui/`:
+   - `Button.tsx` — variantes: primary, secondary, ghost, danger
+   - `Badge.tsx` — variantes por plataforma y status
+   - `Card.tsx` — contenedor con fondo `bg-card`
+   - `Modal.tsx` — wrapper de `@radix-ui/react-dialog`
+   - `Tooltip.tsx` — wrapper de `@radix-ui/react-tooltip`
+   - `Spinner.tsx` — loading indicator
+4. Crear `src/components/layout/`:
+   - `AppLayout.tsx` — contenedor con sidebar + contenido
+   - `Sidebar.tsx` — navegación con links activos via `useLocation()`
+   - `TopBar.tsx` — título de página + avatar de usuario + logout
+5. Envolver todas las rutas `/app/*` con `<AppLayout>`
+6. Aplicar colores del design system existente con variables CSS de Tailwind
+
+**Resultado:** Navegar entre páginas muestra el layout completo con sidebar funcional.
+
+---
+
+### Paso 3: Auth + Onboarding
+**Objetivo:** Reemplazar el flujo de autenticación del `app.js` legacy.
+
+**Qué hacer:**
+1. Instalar: `react-hook-form`, `@hookform/resolvers`
+2. `LoginPage.tsx` — form email/password + Google OAuth + Facebook OAuth
+3. `RegisterPage.tsx` — form con nombre, email, password + validación Zod
+4. `OnboardingPage.tsx` — wizard: elegir "Crear organización" o "Unirse como agente"
+5. Lógica de auth en `src/hooks/use-auth.ts`:
+   - `signInWithEmail()`, `signInWithGoogle()`, `signInWithFacebook()`
+   - `signUp()` — registro + creación de organización o join con código
+   - `signOut()`
+6. Redirigir a `/onboarding` si el usuario no tiene `organizationId`
+7. Mantener el flujo "deferred registration" del legacy
+
+**Resultado:** Auth completa funcional. El usuario puede crear cuenta, hacer login y completar onboarding.
+
+---
+
+### Paso 4: API Layer + Datos en Tiempo Real
+**Objetivo:** Conectar TanStack Query al backend (Firestore directamente por ahora, API REST cuando esté lista).
+
+**Qué hacer:**
+1. Crear hooks de datos en `src/hooks/`:
+   - `use-conversations.ts` — `useQuery` sobre `/api/conversations`
+   - `use-contacts.ts` — `useQuery` + `useMutation` para CRUD
+   - `use-orders.ts` — `useQuery` + `useMutation`
+   - `use-organization.ts` — datos del org actual
+2. Por ahora, consultar Firestore directamente (igual que el legacy) hasta que exista la API Express
+3. Definir patrón de invalidación: mutations → `queryClient.invalidateQueries()`
+4. Agregar error boundaries con `react-error-boundary`
+5. Agregar `@tanstack/react-query-devtools` en modo desarrollo
+
+**Resultado:** Datos reales en la app, con cache automático, loading y error states manejados.
+
+---
+
+### Paso 5: Dashboard
+**Objetivo:** Página de dashboard con datos reales y gráficas.
+
+**Qué hacer:**
+1. Instalar: `recharts`
+2. `DashboardPage.tsx`:
+   - Stat cards: conversaciones activas, órdenes nuevas, contactos
+   - `<LineChart>` — conversaciones por día (últimos 7 días)
+   - `<PieChart>` — distribución de funnel stages
+   - Actividad reciente del equipo
+3. Calcular stats desde TanStack Query (misma data que ya se cargó)
+4. Responsive: 1 columna en mobile, grid en desktop
+
+**Resultado:** Dashboard funcional con gráficas reales.
+
+---
+
+### Paso 6: Módulo de Conversaciones (el más complejo)
+**Objetivo:** Lista de conversaciones + hilo de mensajes con actualizaciones en tiempo real.
+
+**Qué hacer:**
+1. `ConversationsPage.tsx` — layout split: lista izquierda, hilo derecha
+2. `src/components/conversations/ConversationList.tsx`:
+   - Filtros por plataforma (tabs: Todos, WhatsApp, Instagram, Messenger)
+   - Ordenado por `lastMessageAt` desc
+   - Indicador de no leídos
+   - Skeleton loader
+3. `src/components/conversations/MessageThread.tsx`:
+   - Burbujas diferenciadas incoming/outgoing
+   - Colores por plataforma
+   - Auto-scroll al mensaje más reciente
+   - Input para enviar mensaje
+4. Real-time via Firestore `onSnapshot` (hook `use-messages.ts`)
+5. Toggle AI enable/disable por conversación
+6. URL reflects selected conversation: `/app/conversations/:id`
+
+**Resultado:** Módulo de conversaciones completamente funcional, igual o mejor que el legacy.
+
+---
+
+### Paso 7: Contactos + Funnel Board
+**Objetivo:** Tabla de contactos con búsqueda/sort + tablero kanban del funnel.
+
+**Qué hacer:**
+1. Instalar: `@tanstack/react-table`, `@dnd-kit/core`, `@dnd-kit/sortable`
+2. `ContactsPage.tsx` — tabs: "Lista" y "Funnel"
+3. Vista Lista — `src/components/contacts/ContactTable.tsx`:
+   - TanStack Table con columnas: nombre, empresa, teléfono, email, etapa
+   - Búsqueda por nombre/empresa/teléfono (client-side filtering)
+   - Sort por cualquier columna
+   - Row click → modal de edición
+4. Vista Funnel — `src/components/contacts/FunnelBoard.tsx`:
+   - 6 columnas, una por etapa
+   - Drag & drop de contactos entre etapas con `@dnd-kit`
+   - Al soltar → mutation que actualiza `funnelStage` en Firestore
+5. Modal de contacto: ver/editar todos los campos
+
+**Resultado:** CRM de contactos completo con funnel visual.
+
+---
+
+### Paso 8: Módulo de Órdenes
+**Objetivo:** Lista de órdenes + creación de nuevas órdenes con formulario validado.
+
+**Qué hacer:**
+1. `OrdersPage.tsx` — lista de órdenes + botón "Nueva orden"
+2. `src/components/orders/OrderList.tsx`:
+   - TanStack Table con columnas: número, contacto, total, status, fecha
+   - Filtro por status (todos / nuevo / confirmado / entregado)
+   - Badge de color por status
+3. `src/components/orders/OrderForm.tsx` (modal):
+   - React Hook Form + Zod: seleccionar contacto, agregar items dinámicos
+   - Cálculo automático del total
+   - Submit → mutation que crea la orden en Firestore
+4. Acción "Generar link de pago" → llama al API para crear link MercadoPago
+
+**Resultado:** Gestión de órdenes funcional.
+
+---
+
+### Paso 9: Knowledge Base
+**Objetivo:** CRUD de bases de conocimiento con import/export Excel.
+
+**Qué hacer:**
+1. Instalar: `xlsx` (SheetJS)
+2. `KnowledgeBasePage.tsx` — lista de KBs + botón "Nueva KB"
+3. Vista de KB individual:
+   - TanStack Table con columnas dinámicas (basadas en `kb.columns`)
+   - Celdas editables inline
+   - Botón "Importar Excel" → FileReader + SheetJS → bulk insert
+   - Botón "Exportar Excel" → SheetJS → descarga automática
+4. Modal para crear/editar KB (nombre, descripción, definir columnas)
+
+**Resultado:** Knowledge base funcional con misma capacidad de import/export que el legacy.
+
+---
+
+### Paso 10: Páginas de Configuración
+**Objetivo:** Agentes IA, Integraciones, Equipo. Completa la paridad con el legacy.
+
+**Qué hacer:**
+1. `AgentsPage.tsx`:
+   - Lista de agentes + crear/editar
+   - Editor de system prompt (textarea grande)
+   - Selector de provider (OpenAI/Anthropic) y modelo
+   - Toggles por canal (WhatsApp, Instagram, Messenger)
+   - Selector de knowledge bases a incluir
+2. `IntegrationsPage.tsx`:
+   - Cards por plataforma: WhatsApp, Instagram, Messenger, MercadoPago
+   - Form de configuración por plataforma (access token, phone number ID, etc.)
+3. `TeamPage.tsx`:
+   - Lista de miembros con roles
+   - Mostrar invite code + botón copiar
+   - Botón expulsar miembro (con confirmación)
+
+**Resultado:** App completa en React. Se puede desactivar `legacy/` y apuntar Firebase Hosting a `apps/web/dist`.
+
+---
+
+## 12. Resumen de Decisiones Técnicas del Paso 1
+
+| Decisión | Elección | Alternativa descartada | Razón |
+|----------|----------|----------------------|-------|
+| Build tool | Vite 7 | Create React App | CRA está abandonado; Vite es 10-100x más rápido |
+| React version | React 19 | React 18 | Ya es estable, concurrent features, mejor Suspense |
+| Routing | React Router v7 | TanStack Router | RR7 tiene SSR/RSC ready, más maduro |
+| Server state | TanStack Query | SWR | Más features, mejor DX, DevTools |
+| Client state | Zustand | Redux/Jotai | Mínimo boilerplate, TypeScript nativo |
+| CSS | Tailwind v4 | Tailwind v3 / CSS Modules | v4 usa CSS nativo, sin config file, más rápido |
+| Validación | Zod v4 | Yup / Valibot | Mejor TypeScript inference, mismo schema FE+BE |
+| HTTP | Axios | fetch nativo | Interceptors, tipado, mejor manejo de errores |
+| Toasts | Sonner | react-hot-toast | Más features, mejor accesibilidad |
+| Fuente | Outfit + JetBrains Mono | Sistema | Mantiene identidad visual del legacy |

@@ -1,0 +1,1439 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MessageHub - Plataforma de Mensajería Unificada</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="styles.css">
+    <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+</head>
+<body>
+    <!-- Background -->
+    <div class="bg-grid"></div>
+    <div class="bg-orbs">
+        <div class="orb orb-1"></div>
+        <div class="orb orb-2"></div>
+        <div class="orb orb-3"></div>
+    </div>
+
+    <!-- Toast Notifications -->
+    <div class="toast-container" id="toastContainer"></div>
+
+    <!-- Modal de Confirmar Cerrar Sesión -->
+    <div class="modal-overlay hidden" id="logoutModal">
+        <div class="modal-box modal-sm">
+            <div class="modal-header">
+                <h3 class="modal-title">Cerrar Sesión</h3>
+                <button class="modal-close" onclick="closeLogoutModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p class="modal-text">¿Estás seguro de que deseas cerrar sesión?</p>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary" onclick="closeLogoutModal()">Cancelar</button>
+                <button class="btn-primary btn-danger" style="max-width:180px" onclick="confirmLogout()">Sí, Cerrar Sesión</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal de Invitar Miembro -->
+    <div class="modal-overlay hidden" id="inviteModal">
+        <div class="modal-box">
+            <div class="modal-header">
+                <h3 class="modal-title">Invitar Miembro</h3>
+                <button class="modal-close" onclick="closeInviteModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p class="modal-text">Comparte este código de invitación con tu equipo para que se unan a tu organización:</p>
+                <div class="invite-code-display">
+                    <span id="inviteCodeText">-----</span>
+                    <button class="copy-btn" onclick="copyInviteCode()" title="Copiar código">
+                        <span id="copyIcon">📋</span>
+                    </button>
+                </div>
+                <p class="modal-hint">El miembro puede usar este código al registrarse y seleccionar "Unirse como Agente".</p>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary" onclick="closeInviteModal()">Cerrar</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal de Ayuda -->
+    <div class="modal-overlay hidden" id="helpModal">
+        <div class="modal-box">
+            <div class="modal-header">
+                <h3 class="modal-title">Centro de Ayuda</h3>
+                <button class="modal-close" onclick="closeHelpModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="help-section">
+                    <div class="help-item" onclick="toggleHelpItem(this)">
+                        <div class="help-question">
+                            <span>¿Cómo invito miembros a mi equipo?</span>
+                            <span class="help-arrow">&#9660;</span>
+                        </div>
+                        <div class="help-answer hidden">
+                            Ve al Panel Principal o a la sección de Equipo y haz clic en "Invitar Miembro". Comparte el código de invitación con tus colegas para que se unan.
+                        </div>
+                    </div>
+                    <div class="help-item" onclick="toggleHelpItem(this)">
+                        <div class="help-question">
+                            <span>¿Cómo conecto mis plataformas de mensajería?</span>
+                            <span class="help-arrow">&#9660;</span>
+                        </div>
+                        <div class="help-answer hidden">
+                            Ve a la sección de Integraciones desde el menú lateral. Ahí podrás conectar WhatsApp Business, Instagram y Messenger siguiendo los pasos de cada plataforma.
+                        </div>
+                    </div>
+                    <div class="help-item" onclick="toggleHelpItem(this)">
+                        <div class="help-question">
+                            <span>¿Qué roles existen en la plataforma?</span>
+                            <span class="help-arrow">&#9660;</span>
+                        </div>
+                        <div class="help-answer hidden">
+                            Existen tres roles: Administrador (dueño del SaaS), Gerente (gerente de sucursal que crea y gestiona equipos) y Agente (miembro del equipo que atiende conversaciones).
+                        </div>
+                    </div>
+                    <div class="help-item" onclick="toggleHelpItem(this)">
+                        <div class="help-question">
+                            <span>¿Cómo cierro sesión?</span>
+                            <span class="help-arrow">&#9660;</span>
+                        </div>
+                        <div class="help-answer hidden">
+                            Haz clic en tu perfil en la barra lateral izquierda y selecciona "Cerrar Sesión", o usa el icono de puerta en la sección de tu perfil.
+                        </div>
+                    </div>
+                    <div class="help-item" onclick="toggleHelpItem(this)">
+                        <div class="help-question">
+                            <span>¿Cómo funciona el Funnel de Ventas?</span>
+                            <span class="help-arrow">&#9660;</span>
+                        </div>
+                        <div class="help-answer hidden">
+                            En la sección de Conversaciones, cambia a la vista "Funnel de Ventas" para ver tus contactos organizados por etapa. Arrastra las tarjetas entre columnas para mover un contacto de etapa. Las etapas son: Curioso, Cotizando, Pago Pendiente, Orden Pendiente, Entregado y Atención Inmediata.
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary" onclick="closeHelpModal()">Cerrar</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal de Perfil de Usuario -->
+    <div class="modal-overlay hidden" id="profileModal">
+        <div class="modal-box">
+            <div class="modal-header">
+                <h3 class="modal-title">Mi Perfil</h3>
+                <button class="modal-close" onclick="closeProfileModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="profile-card">
+                    <div class="profile-avatar-large" id="profileAvatarLarge">U</div>
+                    <div class="profile-details">
+                        <div class="profile-detail-row">
+                            <span class="profile-label">Nombre</span>
+                            <span class="profile-value" id="profileName">--</span>
+                        </div>
+                        <div class="profile-detail-row">
+                            <span class="profile-label">Correo</span>
+                            <span class="profile-value" id="profileEmail">--</span>
+                        </div>
+                        <div class="profile-detail-row">
+                            <span class="profile-label">Rol</span>
+                            <span class="profile-value" id="profileRole">--</span>
+                        </div>
+                        <div class="profile-detail-row">
+                            <span class="profile-label">Organización</span>
+                            <span class="profile-value" id="profileOrg">--</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary" onclick="closeProfileModal()">Cerrar</button>
+                <button class="btn-primary btn-danger" style="max-width:180px" onclick="handleLogout()">Cerrar Sesión</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal de Configuración de Integración -->
+    <div class="modal-overlay hidden" id="integrationConfigModal">
+        <div class="modal-box modal-lg">
+            <div class="modal-header">
+                <h3 class="modal-title" id="integConfigTitle">Configurar Integración</h3>
+                <button class="modal-close" onclick="closeIntegrationConfig()">&times;</button>
+            </div>
+            <div class="modal-body" id="integConfigBody">
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary" onclick="closeIntegrationConfig()">Cancelar</button>
+                <button class="btn-primary" style="max-width:200px" onclick="saveIntegrationConfig()">Guardar Configuración</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal de Nuevo Chat -->
+    <div class="modal-overlay hidden" id="newChatModal">
+        <div class="modal-box">
+            <div class="modal-header">
+                <h3 class="modal-title">Nuevo Chat</h3>
+                <button class="modal-close" onclick="closeNewChatModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label class="form-label">Contacto *</label>
+                    <select class="form-input form-select" id="newChatContact">
+                        <option value="">Selecciona un contacto...</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Plataforma *</label>
+                    <div class="platform-selector">
+                        <label class="platform-option" onclick="selectPlatform('whatsapp')">
+                            <input type="radio" name="chatPlatform" value="whatsapp">
+                            <span class="platform-option-card">
+                                <span class="platform-option-icon">📱</span>
+                                <span>WhatsApp</span>
+                            </span>
+                        </label>
+                        <label class="platform-option" onclick="selectPlatform('instagram')">
+                            <input type="radio" name="chatPlatform" value="instagram">
+                            <span class="platform-option-card">
+                                <span class="platform-option-icon">📷</span>
+                                <span>Instagram</span>
+                            </span>
+                        </label>
+                        <label class="platform-option" onclick="selectPlatform('messenger')">
+                            <input type="radio" name="chatPlatform" value="messenger">
+                            <span class="platform-option-card">
+                                <span class="platform-option-icon">💬</span>
+                                <span>Messenger</span>
+                            </span>
+                        </label>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Mensaje inicial</label>
+                    <textarea class="form-input form-textarea" id="newChatMessage" placeholder="Escribe el primer mensaje..." rows="3"></textarea>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary" onclick="closeNewChatModal()">Cancelar</button>
+                <button class="btn-primary" style="max-width:200px" onclick="startNewChat()">Iniciar Chat</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal de Liga de Pago -->
+    <div class="modal-overlay hidden" id="paymentLinkModal">
+        <div class="modal-box">
+            <div class="modal-header">
+                <h3 class="modal-title">Enviar Liga de Pago</h3>
+                <button class="modal-close" onclick="closePaymentLinkModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="payment-link-contact" id="paymentLinkContact"></div>
+                <div class="form-group">
+                    <label class="form-label">Monto (MXN) *</label>
+                    <input type="number" class="form-input" id="paymentLinkAmount" placeholder="0.00" min="1" step="0.01" required>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Descripción / Concepto *</label>
+                    <input type="text" class="form-input" id="paymentLinkDescription" placeholder="Ej: Pedido #123, Cotización producto X...">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Pasarela de pago *</label>
+                    <div class="platform-selector">
+                        <label class="platform-option" onclick="selectPaymentGateway('stripe')">
+                            <input type="radio" name="paymentGateway" value="stripe">
+                            <span class="platform-option-card" id="gwCard_stripe">
+                                <span class="platform-option-icon">💳</span>
+                                <span>Stripe</span>
+                            </span>
+                        </label>
+                        <label class="platform-option" onclick="selectPaymentGateway('mercadopago')">
+                            <input type="radio" name="paymentGateway" value="mercadopago">
+                            <span class="platform-option-card" id="gwCard_mercadopago">
+                                <span class="platform-option-icon">🏦</span>
+                                <span>MercadoPago</span>
+                            </span>
+                        </label>
+                    </div>
+                    <span class="integ-field-hint" id="paymentGatewayHint"></span>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Notas adicionales (opcional)</label>
+                    <textarea class="form-input form-textarea" id="paymentLinkNotes" placeholder="Instrucciones especiales para el cliente..." rows="2"></textarea>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary" onclick="closePaymentLinkModal()">Cancelar</button>
+                <button class="btn-primary" style="max-width:220px" onclick="sendPaymentLink()">Enviar Liga de Pago</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal de Agente IA -->
+    <div class="modal-overlay hidden" id="aiAgentModal">
+        <div class="modal-box modal-lg">
+            <div class="modal-header">
+                <h3 class="modal-title" id="aiAgentModalTitle">Crear Agente IA</h3>
+                <button class="modal-close" onclick="closeAIAgentModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="aiAgentEditId" value="">
+                <div class="form-group">
+                    <label class="form-label">Nombre del agente *</label>
+                    <input type="text" class="form-input" id="aiAgentName" placeholder="Ej: Agente de Ventas, Soporte Técnico...">
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label class="form-label">Proveedor de IA *</label>
+                        <select class="form-input form-select" id="aiAgentProvider" onchange="onAIProviderChange()">
+                            <option value="">Seleccionar...</option>
+                            <option value="openai">OpenAI (GPT)</option>
+                            <option value="anthropic">Anthropic (Claude)</option>
+                            <option value="custom">Personalizado</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Modelo *</label>
+                        <select class="form-input form-select" id="aiAgentModel">
+                            <option value="">Primero selecciona proveedor</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">API Key *</label>
+                    <input type="password" class="form-input" id="aiAgentApiKey" placeholder="sk-... o tu clave de API">
+                    <span class="integ-field-hint">Se almacenará de forma segura vía Cloud Functions</span>
+                </div>
+                <div class="form-group hidden" id="aiAgentEndpointGroup">
+                    <label class="form-label">URL del Endpoint *</label>
+                    <input type="text" class="form-input" id="aiAgentEndpoint" placeholder="https://api.custom.com/v1/chat/completions">
+                    <span class="integ-field-hint">URL completa del endpoint de la API compatible con OpenAI</span>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">System Prompt *</label>
+                    <textarea class="form-input form-textarea" id="aiAgentSystemPrompt" rows="4" placeholder="Eres un agente de atención al cliente amable y profesional para [nombre de empresa]. Tu objetivo es ayudar a los clientes con sus consultas..."></textarea>
+                    <span class="integ-field-hint">Define la personalidad, instrucciones y comportamiento del agente. Sé específico sobre el tono, conocimientos y limitaciones.</span>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Bases de datos asignadas</label>
+                    <span class="integ-field-hint">Selecciona qué bases de datos podrá consultar este agente para responder preguntas.</span>
+                    <div class="ai-kb-checkboxes" id="aiKbCheckboxes">
+                        <span class="integ-field-hint">No hay bases de datos. Sube un Excel desde la página de Agentes IA.</span>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Canales asignados</label>
+                    <span class="integ-field-hint">Selecciona en qué canales operará este agente. Un solo agente puede atender múltiples canales.</span>
+                    <div class="ai-channel-checkboxes">
+                        <label class="ai-channel-check">
+                            <input type="checkbox" id="aiCh_whatsapp" value="whatsapp">
+                            <span class="ai-channel-label">📱 WhatsApp</span>
+                        </label>
+                        <label class="ai-channel-check">
+                            <input type="checkbox" id="aiCh_instagram" value="instagram">
+                            <span class="ai-channel-label">📷 Instagram</span>
+                        </label>
+                        <label class="ai-channel-check">
+                            <input type="checkbox" id="aiCh_messenger" value="messenger">
+                            <span class="ai-channel-label">💬 Messenger</span>
+                        </label>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label class="ai-active-toggle">
+                        <input type="checkbox" id="aiAgentActive" checked>
+                        <span>Agente activo</span>
+                    </label>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary" onclick="closeAIAgentModal()">Cancelar</button>
+                <button class="btn-primary" style="max-width:200px" onclick="saveAIAgent()">Guardar Agente</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal de Probar Agente IA -->
+    <div class="modal-overlay hidden" id="aiTestModal">
+        <div class="modal-box modal-xl">
+            <div class="modal-header">
+                <h3 class="modal-title">Probar Agente: <span id="aiTestAgentName">--</span></h3>
+                <button class="modal-close" onclick="closeAITestModal()">&times;</button>
+            </div>
+            <div class="modal-body" style="padding:0;display:flex;flex-direction:column;min-height:400px">
+                <input type="hidden" id="aiTestAgentId" value="">
+                <!-- System prompt preview toggle -->
+                <div class="ai-test-prompt-bar">
+                    <button class="btn-secondary btn-sm" onclick="toggleTestPromptPreview()">Ver System Prompt Completo</button>
+                    <span class="ai-test-info" id="aiTestInfo">--</span>
+                </div>
+                <div class="ai-test-prompt-preview hidden" id="aiTestPromptPreview">
+                    <pre id="aiTestPromptText"></pre>
+                </div>
+                <!-- Chat area -->
+                <div class="ai-test-messages" id="aiTestMessages">
+                    <div class="ai-test-welcome">
+                        <span class="ai-test-welcome-icon">🤖</span>
+                        <p>Envía un mensaje para probar cómo responde el agente.</p>
+                        <p class="ai-test-welcome-hint">El agente usará su system prompt y consultará las bases de datos asignadas.</p>
+                    </div>
+                </div>
+                <!-- Composer -->
+                <div class="ai-test-composer">
+                    <input type="text" class="ai-test-input" id="aiTestInput" placeholder="Escribe un mensaje de prueba..." onkeypress="if(event.key==='Enter')sendTestMessage()">
+                    <button class="ai-test-send" onclick="sendTestMessage()" id="aiTestSendBtn">➤</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal de Subir Excel / Base de Datos -->
+    <div class="modal-overlay hidden" id="excelUploadModal">
+        <div class="modal-box modal-xl">
+            <div class="modal-header">
+                <h3 class="modal-title" id="excelUploadTitle">Subir Base de Datos desde Excel</h3>
+                <button class="modal-close" onclick="closeExcelUploadModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="kbEditId" value="">
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label class="form-label">Nombre de la base de datos *</label>
+                        <input type="text" class="form-input" id="kbName" placeholder="Ej: Catálogo de Productos, Lista de Precios, Inventario...">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Descripción</label>
+                        <input type="text" class="form-input" id="kbDescription" placeholder="Qué información contiene esta base de datos">
+                    </div>
+                </div>
+
+                <!-- Upload Zone -->
+                <div class="excel-upload-zone" id="excelUploadZone" onclick="document.getElementById('excelFileInput').click()" ondragover="event.preventDefault(); this.classList.add('dragover')" ondragleave="this.classList.remove('dragover')" ondrop="handleExcelDrop(event)">
+                    <div class="excel-upload-icon">📊</div>
+                    <div class="excel-upload-text">Arrastra tu archivo Excel aquí o haz clic para seleccionar</div>
+                    <div class="excel-upload-hint">Formatos soportados: .xlsx, .xls, .csv (máx 5MB)</div>
+                    <input type="file" id="excelFileInput" accept=".xlsx,.xls,.csv" class="hidden" onchange="handleExcelFileSelect(event)">
+                </div>
+
+                <!-- File Info -->
+                <div class="excel-file-info hidden" id="excelFileInfo">
+                    <span class="excel-file-icon">📄</span>
+                    <div class="excel-file-details">
+                        <span class="excel-file-name" id="excelFileName">--</span>
+                        <span class="excel-file-meta" id="excelFileMeta">--</span>
+                    </div>
+                    <button class="btn-icon btn-sm" onclick="clearExcelFile()" title="Quitar archivo">✕</button>
+                </div>
+
+                <!-- Sheet Selector (for multi-sheet Excel files) -->
+                <div class="form-group hidden" id="sheetSelectorGroup">
+                    <label class="form-label">Hoja del Excel</label>
+                    <select class="form-input form-select" id="sheetSelector" onchange="selectExcelSheet(this.value)"></select>
+                </div>
+
+                <!-- Data Preview Table -->
+                <div class="excel-preview-wrapper hidden" id="excelPreviewWrapper">
+                    <div class="excel-preview-header">
+                        <h4>Vista previa de datos</h4>
+                        <span class="excel-preview-count" id="excelPreviewCount">0 filas</span>
+                    </div>
+                    <div class="excel-preview-table-scroll">
+                        <table class="excel-preview-table" id="excelPreviewTable">
+                            <thead id="excelPreviewHead"></thead>
+                            <tbody id="excelPreviewBody"></tbody>
+                        </table>
+                    </div>
+                    <div class="excel-preview-footer" id="excelPreviewFooter"></div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary" onclick="closeExcelUploadModal()">Cancelar</button>
+                <button class="btn-primary" style="max-width:260px" id="importExcelBtn" onclick="importExcelToFirestore()" disabled>Importar a Base de Datos</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal de Agregar/Editar Contacto -->
+    <div class="modal-overlay hidden" id="contactModal">
+        <div class="modal-box modal-lg">
+            <div class="modal-header">
+                <h3 class="modal-title" id="contactModalTitle">Agregar Contacto</h3>
+                <button class="modal-close" onclick="closeContactModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <form id="contactForm" onsubmit="return false;">
+                    <input type="hidden" id="contactEditId" value="">
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label class="form-label">Nombre de la persona *</label>
+                            <input type="text" class="form-input" id="contactName" placeholder="Juan Perez" required>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Empresa</label>
+                            <input type="text" class="form-input" id="contactCompany" placeholder="Empresa S.A. de C.V.">
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label class="form-label">Celular</label>
+                            <input type="tel" class="form-input" id="contactPhone" placeholder="+52 55 1234 5678">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Correo electrónico</label>
+                            <input type="email" class="form-input" id="contactEmailField" placeholder="juan@empresa.com">
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label class="form-label">RFC</label>
+                            <input type="text" class="form-input" id="contactRFC" placeholder="XAXX010101000">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Dirección</label>
+                            <input type="text" class="form-input" id="contactAddress" placeholder="Calle, Colonia, Ciudad, CP">
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Etapa del funnel</label>
+                        <select class="form-input form-select" id="contactStage">
+                            <option value="curioso">Curioso</option>
+                            <option value="cotizando">Cotizando</option>
+                            <option value="pago_pendiente">Pago Pendiente</option>
+                            <option value="orden_pendiente">Orden Pendiente</option>
+                            <option value="entregado">Entregado</option>
+                            <option value="atencion_inmediata">Atención Inmediata</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Notas</label>
+                        <textarea class="form-input form-textarea" id="contactNotes" placeholder="Notas adicionales sobre este contacto..." rows="3"></textarea>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary" onclick="closeContactModal()">Cancelar</button>
+                <button class="btn-primary" style="max-width:200px" onclick="saveContact()">Guardar Contacto</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Auth Page -->
+    <div class="auth-container" id="authPage">
+        <div class="auth-box">
+            <div class="logo-section">
+                <div class="logo">MessageHub</div>
+                <div class="tagline">Plataforma de mensajería unificada para tu negocio</div>
+            </div>
+
+            <div class="auth-tabs">
+                <button class="auth-tab active" onclick="switchAuthTab('login')">Iniciar Sesión</button>
+                <button class="auth-tab" onclick="switchAuthTab('register')">Registrarse</button>
+            </div>
+
+            <!-- Login Form -->
+            <form id="loginForm">
+                <div class="form-group">
+                    <label class="form-label">Correo electrónico</label>
+                    <input type="email" class="form-input" id="loginEmail" placeholder="tu@empresa.com" required>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Contraseña</label>
+                    <input type="password" class="form-input" id="loginPassword" placeholder="••••••••" required>
+                </div>
+                <button type="submit" class="btn-primary" id="loginBtn">
+                    <span id="loginBtnText">Iniciar Sesión</span>
+                </button>
+            </form>
+
+            <!-- Register Form -->
+            <form id="registerForm" class="hidden">
+                <div class="form-group">
+                    <label class="form-label">Nombre completo</label>
+                    <input type="text" class="form-input" id="registerName" placeholder="Juan Perez" required>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Correo electrónico</label>
+                    <input type="email" class="form-input" id="registerEmail" placeholder="tu@empresa.com" required>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Contraseña</label>
+                    <input type="password" class="form-input" id="registerPassword" placeholder="Mínimo 6 caracteres" required>
+                </div>
+                <button type="submit" class="btn-primary" id="registerBtn">
+                    <span id="registerBtnText">Crear Cuenta</span>
+                </button>
+                <div class="auth-hint">¿Ya tienes cuenta? Cambia a "Iniciar Sesión" arriba.</div>
+            </form>
+
+            <div class="divider">
+                <span class="divider-text">o continuar con</span>
+            </div>
+
+            <div class="social-buttons">
+                <button class="btn-social" onclick="handleGoogleAuth()">
+                    <span>🔍</span> Google
+                </button>
+                <button class="btn-social" onclick="handleFacebookAuth()">
+                    <span>📘</span> Facebook
+                </button>
+            </div>
+
+            <div class="link-text">
+                <a href="#" onclick="handleForgotPassword(); return false;">¿Olvidaste tu contraseña?</a>
+            </div>
+        </div>
+    </div>
+
+    <!-- Onboarding Page -->
+    <div class="onboarding-container hidden" id="onboardingPage">
+        <div class="onboarding-box">
+            <div class="progress-steps">
+                <div class="progress-step active" id="step1"></div>
+                <div class="progress-step" id="step2"></div>
+            </div>
+
+            <!-- Step 1: Choose Role -->
+            <div id="onboardingStep1">
+                <div class="onboarding-header">
+                    <h2 class="onboarding-title">¡Bienvenido! Empecemos</h2>
+                    <p class="onboarding-subtitle">¿Cómo deseas usar MessageHub?</p>
+                </div>
+
+                <div class="role-selection">
+                    <div class="role-card" onclick="selectRole('gerente')">
+                        <div class="role-icon">👑</div>
+                        <div class="role-title">Crear Equipo (Gerente)</div>
+                        <div class="role-description">
+                            Crea una nueva organización como gerente de sucursal. Podrás gestionar tu equipo, invitar agentes y controlar la configuración.
+                        </div>
+                    </div>
+                    <div class="role-card" onclick="selectRole('agente')">
+                        <div class="role-icon">💼</div>
+                        <div class="role-title">Unirse como Agente</div>
+                        <div class="role-description">
+                            Únete a una organización existente con un código de invitación y comienza a atender conversaciones.
+                        </div>
+                    </div>
+                </div>
+
+                <button class="btn-primary" id="roleNextBtn" disabled onclick="proceedToStep2()">
+                    <span>Continuar</span>
+                </button>
+
+                <div class="onboarding-back-link">
+                    <a href="#" onclick="cancelOnboarding(); return false;">Cerrar sesión y volver</a>
+                </div>
+            </div>
+
+            <!-- Step 2: Organization/Join Details -->
+            <div id="onboardingStep2" class="hidden">
+                <!-- For Gerente -->
+                <div id="adminSetup" class="hidden">
+                    <div class="onboarding-header">
+                        <h2 class="onboarding-title">Crea Tu Organización</h2>
+                        <p class="onboarding-subtitle">Configura tu espacio de trabajo</p>
+                    </div>
+
+                    <form id="orgForm">
+                        <div class="form-group">
+                            <label class="form-label">Nombre de la Organización</label>
+                            <input type="text" class="form-input" id="orgName" placeholder="Mi Empresa S.A." required>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Industria</label>
+                            <input type="text" class="form-input" id="orgIndustry" placeholder="E-commerce, Retail, Servicios, etc.">
+                        </div>
+                        <button type="submit" class="btn-primary">
+                            <span id="orgBtnText">Crear Organización</span>
+                        </button>
+                    </form>
+
+                    <div class="onboarding-back-link">
+                        <a href="#" onclick="goBackToStep1(); return false;">Volver al paso anterior</a>
+                    </div>
+                </div>
+
+                <!-- For Agent -->
+                <div id="agentSetup" class="hidden">
+                    <div class="onboarding-header">
+                        <h2 class="onboarding-title">Unirse a Organización</h2>
+                        <p class="onboarding-subtitle">Ingresa el código de invitación que te compartió tu gerente</p>
+                    </div>
+
+                    <form id="joinForm">
+                        <div class="form-group">
+                            <label class="form-label">Código de Invitación</label>
+                            <input type="text" class="form-input" id="inviteCode" placeholder="XXXXX-XXXXX" required>
+                        </div>
+                        <button type="submit" class="btn-primary">
+                            <span id="joinBtnText">Unirse a la Organización</span>
+                        </button>
+                    </form>
+
+                    <div class="onboarding-back-link">
+                        <a href="#" onclick="goBackToStep1(); return false;">Volver al paso anterior</a>
+                    </div>
+
+                    <div class="link-text" style="margin-top: 8px;">
+                        ¿No tienes un código? <a href="#" onclick="showNotification('Contactar Gerente', 'Solicita un código de invitación al gerente de tu organización para poder unirte.', 'info'); return false;">Contacta a tu gerente</a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main App -->
+    <div class="app-layout" id="appLayout">
+        <!-- Sidebar -->
+        <aside class="sidebar" id="sidebar">
+            <div class="sidebar-header">
+                <div class="sidebar-logo">MessageHub</div>
+                <div class="org-badge" id="orgBadge">
+                    <span class="org-badge-icon"></span>
+                    <span id="orgNameDisplay">Cargando...</span>
+                </div>
+            </div>
+
+            <nav class="sidebar-nav">
+                <div class="nav-section">
+                    <div class="nav-section-title">Principal</div>
+                    <div class="nav-item active" data-page="dashboard" onclick="showPage('dashboard')">
+                        <span class="nav-icon">📊</span>
+                        <span>Panel Principal</span>
+                    </div>
+                    <div class="nav-item" data-page="conversations" onclick="showPage('conversations')">
+                        <span class="nav-icon">💬</span>
+                        <span>Conversaciones</span>
+                        <span class="nav-badge" id="convBadge">0</span>
+                    </div>
+                    <div class="nav-item" data-page="contacts" onclick="showPage('contacts')">
+                        <span class="nav-icon">👥</span>
+                        <span>Contactos</span>
+                    </div>
+                    <div class="nav-item" data-page="orders" onclick="showPage('orders')">
+                        <span class="nav-icon">📦</span>
+                        <span>Pedidos</span>
+                        <span class="nav-badge hidden" id="ordersBadge">0</span>
+                    </div>
+                </div>
+
+                <div class="nav-section">
+                    <div class="nav-section-title">Organización</div>
+                    <div class="nav-item" data-page="team" onclick="showPage('team')">
+                        <span class="nav-icon">👨‍💼</span>
+                        <span>Equipo</span>
+                    </div>
+                    <div class="nav-item" data-page="integrations" onclick="showPage('integrations')">
+                        <span class="nav-icon">🔌</span>
+                        <span>Integraciones</span>
+                    </div>
+                    <div class="nav-item" data-page="aiAgents" onclick="showPage('aiAgents')">
+                        <span class="nav-icon">🤖</span>
+                        <span>Agentes IA</span>
+                    </div>
+                    <div class="nav-item" data-page="settings" onclick="showPage('settings')">
+                        <span class="nav-icon">⚙️</span>
+                        <span>Configuración</span>
+                    </div>
+                </div>
+            </nav>
+
+            <div class="sidebar-footer">
+                <div class="user-profile" onclick="openProfileModal()">
+                    <div class="user-avatar" id="userAvatar">U</div>
+                    <div class="user-info">
+                        <div class="user-name" id="userName">Usuario</div>
+                        <div class="user-role" id="userRole">Gerente</div>
+                    </div>
+                    <button class="logout-btn" onclick="event.stopPropagation(); handleLogout()" title="Cerrar Sesión">🚪</button>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <div class="top-bar">
+                <button class="btn-icon mobile-menu-btn hidden" id="mobileMenuBtn" onclick="toggleMobileSidebar()">☰</button>
+                <div class="page-header">
+                    <h1 id="pageTitle">Panel Principal</h1>
+                    <div class="page-subtitle" id="pageSubtitle">Resumen de tu actividad de mensajería</div>
+                </div>
+                <div class="top-bar-actions">
+                    <div class="search-box">
+                        <span class="search-icon">🔍</span>
+                        <input type="text" class="search-input" id="searchInput" placeholder="Buscar..." oninput="handleSearch(this.value)" onfocus="handleSearch(this.value)" onblur="setTimeout(()=>closeSearchResults(),200)">
+                        <div class="search-results hidden" id="searchResults"></div>
+                    </div>
+                    <div class="notification-wrapper">
+                        <button class="btn-icon" title="Notificaciones" onclick="toggleNotificationsPanel()">
+                            🔔
+                            <span class="notification-dot hidden" id="notifDot"></span>
+                        </button>
+                        <div class="notifications-panel hidden" id="notificationsPanel">
+                            <div class="notif-panel-header">
+                                <span class="notif-panel-title">Notificaciones</span>
+                                <button class="notif-clear-btn" onclick="clearAllNotifications()">Limpiar todo</button>
+                            </div>
+                            <div class="notif-panel-body" id="notifPanelBody">
+                            </div>
+                        </div>
+                    </div>
+                    <button class="btn-icon" title="Ayuda" onclick="openHelpModal()">❓</button>
+                </div>
+            </div>
+
+            <div class="content-area" id="contentArea">
+                <!-- Dashboard Page -->
+                <div id="dashboardPage">
+                    <div class="stats-grid">
+                        <div class="stat-card" onclick="showPage('conversations')">
+                            <div class="stat-header">
+                                <span class="stat-label">Total de Mensajes</span>
+                                <div class="stat-icon primary">💬</div>
+                            </div>
+                            <div class="stat-value" id="statMessages">0</div>
+                            <div class="stat-change">Listo para empezar</div>
+                        </div>
+                        <div class="stat-card" onclick="showPage('conversations')">
+                            <div class="stat-header">
+                                <span class="stat-label">Conversaciones Activas</span>
+                                <div class="stat-icon secondary">🔥</div>
+                            </div>
+                            <div class="stat-value" id="statConversations">0</div>
+                            <div class="stat-change">Sin chats activos</div>
+                        </div>
+                        <div class="stat-card" onclick="showPage('orders')">
+                            <div class="stat-header">
+                                <span class="stat-label">Ingresos Confirmados</span>
+                                <div class="stat-icon success">💰</div>
+                            </div>
+                            <div class="stat-value" id="statDashRevenue">$0</div>
+                            <div class="stat-change">Pedidos confirmados + entregados</div>
+                        </div>
+                        <div class="stat-card" onclick="showPage('orders')">
+                            <div class="stat-header">
+                                <span class="stat-label">Pedidos en Proceso</span>
+                                <div class="stat-icon accent">📦</div>
+                            </div>
+                            <div class="stat-value" id="statDashOrders">0</div>
+                            <div class="stat-change">Nuevo + Confirmado + En proceso</div>
+                        </div>
+                    </div>
+
+                    <!-- Charts Section -->
+                    <div class="dashboard-charts">
+                        <div class="chart-card">
+                            <div class="chart-header">
+                                <h3 class="chart-title">Conversaciones Activas</h3>
+                                <div class="chart-period-selector">
+                                    <button class="chart-period-btn active" onclick="setChartPeriod('today', this)">Hoy</button>
+                                    <button class="chart-period-btn" onclick="setChartPeriod('week', this)">Semana</button>
+                                    <button class="chart-period-btn" onclick="setChartPeriod('month', this)">Mes</button>
+                                    <button class="chart-period-btn" onclick="setChartPeriod('custom', this)">Personalizado</button>
+                                </div>
+                            </div>
+                            <div class="chart-custom-dates hidden" id="chartCustomDates">
+                                <input type="date" class="form-input form-input-sm" id="chartDateFrom" onchange="updateDashboardCharts()">
+                                <span>a</span>
+                                <input type="date" class="form-input form-input-sm" id="chartDateTo" onchange="updateDashboardCharts()">
+                            </div>
+                            <div class="chart-body" id="convChart"></div>
+                            <div class="chart-legend" id="convChartLegend"></div>
+                        </div>
+                        <div class="chart-card">
+                            <div class="chart-header">
+                                <h3 class="chart-title">Funnel de Ventas</h3>
+                                <span class="chart-subtitle">Distribución actual</span>
+                            </div>
+                            <div class="chart-body" id="funnelChart"></div>
+                            <div class="chart-legend" id="funnelChartLegend"></div>
+                        </div>
+                    </div>
+
+                    <div class="team-section">
+                        <div class="section-header">
+                            <h3 class="section-title">Miembros del Equipo</h3>
+                            <button class="btn-secondary" onclick="openInviteModal()">
+                                <span>➕</span>
+                                <span>Invitar Miembro</span>
+                            </button>
+                        </div>
+                        <div class="team-grid" id="teamGrid">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Conversations Page -->
+                <div id="conversationsPage" class="hidden">
+                    <!-- View Toggle -->
+                    <div class="conv-view-toggle">
+                        <button class="conv-view-btn active" data-view="chat" onclick="setConvView('chat')">💬 Conversaciones</button>
+                        <button class="conv-view-btn" data-view="funnel" onclick="setConvView('funnel')">📊 Funnel de Ventas</button>
+                    </div>
+
+                    <!-- Chat View -->
+                    <div id="chatView">
+                        <div class="conversations-layout">
+                            <div class="conv-list-panel">
+                                <div class="conv-list-header">
+                                    <div class="conv-list-header-top">
+                                        <input type="text" class="conv-search" placeholder="Buscar conversación..." oninput="filterConversations(this.value)">
+                                        <button class="btn-new-chat" onclick="openNewChatModal()" title="Nuevo Chat">+</button>
+                                    </div>
+                                    <div class="conv-filters">
+                                        <button class="conv-filter active" data-filter="all" onclick="setConvFilter('all', this)">Todas</button>
+                                        <button class="conv-filter" data-filter="whatsapp" onclick="setConvFilter('whatsapp', this)">WA</button>
+                                        <button class="conv-filter" data-filter="instagram" onclick="setConvFilter('instagram', this)">IG</button>
+                                        <button class="conv-filter" data-filter="messenger" onclick="setConvFilter('messenger', this)">MSG</button>
+                                    </div>
+                                </div>
+                                <div class="conv-list-body" id="convListBody">
+                                    <div class="conv-empty-list">
+                                        <span>💬</span>
+                                        <p>No hay conversaciones aún</p>
+                                        <p class="conv-empty-hint">Haz clic en "+" para iniciar un nuevo chat o conecta tus plataformas desde Integraciones</p>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="conv-detail-panel" id="convDetailPanel">
+                                <div class="conv-detail-empty">
+                                    <div class="conv-detail-empty-icon">💬</div>
+                                    <h3>Selecciona una conversación</h3>
+                                    <p>Elige una conversación de la lista para ver los mensajes</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Funnel View -->
+                    <div id="funnelView" class="hidden">
+                        <div class="funnel-board">
+                            <div class="funnel-column" data-stage="curioso">
+                                <div class="funnel-column-header funnel-header-curioso">
+                                    <div class="funnel-header-info">
+                                        <span class="funnel-stage-dot"></span>
+                                        <span class="funnel-stage-name">Curioso</span>
+                                    </div>
+                                    <span class="funnel-stage-count" id="countCurioso">0</span>
+                                </div>
+                                <div class="funnel-column-body" id="funnelCurioso"
+                                     ondragover="handleDragOver(event)" ondragleave="handleDragLeave(event)"
+                                     ondrop="handleDrop(event, 'curioso')">
+                                </div>
+                            </div>
+                            <div class="funnel-column" data-stage="cotizando">
+                                <div class="funnel-column-header funnel-header-cotizando">
+                                    <div class="funnel-header-info">
+                                        <span class="funnel-stage-dot"></span>
+                                        <span class="funnel-stage-name">Cotizando</span>
+                                    </div>
+                                    <span class="funnel-stage-count" id="countCotizando">0</span>
+                                </div>
+                                <div class="funnel-column-body" id="funnelCotizando"
+                                     ondragover="handleDragOver(event)" ondragleave="handleDragLeave(event)"
+                                     ondrop="handleDrop(event, 'cotizando')">
+                                </div>
+                            </div>
+                            <div class="funnel-column" data-stage="pago_pendiente">
+                                <div class="funnel-column-header funnel-header-pago_pendiente">
+                                    <div class="funnel-header-info">
+                                        <span class="funnel-stage-dot"></span>
+                                        <span class="funnel-stage-name">Pago Pendiente</span>
+                                    </div>
+                                    <span class="funnel-stage-count" id="countPago_pendiente">0</span>
+                                </div>
+                                <div class="funnel-column-body" id="funnelPago_pendiente"
+                                     ondragover="handleDragOver(event)" ondragleave="handleDragLeave(event)"
+                                     ondrop="handleDrop(event, 'pago_pendiente')">
+                                </div>
+                            </div>
+                            <div class="funnel-column" data-stage="orden_pendiente">
+                                <div class="funnel-column-header funnel-header-orden_pendiente">
+                                    <div class="funnel-header-info">
+                                        <span class="funnel-stage-dot"></span>
+                                        <span class="funnel-stage-name">Orden Pendiente</span>
+                                    </div>
+                                    <span class="funnel-stage-count" id="countOrden_pendiente">0</span>
+                                </div>
+                                <div class="funnel-column-body" id="funnelOrden_pendiente"
+                                     ondragover="handleDragOver(event)" ondragleave="handleDragLeave(event)"
+                                     ondrop="handleDrop(event, 'orden_pendiente')">
+                                </div>
+                            </div>
+                            <div class="funnel-column" data-stage="entregado">
+                                <div class="funnel-column-header funnel-header-entregado">
+                                    <div class="funnel-header-info">
+                                        <span class="funnel-stage-dot"></span>
+                                        <span class="funnel-stage-name">Entregado</span>
+                                    </div>
+                                    <span class="funnel-stage-count" id="countEntregado">0</span>
+                                </div>
+                                <div class="funnel-column-body" id="funnelEntregado"
+                                     ondragover="handleDragOver(event)" ondragleave="handleDragLeave(event)"
+                                     ondrop="handleDrop(event, 'entregado')">
+                                </div>
+                            </div>
+                            <div class="funnel-column" data-stage="atencion_inmediata">
+                                <div class="funnel-column-header funnel-header-atencion_inmediata">
+                                    <div class="funnel-header-info">
+                                        <span class="funnel-stage-dot"></span>
+                                        <span class="funnel-stage-name">Atención Inmediata</span>
+                                    </div>
+                                    <span class="funnel-stage-count" id="countAtencion_inmediata">0</span>
+                                </div>
+                                <div class="funnel-column-body" id="funnelAtencion_inmediata"
+                                     ondragover="handleDragOver(event)" ondragleave="handleDragLeave(event)"
+                                     ondrop="handleDrop(event, 'atencion_inmediata')">
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Contacts Page -->
+                <div id="contactsPage" class="hidden">
+                    <div class="contacts-header">
+                        <div class="contacts-search-wrapper">
+                            <input type="text" class="form-input contacts-search-input" placeholder="Buscar contacto por nombre, empresa, teléfono..." oninput="filterContacts(this.value)">
+                        </div>
+                        <button class="btn-primary btn-sm" onclick="openContactModal()">+ Agregar Contacto</button>
+                    </div>
+                    <div class="contacts-table-wrapper">
+                        <table class="contacts-table">
+                            <thead>
+                                <tr>
+                                    <th>Nombre</th>
+                                    <th>Empresa</th>
+                                    <th>Celular</th>
+                                    <th>Email</th>
+                                    <th>RFC</th>
+                                    <th>Etapa</th>
+                                    <th>Acciones</th>
+                                </tr>
+                            </thead>
+                            <tbody id="contactsTableBody">
+                                <tr class="contacts-empty-row">
+                                    <td colspan="7">
+                                        <div class="contacts-empty-state">
+                                            <span>📇</span>
+                                            <p>No hay contactos aún. Agrega tu primer contacto.</p>
+                                        </div>
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Team Page -->
+                <div id="teamPage" class="hidden">
+                    <div class="team-section">
+                        <div class="section-header">
+                            <h3 class="section-title">Todos los Miembros del Equipo</h3>
+                            <button class="btn-secondary" onclick="openInviteModal()">
+                                <span>➕</span>
+                                <span>Invitar Miembro</span>
+                            </button>
+                        </div>
+                        <div class="team-grid" id="allTeamGrid">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Integrations Page -->
+                <div id="integrationsPage" class="hidden">
+                    <div class="integrations-section-title">
+                        <h3>Plataformas de Mensajería</h3>
+                        <p>Configura tus canales de comunicación ingresando tus credenciales</p>
+                    </div>
+                    <div class="integrations-grid">
+                        <div class="integration-card" id="integCard_whatsapp">
+                            <div class="integration-icon integration-wa">📱</div>
+                            <div class="integration-info">
+                                <h3 class="integration-name">WhatsApp Business</h3>
+                                <p class="integration-desc">Conecta tu cuenta de WhatsApp Business API para recibir y responder mensajes de clientes.</p>
+                            </div>
+                            <div class="integration-status" id="waStatus">
+                                <span class="status-badge status-disconnected">Desconectado</span>
+                            </div>
+                            <div class="integration-actions">
+                                <button class="btn-primary btn-sm" onclick="openIntegrationConfig('whatsapp')">Configurar</button>
+                                <button class="btn-secondary btn-sm btn-integ-delete hidden" id="integDelete_whatsapp" onclick="deleteIntegrationConfig('whatsapp')">Borrar</button>
+                            </div>
+                        </div>
+                        <div class="integration-card" id="integCard_instagram">
+                            <div class="integration-icon integration-ig">📷</div>
+                            <div class="integration-info">
+                                <h3 class="integration-name">Instagram Direct</h3>
+                                <p class="integration-desc">Recibe y responde mensajes directos de Instagram desde tu panel unificado.</p>
+                            </div>
+                            <div class="integration-status" id="igStatus">
+                                <span class="status-badge status-disconnected">Desconectado</span>
+                            </div>
+                            <div class="integration-actions">
+                                <button class="btn-primary btn-sm" onclick="openIntegrationConfig('instagram')">Configurar</button>
+                                <button class="btn-secondary btn-sm btn-integ-delete hidden" id="integDelete_instagram" onclick="deleteIntegrationConfig('instagram')">Borrar</button>
+                            </div>
+                        </div>
+                        <div class="integration-card" id="integCard_messenger">
+                            <div class="integration-icon integration-msg">💬</div>
+                            <div class="integration-info">
+                                <h3 class="integration-name">Messenger</h3>
+                                <p class="integration-desc">Gestiona los mensajes de tu página de Facebook directamente desde MessageHub.</p>
+                            </div>
+                            <div class="integration-status" id="msgStatus">
+                                <span class="status-badge status-disconnected">Desconectado</span>
+                            </div>
+                            <div class="integration-actions">
+                                <button class="btn-primary btn-sm" onclick="openIntegrationConfig('messenger')">Configurar</button>
+                                <button class="btn-secondary btn-sm btn-integ-delete hidden" id="integDelete_messenger" onclick="deleteIntegrationConfig('messenger')">Borrar</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="integrations-section-title" style="margin-top:32px">
+                        <h3>Pasarelas de Pago</h3>
+                        <p>Configura tus pasarelas para generar ligas de pago desde el chat</p>
+                    </div>
+                    <div class="integrations-grid">
+                        <div class="integration-card" id="integCard_stripe">
+                            <div class="integration-icon integration-stripe">💳</div>
+                            <div class="integration-info">
+                                <h3 class="integration-name">Stripe</h3>
+                                <p class="integration-desc">Acepta pagos internacionales con tarjeta de crédito/débito. Genera ligas de pago personalizadas para enviar por chat.</p>
+                            </div>
+                            <div class="integration-status" id="stripeStatus">
+                                <span class="status-badge status-disconnected">Desconectado</span>
+                            </div>
+                            <div class="integration-actions">
+                                <button class="btn-primary btn-sm" onclick="openIntegrationConfig('stripe')">Configurar</button>
+                                <button class="btn-secondary btn-sm btn-integ-delete hidden" id="integDelete_stripe" onclick="deleteIntegrationConfig('stripe')">Borrar</button>
+                            </div>
+                        </div>
+                        <div class="integration-card" id="integCard_mercadopago">
+                            <div class="integration-icon integration-mp">🏦</div>
+                            <div class="integration-info">
+                                <h3 class="integration-name">MercadoPago</h3>
+                                <p class="integration-desc">Pagos en México y Latinoamérica. Acepta transferencias, OXXO, tarjetas y más. Ideal para clientes locales.</p>
+                            </div>
+                            <div class="integration-status" id="mpStatus">
+                                <span class="status-badge status-disconnected">Desconectado</span>
+                            </div>
+                            <div class="integration-actions">
+                                <button class="btn-primary btn-sm" onclick="openIntegrationConfig('mercadopago')">Configurar</button>
+                                <button class="btn-secondary btn-sm btn-integ-delete hidden" id="integDelete_mercadopago" onclick="deleteIntegrationConfig('mercadopago')">Borrar</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="integration-help">
+                        <h4>¿Necesitas ayuda para configurar?</h4>
+                        <p>Cada integración te muestra exactamente qué valores necesitas. Consulta la guía de integración para instrucciones paso a paso.</p>
+                        <button class="btn-secondary" onclick="openHelpModal()">Ver Ayuda</button>
+                    </div>
+                </div>
+
+                <!-- AI Agents Page -->
+                <div id="aiAgentsPage" class="hidden">
+                    <div class="section-header">
+                        <h3 class="section-title">Agentes de Inteligencia Artificial</h3>
+                        <button class="btn-primary btn-sm" onclick="openAIAgentModal()">+ Crear Agente</button>
+                    </div>
+                    <p class="ai-agents-desc">Configura agentes de IA para atender conversaciones automáticamente. Asigna diferentes agentes a cada canal para personalizar la atención.</p>
+
+                    <div class="ai-agents-grid" id="aiAgentsGrid">
+                        <div class="ai-agents-empty">
+                            <span class="ai-agents-empty-icon">🤖</span>
+                            <p>No hay agentes configurados</p>
+                            <p class="ai-agents-empty-hint">Crea tu primer agente de IA para automatizar la atención en tus canales de mensajería.</p>
+                        </div>
+                    </div>
+
+                    <!-- Knowledge Bases Section -->
+                    <div class="kb-section">
+                        <div class="section-header">
+                            <h3 class="section-title">Bases de Datos / Conocimiento</h3>
+                            <button class="btn-primary btn-sm" onclick="openExcelUploadModal()">+ Subir Excel</button>
+                        </div>
+                        <p class="ai-agents-desc">Sube archivos Excel para crear bases de datos que tus agentes de IA puedan consultar cuando los clientes hagan preguntas sobre productos, precios, inventario, etc.</p>
+                        <div class="kb-grid" id="kbGrid">
+                            <div class="kb-empty">
+                                <span class="kb-empty-icon">📊</span>
+                                <p>No hay bases de datos cargadas</p>
+                                <p class="kb-empty-hint">Sube un archivo Excel para crear tu primera base de conocimiento.</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="ai-channel-map-section">
+                        <h4 class="ai-channel-map-title">Mapa de Canales</h4>
+                        <p class="ai-channel-map-desc">Vista rápida de qué agente atiende cada canal</p>
+                        <div class="ai-channel-map" id="aiChannelMap">
+                            <div class="ai-channel-map-item">
+                                <span class="ai-channel-map-icon">📱</span>
+                                <span class="ai-channel-map-name">WhatsApp</span>
+                                <span class="ai-channel-map-agent" id="mapAgent_whatsapp">Sin agente asignado</span>
+                            </div>
+                            <div class="ai-channel-map-item">
+                                <span class="ai-channel-map-icon">📷</span>
+                                <span class="ai-channel-map-name">Instagram</span>
+                                <span class="ai-channel-map-agent" id="mapAgent_instagram">Sin agente asignado</span>
+                            </div>
+                            <div class="ai-channel-map-item">
+                                <span class="ai-channel-map-icon">💬</span>
+                                <span class="ai-channel-map-name">Messenger</span>
+                                <span class="ai-channel-map-agent" id="mapAgent_messenger">Sin agente asignado</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Settings Page -->
+                <div id="settingsPage" class="hidden">
+                    <div class="settings-container">
+                        <div class="settings-section">
+                            <h3 class="settings-section-title">Perfil</h3>
+                            <div class="settings-card">
+                                <div class="settings-row">
+                                    <div class="settings-row-info">
+                                        <span class="settings-row-label">Nombre</span>
+                                        <span class="settings-row-value" id="settingsName">--</span>
+                                    </div>
+                                </div>
+                                <div class="settings-row">
+                                    <div class="settings-row-info">
+                                        <span class="settings-row-label">Correo electrónico</span>
+                                        <span class="settings-row-value" id="settingsEmail">--</span>
+                                    </div>
+                                </div>
+                                <div class="settings-row">
+                                    <div class="settings-row-info">
+                                        <span class="settings-row-label">Rol</span>
+                                        <span class="settings-row-value" id="settingsRole">--</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="settings-section">
+                            <h3 class="settings-section-title">Organización</h3>
+                            <div class="settings-card">
+                                <div class="settings-row">
+                                    <div class="settings-row-info">
+                                        <span class="settings-row-label">Nombre de la organización</span>
+                                        <span class="settings-row-value" id="settingsOrgName">--</span>
+                                    </div>
+                                </div>
+                                <div class="settings-row" id="settingsInviteRow">
+                                    <div class="settings-row-info">
+                                        <span class="settings-row-label">Código de invitación</span>
+                                        <span class="settings-row-value" id="settingsInviteCode">--</span>
+                                    </div>
+                                    <button class="btn-secondary btn-sm" onclick="copySettingsInviteCode()">Copiar</button>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="settings-section">
+                            <h3 class="settings-section-title">Seguridad</h3>
+                            <div class="settings-card">
+                                <div class="settings-row">
+                                    <div class="settings-row-info">
+                                        <span class="settings-row-label">Configuración de Firebase</span>
+                                        <span class="settings-row-desc">Las claves de Firebase son públicas por diseño. La seguridad está en las Firestore Security Rules y restricciones de dominio en Google Cloud Console.</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="settings-section" id="settingsBrandingSection">
+                            <h3 class="settings-section-title">Personalización</h3>
+                            <div class="settings-card">
+                                <div class="settings-row">
+                                    <div class="settings-row-info">
+                                        <span class="settings-row-label">Nombre de marca</span>
+                                        <span class="settings-row-desc">Reemplaza "MessageHub" en la barra lateral y pantalla de inicio</span>
+                                    </div>
+                                    <div class="branding-input-row">
+                                        <input type="text" class="form-input" id="brandNameInput" placeholder="MessageHub" style="max-width:200px">
+                                        <button class="btn-primary btn-sm" onclick="saveBrandName()">Guardar</button>
+                                    </div>
+                                </div>
+                                <div class="settings-row">
+                                    <div class="settings-row-info">
+                                        <span class="settings-row-label">Logo</span>
+                                        <span class="settings-row-desc">Imagen que se mostrará en la barra lateral (PNG, JPG, máx 200KB)</span>
+                                    </div>
+                                    <div class="branding-logo-row">
+                                        <div class="logo-preview-box" id="logoPreviewBox">
+                                            <span id="logoPreviewPlaceholder">Sin logo</span>
+                                            <img id="logoPreviewImg" class="hidden" alt="Logo">
+                                        </div>
+                                        <input type="file" id="logoFileInput" accept="image/png,image/jpeg,image/webp,image/svg+xml" class="hidden" onchange="handleLogoUpload(event)">
+                                        <button class="btn-secondary btn-sm" onclick="document.getElementById('logoFileInput').click()">Subir</button>
+                                        <button class="btn-secondary btn-sm btn-integ-delete hidden" id="removeLogoBtn" onclick="removeLogo()">Quitar</button>
+                                    </div>
+                                </div>
+                                <div class="settings-row">
+                                    <div class="settings-row-info">
+                                        <span class="settings-row-label">Ícono de la barra lateral</span>
+                                        <span class="settings-row-desc">Ícono pequeño junto al nombre (PNG, JPG, máx 100KB)</span>
+                                    </div>
+                                    <div class="branding-logo-row">
+                                        <div class="icon-preview-box" id="iconPreviewBox">
+                                            <span id="iconPreviewPlaceholder">Sin ícono</span>
+                                            <img id="iconPreviewImg" class="hidden" alt="Ícono">
+                                        </div>
+                                        <input type="file" id="iconFileInput" accept="image/png,image/jpeg,image/webp,image/svg+xml" class="hidden" onchange="handleIconUpload(event)">
+                                        <button class="btn-secondary btn-sm" onclick="document.getElementById('iconFileInput').click()">Subir</button>
+                                        <button class="btn-secondary btn-sm btn-integ-delete hidden" id="removeIconBtn" onclick="removeIcon()">Quitar</button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="settings-section">
+                            <h3 class="settings-section-title">Sesión</h3>
+                            <div class="settings-card">
+                                <div class="settings-row">
+                                    <div class="settings-row-info">
+                                        <span class="settings-row-label">Cerrar sesión</span>
+                                        <span class="settings-row-desc">Cierra tu sesión actual en este dispositivo</span>
+                                    </div>
+                                    <button class="btn-primary btn-danger btn-sm" onclick="handleLogout()">Cerrar Sesión</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Orders Page -->
+                <div id="ordersPage" class="hidden">
+                    <div class="orders-header-stats">
+                        <div class="orders-stat-card">
+                            <div class="orders-stat-label">Total pedidos</div>
+                            <div class="orders-stat-value" id="statOrdersTotal">0</div>
+                        </div>
+                        <div class="orders-stat-card accent">
+                            <div class="orders-stat-label">Nuevos</div>
+                            <div class="orders-stat-value" id="statOrdersNuevos">0</div>
+                        </div>
+                        <div class="orders-stat-card success">
+                            <div class="orders-stat-label">En proceso</div>
+                            <div class="orders-stat-value" id="statOrdersEnProceso">0</div>
+                        </div>
+                        <div class="orders-stat-card primary">
+                            <div class="orders-stat-label">Ingresos confirmados</div>
+                            <div class="orders-stat-value" id="statOrdersRevenue">$0</div>
+                        </div>
+                    </div>
+
+                    <div class="orders-toolbar">
+                        <div class="orders-filters" id="ordersFilters">
+                            <button class="orders-filter active" onclick="setOrderFilter('all', this)">Todos</button>
+                            <button class="orders-filter" onclick="setOrderFilter('nuevo', this)">Nuevo</button>
+                            <button class="orders-filter" onclick="setOrderFilter('confirmado', this)">Confirmado</button>
+                            <button class="orders-filter" onclick="setOrderFilter('en_proceso', this)">En proceso</button>
+                            <button class="orders-filter" onclick="setOrderFilter('entregado', this)">Entregado</button>
+                            <button class="orders-filter" onclick="setOrderFilter('cancelado', this)">Cancelado</button>
+                        </div>
+                    </div>
+
+                    <div class="orders-table-wrap">
+                        <div class="orders-list" id="ordersTableBody"></div>
+                        <div id="ordersEmptyState" class="orders-empty hidden">
+                            <div class="orders-empty-icon">📦</div>
+                            <h3>Sin pedidos aún</h3>
+                            <p>Los pedidos creados por el agente IA desde las conversaciones aparecerán aquí.</p>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+        </main>
+    </div>
+
+    <!--
+        NOTA DE SEGURIDAD - Firebase Config:
+        Las claves de configuración de Firebase son identificadores publicos, NO secretos.
+        La seguridad real viene de:
+        1. Firestore Security Rules (firestore.rules)
+        2. Restricciones de dominio en Google Cloud Console (APIs & Services > Credentials)
+        3. Firebase App Check (recomendado para produccion)
+        Los secretos reales (tokens de Meta API, claves de Stripe/MercadoPago) NUNCA van en el frontend.
+        Esos se manejan via Firebase Cloud Functions (backend seguro).
+    -->
+
+    <!-- Firebase SDK -->
+    <script type="module">
+        import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js';
+        import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword,
+                 signInWithPopup, GoogleAuthProvider, FacebookAuthProvider,
+                 onAuthStateChanged, signOut, updateProfile, sendPasswordResetEmail,
+                 deleteUser } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js';
+        import { getFirestore, collection, addDoc, query, where, orderBy, onSnapshot,
+                 serverTimestamp, doc, setDoc, getDoc, getDocs, updateDoc, deleteDoc } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js';
+
+        const firebaseConfig = {
+          apiKey: "AIzaSyC9_TIJFPQvF9M1pWHcXaACYAwxaS5q5-Y",
+          authDomain: "crm-meta-e56f4.firebaseapp.com",
+          projectId: "crm-meta-e56f4",
+          storageBucket: "crm-meta-e56f4.firebasestorage.app",
+          messagingSenderId: "562551488086",
+          appId: "1:562551488086:web:8c5632834582f743dcc5f7",
+          measurementId: "G-SLKGJDWHVS"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+
+        window.auth = auth;
+        window.db = db;
+        window.firebaseAuth = {
+            signInWithEmailAndPassword,
+            createUserWithEmailAndPassword,
+            signInWithPopup,
+            GoogleAuthProvider,
+            FacebookAuthProvider,
+            signOut,
+            updateProfile,
+            sendPasswordResetEmail,
+            deleteUser
+        };
+        window.firestore = {
+            collection,
+            addDoc,
+            query,
+            where,
+            orderBy,
+            onSnapshot,
+            serverTimestamp,
+            doc,
+            setDoc,
+            getDoc,
+            getDocs,
+            updateDoc,
+            deleteDoc
+        };
+
+        onAuthStateChanged(auth, async (user) => {
+            // Suprimir durante registro diferido
+            if (window.suppressAuthRedirect) return;
+            if (user) {
+                await handleUserLogin(user);
+            } else {
+                showAuthPage();
+            }
+        });
+    </script>
+
+    <script src="app.js"></script>
+</body>
+</html>
