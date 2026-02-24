@@ -3,27 +3,28 @@ import { cva, type VariantProps } from 'class-variance-authority'
 import { cn } from '@/lib/utils'
 
 const buttonVariants = cva(
-  'inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-lg text-sm font-medium ring-offset-transparent transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50',
+  'inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-xl text-sm font-medium transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/70 focus-visible:ring-offset-1 focus-visible:ring-offset-transparent disabled:pointer-events-none disabled:opacity-40 select-none',
   {
     variants: {
       variant: {
         default:
-          'bg-brand-600 text-white hover:bg-brand-500 active:bg-brand-700',
+          'bg-gradient-to-br from-brand-500 to-brand-700 text-white shadow-md shadow-brand-900/40 hover:from-brand-400 hover:to-brand-600 active:scale-[0.98]',
         destructive:
-          'bg-red-600 text-white hover:bg-red-500 active:bg-red-700',
+          'bg-gradient-to-br from-red-500 to-red-700 text-white shadow-md shadow-red-900/40 hover:from-red-400 hover:to-red-600 active:scale-[0.98]',
         outline:
-          'border border-white/15 bg-transparent text-gray-200 hover:bg-white/8 active:bg-white/12',
+          'border border-white/12 bg-white/[0.04] text-gray-200 hover:bg-white/[0.08] hover:border-white/20 active:scale-[0.98]',
         secondary:
-          'bg-white/10 text-gray-200 hover:bg-white/15 active:bg-white/20',
-        ghost: 'text-gray-300 hover:bg-white/8 hover:text-white active:bg-white/12',
-        link: 'text-brand-400 underline-offset-4 hover:underline p-0 h-auto',
+          'bg-white/[0.08] text-gray-200 hover:bg-white/[0.13] active:scale-[0.98]',
+        ghost:
+          'text-gray-400 hover:bg-white/[0.07] hover:text-white active:scale-[0.98]',
+        link: 'text-brand-400 underline-offset-4 hover:underline hover:text-brand-300 p-0 h-auto rounded-none',
       },
       size: {
         default: 'h-9 px-4 py-2',
-        sm: 'h-7 rounded-md px-3 text-xs',
-        lg: 'h-11 rounded-lg px-6 text-base',
+        sm: 'h-7 rounded-lg px-3 text-xs',
+        lg: 'h-11 rounded-xl px-6 text-base',
         icon: 'h-9 w-9',
-        'icon-sm': 'h-7 w-7 rounded-md',
+        'icon-sm': 'h-7 w-7 rounded-lg',
       },
     },
     defaultVariants: {
