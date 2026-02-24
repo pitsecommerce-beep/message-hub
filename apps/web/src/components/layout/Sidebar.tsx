@@ -29,7 +29,7 @@ const NAV_ITEMS = [
 
 const CONFIG_ITEMS: Array<{
   to: string
-  icon: React.ComponentType<{ size?: number }>
+  icon: React.ComponentType<{ size?: number; className?: string }>
   label: string
   restricted?: boolean
 }> = [
@@ -74,30 +74,31 @@ export default function Sidebar({ className }: SidebarProps) {
 
       <aside
         className={cn(
-          'fixed left-0 top-0 z-40 flex h-full w-60 flex-col bg-gray-900/95 backdrop-blur border-r border-white/8 transition-transform duration-200',
+          'fixed left-0 top-0 z-40 flex h-full w-60 flex-col border-r border-white/[0.06] transition-transform duration-200',
+          'bg-[#0c0c18]/95 backdrop-blur-xl',
           sidebarOpen ? 'translate-x-0' : '-translate-x-full',
           'lg:translate-x-0',
           className,
         )}
       >
         {/* Logo / Brand */}
-        <div className="flex h-14 items-center justify-between px-4 border-b border-white/8">
+        <div className="flex h-14 items-center justify-between px-4 border-b border-white/[0.06]">
           <div className="flex items-center gap-2.5 min-w-0">
-            <div className="h-7 w-7 rounded-lg bg-brand-600 flex items-center justify-center shrink-0">
-              <MessageSquare size={14} className="text-white" />
+            <div className="h-7 w-7 rounded-xl bg-gradient-to-br from-brand-400 to-brand-700 flex items-center justify-center shrink-0 shadow-md shadow-brand-900/50">
+              <MessageSquare size={13} className="text-white" />
             </div>
-            <span className="font-semibold text-sm text-white truncate">{orgName}</span>
+            <span className="font-semibold text-sm text-white/90 truncate tracking-tight">{orgName}</span>
           </div>
           <button
             onClick={() => setSidebarOpen(false)}
-            className="lg:hidden p-1 rounded text-gray-400 hover:text-white hover:bg-white/8"
+            className="lg:hidden p-1.5 rounded-lg text-gray-500 hover:text-white hover:bg-white/[0.07] transition-colors"
           >
-            <X size={16} />
+            <X size={15} />
           </button>
         </div>
 
         {/* Navigation */}
-        <nav className="flex-1 overflow-y-auto px-2 py-3 space-y-0.5">
+        <nav className="flex-1 overflow-y-auto px-2.5 py-3 space-y-0.5">
           {NAV_ITEMS.map(({ to, icon: Icon, label }) => (
             <NavLink
               key={to}
@@ -105,20 +106,24 @@ export default function Sidebar({ className }: SidebarProps) {
               onClick={() => setSidebarOpen(false)}
               className={({ isActive }) =>
                 cn(
-                  'flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors',
+                  'flex items-center gap-3 px-3 py-2 rounded-xl text-sm transition-all duration-150',
                   isActive
-                    ? 'bg-brand-600/20 text-brand-300 font-medium'
-                    : 'text-gray-400 hover:bg-white/8 hover:text-white',
+                    ? 'bg-brand-500/15 text-brand-300 font-medium shadow-sm'
+                    : 'text-gray-500 hover:bg-white/[0.06] hover:text-gray-200',
                 )
               }
             >
-              <Icon size={16} />
-              {label}
+              {({ isActive }) => (
+                <>
+                  <Icon size={15} className={isActive ? 'text-brand-400' : ''} />
+                  {label}
+                </>
+              )}
             </NavLink>
           ))}
 
-          <div className="px-3 pt-4 pb-1">
-            <span className="text-xs font-semibold text-gray-600 uppercase tracking-wider">
+          <div className="px-3 pt-5 pb-1.5">
+            <span className="text-[10px] font-semibold text-gray-700 uppercase tracking-widest">
               Configuración
             </span>
           </div>
@@ -132,33 +137,37 @@ export default function Sidebar({ className }: SidebarProps) {
                 onClick={() => setSidebarOpen(false)}
                 className={({ isActive }) =>
                   cn(
-                    'flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors',
+                    'flex items-center gap-3 px-3 py-2 rounded-xl text-sm transition-all duration-150',
                     isActive
-                      ? 'bg-brand-600/20 text-brand-300 font-medium'
-                      : 'text-gray-400 hover:bg-white/8 hover:text-white',
+                      ? 'bg-brand-500/15 text-brand-300 font-medium shadow-sm'
+                      : 'text-gray-500 hover:bg-white/[0.06] hover:text-gray-200',
                   )
                 }
               >
-                <Icon size={16} />
-                {label}
+                {({ isActive }) => (
+                  <>
+                    <Icon size={15} className={isActive ? 'text-brand-400' : ''} />
+                    {label}
+                  </>
+                )}
               </NavLink>
             )
           })}
         </nav>
 
         {/* User footer */}
-        <div className="border-t border-white/8 p-3">
-          <div className="flex items-center gap-2.5">
-            <div className="h-8 w-8 rounded-full bg-brand-600 flex items-center justify-center shrink-0 text-sm font-semibold text-white">
+        <div className="border-t border-white/[0.06] p-3">
+          <div className="flex items-center gap-2.5 px-1">
+            <div className="h-8 w-8 rounded-xl bg-gradient-to-br from-brand-400 to-violet-600 flex items-center justify-center shrink-0 text-xs font-bold text-white shadow-sm">
               {avatarLetter}
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium text-white truncate">{userData?.name ?? ''}</p>
-              <p className="text-xs text-gray-500 truncate capitalize">{userData?.role ?? ''}</p>
+              <p className="text-sm font-medium text-white/90 truncate leading-tight">{userData?.name ?? ''}</p>
+              <p className="text-xs text-gray-600 truncate capitalize leading-tight mt-0.5">{userData?.role ?? ''}</p>
             </div>
             <button
               onClick={handleLogout}
-              className="p-1.5 rounded-lg text-gray-500 hover:text-red-400 hover:bg-red-500/10 transition-colors"
+              className="p-1.5 rounded-lg text-gray-600 hover:text-red-400 hover:bg-red-500/10 transition-colors"
               title="Cerrar sesión"
             >
               <LogOut size={14} />

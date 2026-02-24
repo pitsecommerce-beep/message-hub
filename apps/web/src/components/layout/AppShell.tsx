@@ -18,19 +18,21 @@ export default function AppShell() {
   const pageInfo = PAGE_TITLES[location.pathname] ?? { title: 'MessageHub', subtitle: '' }
 
   return (
-    <div className="flex h-screen overflow-hidden bg-gray-950">
+    <div className="flex h-screen overflow-hidden" style={{ backgroundColor: 'var(--color-surface-0)' }}>
       <Sidebar />
 
       {/* Main content */}
       <div className="flex flex-1 flex-col overflow-hidden lg:pl-60">
         {/* Top bar */}
-        <header className="flex h-14 shrink-0 items-center justify-between border-b border-white/8 px-4 lg:px-6">
+        <header className="flex h-14 shrink-0 items-center justify-between border-b border-white/[0.05] px-4 lg:px-6 backdrop-blur-md bg-black/20">
           <div className="flex items-center gap-3">
             <SidebarToggle />
             <div>
-              <h1 className="text-base font-semibold text-white leading-none">{pageInfo.title}</h1>
+              <h1 className="text-sm font-semibold text-white/90 leading-none tracking-tight">
+                {pageInfo.title}
+              </h1>
               {pageInfo.subtitle && (
-                <p className="text-xs text-gray-500 mt-0.5">{pageInfo.subtitle}</p>
+                <p className="text-[11px] text-gray-600 mt-0.5 leading-none">{pageInfo.subtitle}</p>
               )}
             </div>
           </div>
