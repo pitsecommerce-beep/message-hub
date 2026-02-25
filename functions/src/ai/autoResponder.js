@@ -22,6 +22,7 @@ const {
     loadKBRows,
     saveOrUpdateContact,
     createOrder,
+    getEvolutionConfig,
     detectParte,
     PARTE_KEYWORDS,
     expandSearchTerms,
@@ -512,6 +513,35 @@ async function callAnthropic(agent, systemPrompt, messages, tools, orgId, convId
 }
 
 // ---------------------------------------------------------------------------
+// Envío de respuesta via Evolution API
+// ---------------------------------------------------------------------------
+
+/**
+ * Envía un mensaje de texto al número de WhatsApp usando Evolution API.
+ *
+ * @param {{ evolutionApiUrl: string, evolutionApiKey: string, evolutionInstanceName: string }} evoConfig
+ * @param {string} phone  - Número destino, p.ej. "521234567890"
+ * @param {string} text   - Texto del mensaje
+ */
+async function sendEvolutionMessage(evoConfig, phone, text) {
+    const baseUrl      = evoConfig.evolutionApiUrl.replace(/\/$/, '');
+    const instanceName = evoConfig.evolutionInstanceName;
+    const apiKey       = evoConfig.evolutionApiKey;
+
+    const res = await fetch(`${baseUrl}/message/sendText/${encodeURIComponent(instanceName)}`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json', apikey: apiKey },
+        body:    JSON.stringify({ number: phone, text }),
+    });
+
+    if (!res.ok) {
+        const errBody = await res.json().catch(() => ({}));
+        throw new Error(`Evolution API ${res.status}: ${JSON.stringify(errBody)}`);
+    }
+    return res.json();
+}
+
+// ---------------------------------------------------------------------------
 // Trigger principal
 // ---------------------------------------------------------------------------
 
@@ -606,6 +636,28 @@ exports.autoResponder = onDocumentCreated(
                 `[autoResponder] Respuesta guardada para msg="${msgId}" `
                 + `en conv="${convId}"`
             );
+
+            // Si la integración de WhatsApp es Evolution API, enviar el
+            // mensaje de vuelta al cliente directamente vía Evolution API.
+            if (platform === 'whatsapp') {
+                try {
+                    const evoConfig = await getEvolutionConfig(orgId);
+                    if (evoConfig) {
+                        const recipientPhone = conv.contactPhone;
+                        if (recipientPhone) {
+                            await sendEvolutionMessage(evoConfig, recipientPhone, aiResponse);
+                            console.log(
+                                `[autoResponder] Mensaje enviado via Evolution API `
+                                + `a phone="${recipientPhone}" instance="${evoConfig.evolutionInstanceName}"`
+                            );
+                        }
+                    }
+                } catch (evoErr) {
+                    // No-fatal: el mensaje ya está guardado en Firestore aunque
+                    // falle el envío a WhatsApp.
+                    console.warn('[autoResponder] Error al enviar via Evolution API:', evoErr.message);
+                }
+            }
         } catch (err) {
             // Capturar todos los errores para no bloquear el trigger
             console.error(`[autoResponder] Error procesando msg="${msgId}":`, err);
