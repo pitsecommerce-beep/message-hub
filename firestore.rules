@@ -10,10 +10,13 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Helper: verifica si el usuario autenticado es miembro de la organización
+    // Helper: verifica si el usuario autenticado es miembro de la organización.
+    // Usa exists() para evitar errores si el documento no existe, y
+    // data.get('members', []) para manejar el campo ausente sin lanzar excepción.
     function isOrgMember(orgId) {
-      return request.auth != null &&
-        request.auth.uid in get(/databases/$(database)/documents/organizations/$(orgId)).data.members;
+      return request.auth != null
+        && exists(/databases/$(database)/documents/organizations/$(orgId))
+        && request.auth.uid in get(/databases/$(database)/documents/organizations/$(orgId)).data.get('members', []);
     }
 
     // ===== USUARIOS =====

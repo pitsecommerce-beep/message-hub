@@ -24,6 +24,7 @@ export const OrganizationSchema = z.object({
   brandName: z.string().optional(),
   logoUrl: z.string().optional(),
   iconUrl: z.string().optional(),
+  members: z.array(z.string()).optional(),
   createdAt: z.any(),
 })
 export type Organization = z.infer<typeof OrganizationSchema>
