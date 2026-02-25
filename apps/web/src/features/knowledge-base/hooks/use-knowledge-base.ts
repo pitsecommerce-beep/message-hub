@@ -3,7 +3,6 @@ import {
   collection,
   query,
   where,
-  orderBy,
   getDocs,
   doc,
   setDoc,
@@ -22,13 +21,15 @@ export function useKnowledgeBases(orgId: string | undefined) {
     queryFn: async (): Promise<KnowledgeBase[]> => {
       if (!orgId) return []
       const snap = await getDocs(
-        query(
-          collection(db, 'knowledgeBases'),
-          where('orgId', '==', orgId),
-          orderBy('createdAt', 'desc'),
-        ),
+        query(collection(db, 'knowledgeBases'), where('orgId', '==', orgId)),
       )
-      return snap.docs.map((d) => ({ id: d.id, ...d.data() } as KnowledgeBase))
+      const docs = snap.docs.map((d) => ({ id: d.id, ...d.data() } as KnowledgeBase))
+      docs.sort((a, b) => {
+        const ta = a.createdAt?.toMillis?.() ?? 0
+        const tb = b.createdAt?.toMillis?.() ?? 0
+        return tb - ta
+      })
+      return docs
     },
     enabled: !!orgId,
   })

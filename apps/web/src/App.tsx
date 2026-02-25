@@ -27,15 +27,16 @@ const SettingsPage = lazy(() => import('@/routes/config/SettingsPage'))
 
 // Auth guard wrapper
 function AuthGuard() {
-  const { user, userData, loading } = useAuth()
-  const { setUserData } = useAppStore()
+  const { user, userData, organization, loading } = useAuth()
+  const { setUserData, setOrganization } = useAppStore()
 
   // Sync to zustand after auth resolves — must be in useEffect, never during render
   useEffect(() => {
     if (!loading) {
       setUserData(userData)
+      setOrganization(organization)
     }
-  }, [userData, loading, setUserData])
+  }, [userData, organization, loading, setUserData, setOrganization])
 
   if (loading) return <LoadingScreen />
   if (!user) return <Navigate to="/login" replace />

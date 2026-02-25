@@ -11,6 +11,7 @@ import {
   deleteDoc,
   onSnapshot,
   serverTimestamp,
+  Timestamp,
 } from 'firebase/firestore'
 import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
@@ -23,13 +24,16 @@ export function useConversations(orgId: string | undefined) {
     queryFn: async (): Promise<Conversation[]> => {
       if (!orgId) return []
       const snap = await getDocs(
-        query(
-          collection(db, 'conversations'),
-          where('orgId', '==', orgId),
-          orderBy('lastMessageAt', 'desc'),
-        ),
+        query(collection(db, 'conversations'), where('orgId', '==', orgId)),
       )
-      return snap.docs.map((d) => ({ id: d.id, ...d.data() } as Conversation))
+      // Sort client-side by lastMessageAt desc to avoid requiring a composite index
+      const docs = snap.docs.map((d) => ({ id: d.id, ...d.data() } as Conversation))
+      docs.sort((a, b) => {
+        const ta = a.lastMessageAt instanceof Timestamp ? a.lastMessageAt.toMillis() : 0
+        const tb = b.lastMessageAt instanceof Timestamp ? b.lastMessageAt.toMillis() : 0
+        return tb - ta
+      })
+      return docs
     },
     enabled: !!orgId,
   })

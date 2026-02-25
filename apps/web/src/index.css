@@ -40,6 +40,7 @@
 
   html {
     font-family: var(--font-sans);
+    font-size: 16px;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
   }
@@ -47,10 +48,17 @@
   body {
     @apply min-h-screen text-gray-100;
     background-color: var(--color-surface-0);
+    font-size: 1rem;
+    line-height: 1.6;
   }
 
   :root {
     color-scheme: dark;
+  }
+
+  /* Ensure dialog and card text isn't too small */
+  p, span, label, td, th, li {
+    font-size: inherit;
   }
 
   /* Thin, elegant scrollbar */
@@ -68,6 +76,42 @@
   ::-webkit-scrollbar-thumb:hover {
     background: rgba(255, 255, 255, 0.16);
   }
+}
+
+/* ─── Page transition animation ─────────────────────────────────────────────── */
+
+@keyframes page-enter-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.page-enter {
+  animation: page-enter-in 0.25s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* ─── Smooth interactive transitions ────────────────────────────────────────── */
+
+button, a, [role="button"] {
+  transition-property: color, background-color, border-color, opacity, transform, box-shadow;
+  transition-duration: 150ms;
+  transition-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* ─── Card hover lift ────────────────────────────────────────────────────────── */
+.card-hover {
+  transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1),
+              box-shadow 0.2s cubic-bezier(0.16, 1, 0.3, 1),
+              border-color 0.2s;
+}
+.card-hover:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.3);
 }
 
 @layer utilities {

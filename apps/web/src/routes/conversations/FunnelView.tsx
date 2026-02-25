@@ -34,9 +34,9 @@ function ContactCard({ contact, isDragging, onOpenConversation, onEdit }: Contac
   return (
     <div
       className={cn(
-        'rounded-xl border border-white/10 bg-white/5 p-3 cursor-grab active:cursor-grabbing',
+        'rounded-xl border border-white/10 bg-white/5 p-3',
         'transition-all hover:border-white/20 hover:bg-white/8',
-        isDragging && 'opacity-50',
+        isDragging && 'opacity-50 rotate-1 shadow-2xl',
       )}
     >
       <div className="flex items-start justify-between gap-2">
@@ -68,11 +68,48 @@ function ContactCard({ contact, isDragging, onOpenConversation, onEdit }: Contac
           </button>
         </div>
       </div>
+      {contact.phone && (
+        <p className="text-xs text-gray-600 mt-1.5 truncate">{contact.phone}</p>
+      )}
       {contact.funnelUpdatedAt && (
-        <p className="text-xs text-gray-600 mt-1.5">
+        <p className="text-xs text-gray-700 mt-1">
           {formatTimeAgo(toDate(contact.funnelUpdatedAt))}
         </p>
       )}
+    </div>
+  )
+}
+
+// ─── Draggable card wrapper — must be its own component so useDraggable
+//     is called at component level, not inside a .map() callback
+function DraggableContactCard({
+  contact,
+  onOpenConversation,
+}: {
+  contact: Contact
+  onOpenConversation: (id: string) => void
+}) {
+  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
+    id: contact.id,
+  })
+
+  const style = transform
+    ? { transform: `translate3d(${transform.x}px, ${transform.y}px, 0)` }
+    : undefined
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      {...attributes}
+      {...listeners}
+      className="cursor-grab active:cursor-grabbing touch-none"
+    >
+      <ContactCard
+        contact={contact}
+        isDragging={isDragging}
+        onOpenConversation={onOpenConversation}
+      />
     </div>
   )
 }
@@ -87,14 +124,17 @@ function DroppableColumn({ stage, contacts, onOpenConversation }: DroppableColum
   const { setNodeRef, isOver } = useDroppable({ id: stage.id })
 
   return (
-    <div className="flex flex-col min-w-[220px] w-[220px]">
+    <div className="flex flex-col min-w-[240px] w-[240px]">
       {/* Column header */}
-      <div className="flex items-center justify-between mb-2 px-1">
+      <div className="flex items-center justify-between mb-2.5 px-1">
         <div className="flex items-center gap-2">
-          <div className="h-2 w-2 rounded-full" style={{ backgroundColor: stage.color }} />
-          <span className="text-xs font-semibold text-gray-300">{stage.name}</span>
+          <div className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: stage.color }} />
+          <span className="text-sm font-semibold text-gray-200">{stage.name}</span>
         </div>
-        <span className="text-xs text-gray-600 bg-white/8 rounded-full px-2 py-0.5">
+        <span
+          className="text-xs font-medium text-white rounded-full px-2.5 py-0.5"
+          style={{ backgroundColor: `${stage.color}25`, color: stage.color }}
+        >
           {contacts.length}
         </span>
       </div>
@@ -103,36 +143,21 @@ function DroppableColumn({ stage, contacts, onOpenConversation }: DroppableColum
       <div
         ref={setNodeRef}
         className={cn(
-          'flex-1 min-h-[200px] rounded-xl p-2 space-y-2 border border-dashed transition-colors',
-          isOver ? 'border-brand-500/60 bg-brand-600/5' : 'border-white/8 bg-white/3',
+          'flex-1 min-h-[300px] rounded-xl p-2 space-y-2 border border-dashed transition-all duration-200',
+          isOver
+            ? 'border-brand-500/60 bg-brand-600/8 scale-[1.01]'
+            : 'border-white/8 bg-white/[0.02]',
         )}
       >
-        {contacts.map((contact) => {
-          const { attributes, listeners, setNodeRef: setDraggableRef, transform } = useDraggable({
-            id: contact.id,
-          })
-
-          const style = transform
-            ? { transform: `translate3d(${transform.x}px, ${transform.y}px, 0)` }
-            : undefined
-
-          return (
-            <div
-              key={contact.id}
-              ref={setDraggableRef}
-              style={style}
-              {...attributes}
-              {...listeners}
-            >
-              <ContactCard
-                contact={contact}
-                onOpenConversation={onOpenConversation}
-              />
-            </div>
-          )
-        })}
+        {contacts.map((contact) => (
+          <DraggableContactCard
+            key={contact.id}
+            contact={contact}
+            onOpenConversation={onOpenConversation}
+          />
+        ))}
         {contacts.length === 0 && (
-          <div className="flex items-center justify-center h-16">
+          <div className="flex items-center justify-center h-20">
             <p className="text-xs text-gray-700">Arrastra aquí</p>
           </div>
         )}
@@ -163,9 +188,6 @@ export default function FunnelView({ contacts, orgId, onOpenConversation }: Funn
     {} as Record<FunnelStage, Contact[]>,
   )
 
-  // Contacts with no stage
-  const unsorted = contacts.filter((c) => !c.funnelStage)
-
   function handleDragStart(event: DragStartEvent) {
     setActiveId(event.active.id as string)
   }
@@ -183,7 +205,7 @@ export default function FunnelView({ contacts, orgId, onOpenConversation }: Funn
 
   return (
     <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
-      <div className="flex gap-3 overflow-x-auto pb-4">
+      <div className="flex gap-3 overflow-x-auto pb-4 min-h-[400px]">
         {FUNNEL_STAGES.map((stage) => (
           <DroppableColumn
             key={stage.id}
@@ -194,9 +216,9 @@ export default function FunnelView({ contacts, orgId, onOpenConversation }: Funn
         ))}
       </div>
 
-      <DragOverlay>
+      <DragOverlay dropAnimation={{ duration: 200, easing: 'ease' }}>
         {activeContact && (
-          <div className="rotate-2 opacity-90">
+          <div className="rotate-2 opacity-95 w-[240px]">
             <ContactCard contact={activeContact} isDragging onOpenConversation={() => {}} />
           </div>
         )}
