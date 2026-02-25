@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useCallback } from 'react'
 import {
   createColumnHelper,
   flexRender,
@@ -8,7 +8,7 @@ import {
   useReactTable,
   type SortingState,
 } from '@tanstack/react-table'
-import { Plus, Search, Pencil, Trash2, ArrowUpDown } from 'lucide-react'
+import { Plus, Search, Pencil, Trash2, ArrowUpDown, RefreshCw } from 'lucide-react'
 import { useAppStore } from '@/store/app.store'
 import {
   useContacts,
@@ -37,7 +37,7 @@ export default function ContactsPage() {
   const { userData, organization } = useAppStore()
   const orgId = userData?.orgId ?? organization?.id
 
-  const { data: contacts = [], isLoading } = useContacts(orgId)
+  const { data: contacts = [], isLoading, error: contactsError, refetch } = useContacts(orgId)
   const createContact = useCreateContact(orgId)
   const updateContact = useUpdateContact(orgId)
   const deleteContact = useDeleteContact(orgId)
@@ -46,6 +46,17 @@ export default function ContactsPage() {
   const [globalFilter, setGlobalFilter] = useState('')
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingContact, setEditingContact] = useState<Contact | null>(null)
+
+  const handleDelete = useCallback((id: string, name: string) => {
+    if (confirm(`¿Eliminar a ${name}?`)) {
+      deleteContact.mutate(id)
+    }
+  }, [deleteContact])
+
+  const handleEdit = useCallback((contact: Contact) => {
+    setEditingContact(contact)
+    setDialogOpen(true)
+  }, [])
 
   const columns = useMemo(
     () => [
@@ -88,7 +99,7 @@ export default function ContactsPage() {
           if (!stage) return <span className="text-xs text-gray-600">—</span>
           const stageInfo = FUNNEL_STAGES.find((s) => s.id === stage)
           return (
-            <Badge variant={STAGE_VARIANTS[stage]}>
+            <Badge variant={STAGE_VARIANTS[stage] ?? 'default'}>
               {stageInfo?.name ?? stage}
             </Badge>
           )
@@ -101,10 +112,7 @@ export default function ContactsPage() {
             <Button
               variant="ghost"
               size="icon-sm"
-              onClick={() => {
-                setEditingContact(row.original)
-                setDialogOpen(true)
-              }}
+              onClick={() => handleEdit(row.original)}
             >
               <Pencil size={13} />
             </Button>
@@ -112,11 +120,7 @@ export default function ContactsPage() {
               variant="ghost"
               size="icon-sm"
               className="text-gray-500 hover:text-red-400"
-              onClick={() => {
-                if (confirm(`¿Eliminar a ${row.original.name}?`)) {
-                  deleteContact.mutate(row.original.id)
-                }
-              }}
+              onClick={() => handleDelete(row.original.id, row.original.name)}
             >
               <Trash2 size={13} />
             </Button>
@@ -124,7 +128,7 @@ export default function ContactsPage() {
         ),
       }),
     ],
-    [deleteContact],
+    [handleDelete, handleEdit],
   )
 
   const table = useReactTable({
@@ -141,6 +145,20 @@ export default function ContactsPage() {
   function openCreate() {
     setEditingContact(null)
     setDialogOpen(true)
+  }
+
+  if (contactsError) {
+    return (
+      <div className="flex flex-col items-center justify-center h-64 gap-4">
+        <p className="text-gray-400">Error al cargar los contactos</p>
+        <p className="text-xs text-gray-600 max-w-sm text-center">
+          {(contactsError as Error).message ?? 'Verifica tu conexión e inténtalo de nuevo'}
+        </p>
+        <Button variant="outline" onClick={() => refetch()}>
+          <RefreshCw size={14} /> Reintentar
+        </Button>
+      </div>
+    )
   }
 
   return (
@@ -232,8 +250,8 @@ export default function ContactsPage() {
         contact={editingContact}
         onSave={async (data) => {
           const { funnelStage, ...rest } = data
-          const stage = funnelStage && funnelStage.length > 0
-            ? funnelStage as import('@/types').FunnelStage
+          const stage = funnelStage && funnelStage !== '__none__'
+            ? funnelStage as FunnelStage
             : undefined
           if (editingContact) {
             await updateContact.mutateAsync({ id: editingContact.id, ...rest, funnelStage: stage })
