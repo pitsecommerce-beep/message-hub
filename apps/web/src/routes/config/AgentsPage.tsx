@@ -285,7 +285,7 @@ function AgentDialog({
           channels: a.channels ?? [],
           active: a.active,
         }
-      : { provider: 'openai', active: true, knowledgeBases: [], channels: [] }
+      : { name: '', provider: 'openai', model: '', systemPrompt: '', active: true, knowledgeBases: [], channels: [] }
   }
 
   const {
