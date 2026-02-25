@@ -46,13 +46,20 @@ interface CreateContactInput {
   funnelStage?: FunnelStage
 }
 
+// Firestore rejects fields with undefined values — strip them before writing
+function stripUndefined<T extends object>(obj: T): Partial<T> {
+  return Object.fromEntries(
+    Object.entries(obj).filter(([, v]) => v !== undefined),
+  ) as Partial<T>
+}
+
 export function useCreateContact(orgId: string | undefined) {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: async (input: CreateContactInput) => {
       if (!orgId) throw new Error('No orgId')
       await addDoc(collection(db, 'contacts'), {
-        ...input,
+        ...stripUndefined(input),
         orgId,
         createdAt: serverTimestamp(),
       })
@@ -74,7 +81,7 @@ export function useUpdateContact(orgId: string | undefined) {
   return useMutation({
     mutationFn: async ({ id, ...data }: UpdateContactInput) => {
       await updateDoc(doc(db, 'contacts', id), {
-        ...data,
+        ...stripUndefined(data),
         updatedAt: serverTimestamp(),
       })
     },

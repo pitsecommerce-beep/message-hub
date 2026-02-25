@@ -40,7 +40,7 @@
 
   html {
     font-family: var(--font-sans);
-    font-size: 16px;
+    font-size: 17px;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
   }
@@ -48,7 +48,6 @@
   body {
     @apply min-h-screen text-gray-100;
     background-color: var(--color-surface-0);
-    font-size: 1rem;
     line-height: 1.6;
   }
 

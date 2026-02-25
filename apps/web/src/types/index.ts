@@ -104,6 +104,7 @@ export type Message = z.infer<typeof MessageSchema>
 
 export const OrderStatusSchema = z.enum([
   'pendiente',
+  'pago_pendiente',
   'procesando',
   'enviado',
   'entregado',
