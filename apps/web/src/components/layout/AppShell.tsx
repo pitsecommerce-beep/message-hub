@@ -1,4 +1,5 @@
 import { Outlet, useLocation } from 'react-router-dom'
+import { useEffect, useRef } from 'react'
 import Sidebar, { SidebarToggle } from './Sidebar'
 
 const PAGE_TITLES: Record<string, { title: string; subtitle: string }> = {
@@ -16,6 +17,17 @@ const PAGE_TITLES: Record<string, { title: string; subtitle: string }> = {
 export default function AppShell() {
   const location = useLocation()
   const pageInfo = PAGE_TITLES[location.pathname] ?? { title: 'MessageHub', subtitle: '' }
+  const mainRef = useRef<HTMLElement>(null)
+
+  // Trigger page transition on route change
+  useEffect(() => {
+    const el = mainRef.current
+    if (!el) return
+    el.classList.remove('page-enter')
+    // Force reflow so the class removal is recognized before re-adding
+    void el.offsetHeight
+    el.classList.add('page-enter')
+  }, [location.pathname])
 
   return (
     <div className="flex h-screen overflow-hidden" style={{ backgroundColor: 'var(--color-surface-0)' }}>
@@ -28,18 +40,18 @@ export default function AppShell() {
           <div className="flex items-center gap-3">
             <SidebarToggle />
             <div>
-              <h1 className="text-sm font-semibold text-white/90 leading-none tracking-tight">
+              <h1 className="text-base font-semibold text-white/90 leading-none tracking-tight">
                 {pageInfo.title}
               </h1>
               {pageInfo.subtitle && (
-                <p className="text-[11px] text-gray-600 mt-0.5 leading-none">{pageInfo.subtitle}</p>
+                <p className="text-xs text-gray-500 mt-0.5 leading-none">{pageInfo.subtitle}</p>
               )}
             </div>
           </div>
         </header>
 
-        {/* Page content */}
-        <main className="flex-1 overflow-y-auto p-4 lg:p-6">
+        {/* Page content with transition */}
+        <main ref={mainRef} className="flex-1 overflow-y-auto p-4 lg:p-6 page-enter">
           <Outlet />
         </main>
       </div>

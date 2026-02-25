@@ -3,7 +3,6 @@ import {
   collection,
   query,
   where,
-  orderBy,
   getDocs,
   doc,
   addDoc,
@@ -21,13 +20,16 @@ export function useContacts(orgId: string | undefined) {
     queryFn: async (): Promise<Contact[]> => {
       if (!orgId) return []
       const snap = await getDocs(
-        query(
-          collection(db, 'contacts'),
-          where('orgId', '==', orgId),
-          orderBy('createdAt', 'desc'),
-        ),
+        query(collection(db, 'contacts'), where('orgId', '==', orgId)),
       )
-      return snap.docs.map((d) => ({ id: d.id, ...d.data() } as Contact))
+      // Sort client-side to avoid requiring a Firestore composite index
+      const docs = snap.docs.map((d) => ({ id: d.id, ...d.data() } as Contact))
+      docs.sort((a, b) => {
+        const ta = a.createdAt?.toMillis?.() ?? 0
+        const tb = b.createdAt?.toMillis?.() ?? 0
+        return tb - ta
+      })
+      return docs
     },
     enabled: !!orgId,
   })
