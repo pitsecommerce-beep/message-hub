@@ -35,8 +35,12 @@ async function findOrgByIntegrationField(fieldName, fieldValue) {
     if (snapshot.empty) return null;
 
     const integDoc = snapshot.docs[0];
-    // Ruta: organizations/{orgId}/integrations/{platform}
-    const orgId = integDoc.ref.parent.parent.id;
+    // Las integraciones se guardan en la colección raíz "integrations" con
+    // campo orgId, por lo que parent.parent sería null. Usamos data().orgId
+    // como fuente primaria y el path como fallback para subcollecciones.
+    const orgId = integDoc.data().orgId || integDoc.ref.parent.parent?.id;
+    if (!orgId) return null;
+
     const orgDoc = await db.collection('organizations').doc(orgId).get();
 
     if (!orgDoc.exists) return null;
@@ -659,6 +663,40 @@ async function createOrder(orgId, convId, orderData) {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Configuración de Evolution API
+// ---------------------------------------------------------------------------
+
+/**
+ * Devuelve la configuración de Evolution API activa para una organización,
+ * o null si no hay ninguna conectada.
+ *
+ * @param {string} orgId
+ * @returns {Promise<{ evolutionApiUrl: string, evolutionApiKey: string, evolutionInstanceName: string } | null>}
+ */
+async function getEvolutionConfig(orgId) {
+    const snap = await db
+        .collection('integrations')
+        .where('orgId', '==', orgId)
+        .where('platform', '==', 'whatsapp')
+        .where('method', '==', 'evolution')
+        .where('connected', '==', true)
+        .limit(1)
+        .get();
+
+    if (snap.empty) return null;
+
+    const data = snap.docs[0].data();
+    if (!data.evolutionApiUrl || !data.evolutionApiKey || !data.evolutionInstanceName) {
+        return null;
+    }
+    return {
+        evolutionApiUrl:      data.evolutionApiUrl,
+        evolutionApiKey:      data.evolutionApiKey,
+        evolutionInstanceName: data.evolutionInstanceName,
+    };
+}
+
 module.exports = {
     db,
     FieldValue,
@@ -671,6 +709,7 @@ module.exports = {
     loadKBRows,
     saveOrUpdateContact,
     createOrder,
+    getEvolutionConfig,
     detectParte,
     PARTE_KEYWORDS,
     expandSearchTerms,
