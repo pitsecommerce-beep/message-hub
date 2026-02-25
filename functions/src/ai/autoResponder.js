@@ -57,11 +57,13 @@ async function buildSystemPrompt(agent, orgId, userMessage) {
     const { terms, years } = expandSearchTerms(userMessage);
 
     prompt += '\n\n=== DATOS DE REFERENCIA ===\n';
-    prompt += 'A continuación tienes los datos reales de tus bases de datos. '
+    prompt += 'A continuación tienes UNA MUESTRA PARCIAL de tus bases de datos. '
         + 'SIEMPRE usa estos datos para responder preguntas sobre productos, '
         + 'precios, disponibilidad, etc.\n';
-    prompt += 'NUNCA inventes datos. Si el cliente pregunta algo que no está '
-        + 'en estos datos, dile que no tienes esa información disponible.\n\n';
+    prompt += 'IMPORTANTE: Estos datos son una muestra — NO representan el inventario completo. '
+        + 'Si el cliente pregunta por un producto que no aparece aquí, NO asumas que no existe: '
+        + 'DEBES llamar a query_database para verificarlo antes de responder.\n'
+        + 'NUNCA inventes precios ni datos.\n\n';
 
     for (const kbId of kbIds) {
         try {
@@ -82,7 +84,7 @@ async function buildSystemPrompt(agent, orgId, userMessage) {
             const columns = kb.columns || Object.keys(rows[0]).filter(k => k !== 'id');
 
             const PROMPT_MAX_ROWS = 15;
-            const FALLBACK_ROWS  = 5;
+            const FALLBACK_ROWS  = 15;
             let rowsToInclude;
             if (terms.size > 0 || years.length > 0) {
                 const scored = rows
@@ -115,7 +117,7 @@ async function buildSystemPrompt(agent, orgId, userMessage) {
     prompt += 'INSTRUCCIONES IMPORTANTES:\n';
     prompt += '- Responde SIEMPRE basándote en los datos anteriores.\n';
     prompt += '- Si te preguntan precios, da el precio exacto de los datos.\n';
-    prompt += '- Si un producto no está en los datos, usa query_database con el filtro "parte" correcto para buscar más registros.\n';
+    prompt += '- OBLIGATORIO: Si el cliente pregunta por una pieza o producto y no lo ves en los datos de arriba, DEBES llamar a query_database de inmediato para buscarlo. NUNCA respondas "no contamos con esa pieza", "no la tenemos" o similar sin haber llamado primero a query_database y comprobado que realmente no existe.\n';
     prompt += '- Si el cliente no mencionó una categoría específica, puedes preguntar qué tipo de parte necesita.\n';
     prompt += '- Puedes mencionar productos similares que sí estén en los datos.\n';
     prompt += '- Si el cliente da su nombre o empresa en cualquier momento, llama a save_contact de inmediato.\n';
@@ -230,7 +232,7 @@ function buildToolDefinitions(agent) {
             type: 'function',
             function: {
                 name: 'query_database',
-                description: 'Consulta la base de datos de productos cuando necesitas buscar precios, SKUs, disponibilidad o características específicas. Úsala siempre que el cliente pregunte por un producto concreto y los datos del prompt no sean suficientes.',
+                description: 'Consulta la base de datos de productos. DEBES llamar a esta función SIEMPRE que el cliente pregunte por una pieza o producto específico. Los datos del system prompt son solo una muestra parcial del inventario — si no ves el producto ahí, NO asumas que no existe: búscalo aquí primero. Úsala también para obtener precios exactos, SKUs y disponibilidad.',
                 parameters: {
                     type: 'object',
                     properties: {
