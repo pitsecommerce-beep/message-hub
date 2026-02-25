@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useForm, Controller } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
-import { Bot, Plus, Pencil, Trash2, TestTube2 } from 'lucide-react'
+import { Bot, Plus, Pencil, Trash2, TestTube2, Send, RefreshCw } from 'lucide-react'
 import { useAppStore } from '@/store/app.store'
 import {
   useAIAgents,
@@ -51,6 +51,210 @@ const agentSchema = z.object({
 })
 
 type AgentForm = z.infer<typeof agentSchema>
+
+// ─── Agent test dialog ─────────────────────────────────────────────────────────
+
+interface TestMessage {
+  role: 'user' | 'assistant'
+  content: string
+}
+
+function AgentTestDialog({
+  open,
+  onOpenChange,
+  agent,
+}: {
+  open: boolean
+  onOpenChange: (o: boolean) => void
+  agent: AIAgent
+}) {
+  const [messages, setMessages] = useState<TestMessage[]>([])
+  const [input, setInput] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const apiKey = (agent as AIAgent & { apiKey?: string }).apiKey ?? ''
+
+  async function sendMessage() {
+    const text = input.trim()
+    if (!text || loading) return
+    setInput('')
+    setError(null)
+    const newMessages: TestMessage[] = [...messages, { role: 'user', content: text }]
+    setMessages(newMessages)
+    setLoading(true)
+    try {
+      let reply = ''
+      if (agent.provider === 'openai') {
+        const res = await fetch('https://api.openai.com/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${apiKey}`,
+          },
+          body: JSON.stringify({
+            model: agent.model,
+            messages: [
+              { role: 'system', content: agent.systemPrompt },
+              ...newMessages.map((m) => ({ role: m.role, content: m.content })),
+            ],
+          }),
+        })
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}))
+          throw new Error(err?.error?.message ?? `Error ${res.status}`)
+        }
+        const data = await res.json()
+        reply = data.choices?.[0]?.message?.content ?? ''
+      } else if (agent.provider === 'anthropic') {
+        const endpoint = (agent as AIAgent & { endpoint?: string }).endpoint
+          || 'https://api.anthropic.com/v1/messages'
+        const res = await fetch(endpoint, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-api-key': apiKey,
+            'anthropic-version': '2023-06-01',
+            'anthropic-dangerous-direct-browser-access': 'true',
+          },
+          body: JSON.stringify({
+            model: agent.model,
+            system: agent.systemPrompt,
+            messages: newMessages.map((m) => ({ role: m.role, content: m.content })),
+            max_tokens: 1024,
+          }),
+        })
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}))
+          throw new Error(err?.error?.message ?? `Error ${res.status}`)
+        }
+        const data = await res.json()
+        reply = data.content?.[0]?.text ?? ''
+      } else {
+        // Custom provider
+        const endpoint = (agent as AIAgent & { endpoint?: string }).endpoint
+        if (!endpoint) throw new Error('El proveedor personalizado requiere un endpoint')
+        const res = await fetch(endpoint, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${apiKey}`,
+          },
+          body: JSON.stringify({
+            model: agent.model,
+            messages: [
+              { role: 'system', content: agent.systemPrompt },
+              ...newMessages.map((m) => ({ role: m.role, content: m.content })),
+            ],
+          }),
+        })
+        if (!res.ok) throw new Error(`Error ${res.status}`)
+        const data = await res.json()
+        reply = data.choices?.[0]?.message?.content ?? data.content?.[0]?.text ?? ''
+      }
+      setMessages([...newMessages, { role: 'assistant', content: reply }])
+    } catch (err: unknown) {
+      setError((err as Error).message)
+      // Revert optimistic user message on error
+      setMessages(messages)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  function handleClose() {
+    onOpenChange(false)
+    setMessages([])
+    setInput('')
+    setError(null)
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => { if (!loading) { onOpenChange(o); if (!o) handleClose() } }}>
+      <DialogContent className="max-w-2xl">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <TestTube2 size={16} className="text-purple-400" />
+            Probar Agente — {agent.name}
+          </DialogTitle>
+        </DialogHeader>
+
+        {/* System prompt preview */}
+        <div className="rounded-xl bg-purple-900/15 border border-purple-500/20 px-4 py-3">
+          <p className="text-xs font-semibold text-purple-400 mb-1">System Prompt</p>
+          <p className="text-xs text-gray-400 line-clamp-3 leading-relaxed">{agent.systemPrompt}</p>
+        </div>
+
+        {/* Chat messages */}
+        <div className="h-64 overflow-y-auto space-y-3 rounded-xl border border-white/8 bg-black/20 p-4">
+          {messages.length === 0 && (
+            <div className="flex items-center justify-center h-full text-sm text-gray-600">
+              Escribe un mensaje para probar el agente
+            </div>
+          )}
+          {messages.map((msg, i) => (
+            <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+              <div
+                className={`max-w-[80%] rounded-2xl px-4 py-2.5 text-sm ${
+                  msg.role === 'user'
+                    ? 'bg-brand-600 text-white rounded-br-md'
+                    : 'bg-purple-700/60 text-gray-100 border border-purple-500/20 rounded-bl-md'
+                }`}
+              >
+                {msg.role === 'assistant' && (
+                  <p className="text-xs text-purple-300 mb-1 font-semibold flex items-center gap-1">
+                    <Bot size={10} /> {agent.name}
+                  </p>
+                )}
+                <p className="whitespace-pre-wrap break-words leading-relaxed">{msg.content}</p>
+              </div>
+            </div>
+          ))}
+          {loading && (
+            <div className="flex justify-start">
+              <div className="bg-purple-700/40 border border-purple-500/20 rounded-2xl rounded-bl-md px-4 py-3">
+                <RefreshCw size={14} className="text-purple-400 animate-spin" />
+              </div>
+            </div>
+          )}
+        </div>
+
+        {error && (
+          <p className="text-xs text-red-400 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2">
+            {error}
+          </p>
+        )}
+
+        {/* Input */}
+        <div className="flex gap-2">
+          <Input
+            placeholder="Escribe tu mensaje de prueba..."
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault()
+                sendMessage()
+              }
+            }}
+            disabled={loading}
+          />
+          <Button onClick={sendMessage} disabled={!input.trim() || loading} loading={loading}>
+            <Send size={14} />
+          </Button>
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={handleClose}>
+            Cerrar
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+// ─── Agent create/edit dialog ──────────────────────────────────────────────────
 
 function AgentDialog({
   open,
@@ -301,6 +505,8 @@ function AgentDialog({
   )
 }
 
+// ─── Main page ─────────────────────────────────────────────────────────────────
+
 export default function AgentsPage() {
   const { userData, organization } = useAppStore()
   const orgId = userData?.orgId ?? organization?.id
@@ -311,6 +517,7 @@ export default function AgentsPage() {
 
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingAgent, setEditingAgent] = useState<AIAgent | null>(null)
+  const [testingAgent, setTestingAgent] = useState<AIAgent | null>(null)
 
   function openCreate() {
     setEditingAgent(null)
@@ -355,6 +562,15 @@ export default function AgentsPage() {
                 </div>
               </div>
               <div className="flex gap-1">
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  title="Probar agente"
+                  className="text-purple-400 hover:text-purple-300 hover:bg-purple-600/10"
+                  onClick={() => setTestingAgent(agent)}
+                >
+                  <TestTube2 size={13} />
+                </Button>
                 <Button variant="ghost" size="icon-sm" onClick={() => { setEditingAgent(agent); setDialogOpen(true) }}>
                   <Pencil size={13} />
                 </Button>
@@ -383,6 +599,14 @@ export default function AgentsPage() {
                 </Badge>
               ))}
             </div>
+
+            {/* Test button visible in card footer */}
+            <button
+              onClick={() => setTestingAgent(agent)}
+              className="w-full flex items-center justify-center gap-2 py-2 rounded-lg border border-purple-500/20 text-xs text-purple-400 hover:bg-purple-600/10 transition-colors"
+            >
+              <TestTube2 size={12} /> Probar agente
+            </button>
           </div>
         ))}
       </div>
@@ -394,6 +618,14 @@ export default function AgentsPage() {
         orgId={orgId}
         kbs={kbs}
       />
+
+      {testingAgent && (
+        <AgentTestDialog
+          open={!!testingAgent}
+          onOpenChange={(o) => { if (!o) setTestingAgent(null) }}
+          agent={testingAgent}
+        />
+      )}
     </div>
   )
 }

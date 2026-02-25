@@ -1,11 +1,24 @@
 import { useState } from 'react'
-import { ShoppingBag, Search, RefreshCw } from 'lucide-react'
+import { useForm, Controller } from 'react-hook-form'
+import { zodResolver } from '@hookform/resolvers/zod'
+import { z } from 'zod'
+import { ShoppingBag, Search, RefreshCw, Plus } from 'lucide-react'
 import { Timestamp } from 'firebase/firestore'
 import { useAppStore } from '@/store/app.store'
-import { useOrders, useUpdateOrderStatus } from '@/features/orders/hooks/use-orders'
+import { useOrders, useUpdateOrderStatus, useCreateOrder } from '@/features/orders/hooks/use-orders'
+import { useContacts } from '@/features/contacts/hooks/use-contacts'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from '@/components/ui/dialog'
+import { Label } from '@/components/ui/label'
+import { Textarea } from '@/components/ui/textarea'
 import {
   Select,
   SelectContent,
@@ -18,13 +31,14 @@ import type { Order, OrderStatus } from '@/types'
 
 const STATUS_CONFIG: Record<OrderStatus, { label: string; variant: 'info' | 'warning' | 'success' | 'destructive' | 'secondary' }> = {
   pendiente: { label: 'Pendiente', variant: 'warning' },
+  pago_pendiente: { label: 'Pago Pendiente', variant: 'destructive' },
   procesando: { label: 'Procesando', variant: 'info' },
   enviado: { label: 'Enviado', variant: 'info' },
   entregado: { label: 'Entregado', variant: 'success' },
-  cancelado: { label: 'Cancelado', variant: 'destructive' },
+  cancelado: { label: 'Cancelado', variant: 'secondary' },
 }
 
-const STATUS_OPTIONS: OrderStatus[] = ['pendiente', 'procesando', 'enviado', 'entregado', 'cancelado']
+const STATUS_OPTIONS: OrderStatus[] = ['pendiente', 'pago_pendiente', 'procesando', 'enviado', 'entregado', 'cancelado']
 
 function toDate(ts: unknown): Date | null {
   if (!ts) return null
@@ -42,11 +56,152 @@ function formatDate(ts: unknown): string {
 const STATUS_FILTERS = [
   { value: 'all', label: 'Todos' },
   { value: 'pendiente', label: 'Pendientes' },
+  { value: 'pago_pendiente', label: 'Pago Pendiente' },
   { value: 'procesando', label: 'Procesando' },
   { value: 'enviado', label: 'Enviados' },
   { value: 'entregado', label: 'Entregados' },
   { value: 'cancelado', label: 'Cancelados' },
 ]
+
+// ─── Order creation dialog ─────────────────────────────────────────────────────
+
+const orderSchema = z.object({
+  contactId: z.string().min(1, 'Selecciona un contacto'),
+  status: z.enum(['pendiente', 'pago_pendiente', 'procesando', 'enviado', 'entregado', 'cancelado']),
+  total: z.string().optional(),
+  notes: z.string().optional(),
+})
+type OrderForm = z.infer<typeof orderSchema>
+
+function CreateOrderDialog({
+  open,
+  onOpenChange,
+  orgId,
+}: {
+  open: boolean
+  onOpenChange: (o: boolean) => void
+  orgId: string | undefined
+}) {
+  const { data: contacts = [] } = useContacts(orgId)
+  const createOrder = useCreateOrder(orgId)
+
+  const {
+    register,
+    control,
+    handleSubmit,
+    reset,
+    formState: { errors },
+  } = useForm<OrderForm>({
+    resolver: zodResolver(orderSchema),
+    defaultValues: { status: 'pendiente' },
+  })
+
+  async function onSubmit(data: OrderForm) {
+    const contact = contacts.find((c) => c.id === data.contactId)
+    if (!contact) return
+    const totalNum = data.total ? parseFloat(data.total) : undefined
+    await createOrder.mutateAsync({
+      contactId: contact.id,
+      contactName: contact.name,
+      status: data.status as OrderStatus,
+      total: totalNum && !isNaN(totalNum) ? totalNum : undefined,
+      notes: data.notes?.trim() || undefined,
+    })
+    onOpenChange(false)
+    reset()
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => { if (!createOrder.isPending) { onOpenChange(o); if (!o) reset() } }}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>Crear Pedido</DialogTitle>
+        </DialogHeader>
+        <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+          <div className="space-y-1.5">
+            <Label>Contacto *</Label>
+            <Controller
+              name="contactId"
+              control={control}
+              render={({ field }) => (
+                <Select value={field.value} onValueChange={field.onChange}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Selecciona un contacto..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {contacts.map((c) => (
+                      <SelectItem key={c.id} value={c.id}>
+                        {c.name} {c.company ? `— ${c.company}` : ''}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+            />
+            {errors.contactId && <p className="text-xs text-red-400">{errors.contactId.message}</p>}
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label>Estado *</Label>
+              <Controller
+                name="status"
+                control={control}
+                render={({ field }) => (
+                  <Select value={field.value} onValueChange={field.onChange}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {STATUS_OPTIONS.map((s) => (
+                        <SelectItem key={s} value={s}>{STATUS_CONFIG[s].label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Total (opcional)</Label>
+              <Input
+                type="number"
+                step="0.01"
+                min="0"
+                placeholder="0.00"
+                {...register('total')}
+              />
+            </div>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label>Notas (opcional)</Label>
+            <Textarea
+              placeholder="Detalles del pedido..."
+              rows={3}
+              {...register('notes')}
+            />
+          </div>
+
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => { onOpenChange(false); reset() }}
+              disabled={createOrder.isPending}
+            >
+              Cancelar
+            </Button>
+            <Button type="submit" loading={createOrder.isPending}>
+              Crear Pedido
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+// ─── Order row ─────────────────────────────────────────────────────────────────
 
 interface OrderRowProps {
   order: Order
@@ -87,7 +242,7 @@ function OrderRow({ order, onStatusChange, isUpdating }: OrderRowProps) {
           onValueChange={(v) => onStatusChange(order.id, v as OrderStatus)}
           disabled={isUpdating}
         >
-          <SelectTrigger className="h-8 w-36 text-xs">
+          <SelectTrigger className="h-8 w-40 text-xs">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -103,6 +258,8 @@ function OrderRow({ order, onStatusChange, isUpdating }: OrderRowProps) {
   )
 }
 
+// ─── Main page ─────────────────────────────────────────────────────────────────
+
 export default function OrdersPage() {
   const { userData, organization } = useAppStore()
   const orgId = userData?.orgId ?? organization?.id
@@ -112,6 +269,7 @@ export default function OrdersPage() {
 
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('all')
+  const [createOpen, setCreateOpen] = useState(false)
 
   const filtered = orders.filter((o) => {
     const matchSearch =
@@ -124,7 +282,7 @@ export default function OrdersPage() {
 
   const stats = {
     total: orders.length,
-    pending: orders.filter((o) => o.status === 'pendiente').length,
+    pending: orders.filter((o) => o.status === 'pendiente' || o.status === 'pago_pendiente').length,
     processing: orders.filter((o) => o.status === 'procesando').length,
     delivered: orders.filter((o) => o.status === 'entregado').length,
   }
@@ -157,7 +315,7 @@ export default function OrdersPage() {
             onChange={(e) => setSearch(e.target.value)}
           />
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           {STATUS_FILTERS.map((f) => (
             <button
               key={f.value}
@@ -173,6 +331,9 @@ export default function OrdersPage() {
           ))}
           <Button variant="ghost" size="icon-sm" onClick={() => refetch()}>
             <RefreshCw size={13} className={isLoading ? 'animate-spin' : ''} />
+          </Button>
+          <Button size="sm" onClick={() => setCreateOpen(true)}>
+            <Plus size={13} /> Crear Pedido
           </Button>
         </div>
       </div>
@@ -204,8 +365,15 @@ export default function OrdersPage() {
                     <div className="flex flex-col items-center gap-3">
                       <ShoppingBag size={32} className="text-gray-700" />
                       <p className="text-gray-600">
-                        {search || statusFilter !== 'all' ? 'Sin resultados' : 'Sin pedidos aún. Los pedidos son creados por el agente IA.'}
+                        {search || statusFilter !== 'all'
+                          ? 'Sin resultados'
+                          : 'Sin pedidos aún. Crea uno manualmente o el agente IA los generará automáticamente.'}
                       </p>
+                      {!search && statusFilter === 'all' && (
+                        <Button variant="outline" size="sm" onClick={() => setCreateOpen(true)}>
+                          <Plus size={13} /> Crear primer pedido
+                        </Button>
+                      )}
                     </div>
                   </td>
                 </tr>
@@ -225,6 +393,8 @@ export default function OrdersPage() {
           {filtered.length} pedidos
         </div>
       </div>
+
+      <CreateOrderDialog open={createOpen} onOpenChange={setCreateOpen} orgId={orgId} />
     </div>
   )
 }

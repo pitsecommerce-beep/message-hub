@@ -1,11 +1,11 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { doc, updateDoc } from 'firebase/firestore'
-import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage'
+import { ref, uploadBytesResumable, getDownloadURL, deleteObject } from 'firebase/storage'
 import { toast } from 'sonner'
-import { Upload, X, Building2 } from 'lucide-react'
+import { Upload, X, Building2, ImageIcon } from 'lucide-react'
 import { db, storage } from '@/lib/firebase'
 import { useAppStore } from '@/store/app.store'
 import { Button } from '@/components/ui/button'
@@ -22,6 +22,8 @@ export default function SettingsPage() {
   const { userData, organization, setOrganization } = useAppStore()
   const orgId = userData?.orgId ?? organization?.id
   const [logoUploading, setLogoUploading] = useState(false)
+  const [uploadProgress, setUploadProgress] = useState(0)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   const {
     register,
@@ -43,23 +45,57 @@ export default function SettingsPage() {
 
   async function uploadLogo(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
+    // Reset input so the same file can be re-selected if needed
+    if (fileInputRef.current) fileInputRef.current.value = ''
     if (!file || !orgId) return
-    if (file.size > 2 * 1024 * 1024) {
-      toast.error('El archivo supera 2MB')
+
+    if (!file.type.startsWith('image/')) {
+      toast.error('El archivo debe ser una imagen (PNG, JPG, SVG, etc.)')
       return
     }
+    if (file.size > 2 * 1024 * 1024) {
+      toast.error('El archivo supera 2 MB')
+      return
+    }
+
     setLogoUploading(true)
+    setUploadProgress(0)
+
     try {
       const storageRef = ref(storage, `organizations/${orgId}/logo`)
-      await uploadBytes(storageRef, file)
+      const uploadTask = uploadBytesResumable(storageRef, file, {
+        contentType: file.type,
+      })
+
+      await new Promise<void>((resolve, reject) => {
+        uploadTask.on(
+          'state_changed',
+          (snapshot) => {
+            const pct = Math.round((snapshot.bytesTransferred / snapshot.totalBytes) * 100)
+            setUploadProgress(pct)
+          },
+          (err) => reject(err),
+          () => resolve(),
+        )
+      })
+
       const url = await getDownloadURL(storageRef)
       await updateDoc(doc(db, 'organizations', orgId), { logoUrl: url })
       if (organization) setOrganization({ ...organization, logoUrl: url })
-      toast.success('Logo actualizado')
+      toast.success('Logo actualizado correctamente')
     } catch (err: unknown) {
-      toast.error((err as Error).message)
+      const msg = (err as { message?: string; code?: string }).message ?? 'Error al subir el logo'
+      const code = (err as { code?: string }).code ?? ''
+      if (code === 'storage/unauthorized') {
+        toast.error('Sin permisos para subir el logo. Verifica las reglas de Firebase Storage.')
+      } else if (code === 'storage/unknown' || code === 'storage/retry-limit-exceeded') {
+        toast.error('Error de conexión. Inténtalo de nuevo.')
+      } else {
+        toast.error(msg)
+      }
     } finally {
       setLogoUploading(false)
+      setUploadProgress(0)
     }
   }
 
@@ -98,39 +134,86 @@ export default function SettingsPage() {
           </form>
 
           {/* Logo */}
-          <div className="space-y-2">
+          <div className="space-y-3">
             <Label>Logotipo</Label>
             {organization?.logoUrl ? (
-              <div className="flex items-center gap-3">
-                <img
-                  src={organization.logoUrl}
-                  alt="Logo"
-                  className="h-12 w-auto rounded-lg border border-white/15 object-contain bg-white/5 p-1"
-                />
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="text-red-400 border-red-500/30 hover:bg-red-500/10"
-                  onClick={removeLogo}
-                >
-                  <X size={13} /> Eliminar
-                </Button>
+              <div className="flex items-center gap-4">
+                <div className="flex-shrink-0 h-16 w-16 rounded-xl border border-white/15 bg-white/5 flex items-center justify-center overflow-hidden p-1">
+                  <img
+                    src={organization.logoUrl}
+                    alt="Logo"
+                    className="h-full w-full object-contain"
+                  />
+                </div>
+                <div className="flex gap-2">
+                  <label className="cursor-pointer">
+                    <div className="flex items-center gap-2 px-3 py-2 rounded-lg border border-white/15 bg-white/5 hover:bg-white/8 text-sm text-gray-300 transition-colors">
+                      <Upload size={13} />
+                      Cambiar
+                    </div>
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      className="hidden"
+                      accept="image/*"
+                      onChange={uploadLogo}
+                      disabled={logoUploading}
+                    />
+                  </label>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="text-red-400 border-red-500/30 hover:bg-red-500/10"
+                    onClick={removeLogo}
+                    disabled={logoUploading}
+                  >
+                    <X size={13} /> Eliminar
+                  </Button>
+                </div>
               </div>
             ) : (
-              <label className="flex items-center gap-3 cursor-pointer">
-                <div className="flex items-center gap-2 px-4 py-2 rounded-lg border border-white/15 bg-white/5 hover:bg-white/8 text-sm text-gray-300 transition-colors">
-                  <Upload size={14} />
-                  {logoUploading ? 'Subiendo...' : 'Subir logo'}
-                </div>
-                <span className="text-xs text-gray-500">PNG, JPG, SVG · máx 2MB</span>
-                <input
-                  type="file"
-                  className="hidden"
-                  accept="image/*"
-                  onChange={uploadLogo}
-                  disabled={logoUploading}
-                />
-              </label>
+              <div>
+                <label className={`flex items-center gap-3 ${logoUploading ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'}`}>
+                  <div className={`flex flex-col items-center justify-center gap-2 w-full py-8 rounded-xl border-2 border-dashed transition-colors ${
+                    logoUploading
+                      ? 'border-white/10 bg-white/3'
+                      : 'border-white/15 bg-white/3 hover:bg-white/6 hover:border-white/25'
+                  }`}>
+                    {logoUploading ? (
+                      <>
+                        <div className="h-8 w-8 rounded-full border-2 border-brand-500 border-t-transparent animate-spin" />
+                        <p className="text-sm text-gray-400">Subiendo... {uploadProgress}%</p>
+                        <div className="w-32 h-1.5 bg-white/10 rounded-full overflow-hidden">
+                          <div
+                            className="h-full bg-brand-500 rounded-full transition-all"
+                            style={{ width: `${uploadProgress}%` }}
+                          />
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <div className="h-10 w-10 rounded-xl bg-white/5 flex items-center justify-center">
+                          <ImageIcon size={20} className="text-gray-500" />
+                        </div>
+                        <div className="text-center">
+                          <p className="text-sm text-gray-300 flex items-center gap-1.5 justify-center">
+                            <Upload size={13} /> Subir logotipo
+                          </p>
+                          <p className="text-xs text-gray-600 mt-1">PNG, JPG, SVG · máx 2 MB</p>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    className="hidden"
+                    accept="image/*"
+                    onChange={uploadLogo}
+                    disabled={logoUploading}
+                  />
+                </label>
+              </div>
             )}
           </div>
         </CardContent>
