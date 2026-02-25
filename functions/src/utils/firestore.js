@@ -154,6 +154,8 @@ async function saveIncomingMessage(orgId, convId, messageData) {
 
 /**
  * Busca el primer agente IA activo que tenga habilitado el canal indicado.
+ * Los agentes se guardan en la colección raíz "aiAgents" con campo "orgId".
+ * El campo de activación es "active" (boolean) y los canales son un array.
  *
  * @param {string} orgId
  * @param {string} platform
@@ -161,14 +163,14 @@ async function saveIncomingMessage(orgId, convId, messageData) {
  */
 async function findAgentForPlatform(orgId, platform) {
     const snapshot = await db
-        .collection('organizations').doc(orgId)
         .collection('aiAgents')
-        .where('isActive', '==', true)
+        .where('orgId', '==', orgId)
+        .where('active', '==', true)
         .get();
 
     const agent = snapshot.docs
         .map(d => ({ id: d.id, ...d.data() }))
-        .find(a => a.channels && a.channels[platform] === true);
+        .find(a => Array.isArray(a.channels) && a.channels.includes(platform));
 
     return agent || null;
 }

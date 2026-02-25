@@ -67,10 +67,25 @@ export function useSaveAIAgent(orgId: string | undefined) {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: async ({ id, ...data }: SaveAgentInput) => {
+      // Explicitly pick only valid agent fields — never persist org-level branding data
+      const {
+        name, provider, model, apiKey, endpoint,
+        systemPrompt, knowledgeBases, channels, active,
+        orgId: agentOrgId,
+      } = data
+      const agentPayload: Record<string, unknown> = {
+        name, provider, model, endpoint: endpoint ?? '',
+        systemPrompt, knowledgeBases: knowledgeBases ?? [],
+        channels: channels ?? [], active,
+        orgId: agentOrgId,
+      }
+      // Only include apiKey when it is explicitly provided (non-empty string)
+      if (apiKey) agentPayload.apiKey = apiKey
+
       if (id) {
-        await updateDoc(doc(db, 'aiAgents', id), { ...data, updatedAt: serverTimestamp() })
+        await updateDoc(doc(db, 'aiAgents', id), { ...agentPayload, updatedAt: serverTimestamp() })
       } else {
-        await addDoc(collection(db, 'aiAgents'), { ...data, createdAt: serverTimestamp() })
+        await addDoc(collection(db, 'aiAgents'), { ...agentPayload, createdAt: serverTimestamp() })
       }
     },
     onSuccess: () => {

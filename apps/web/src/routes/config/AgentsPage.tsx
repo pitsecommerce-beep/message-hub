@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useForm, Controller } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
@@ -42,7 +42,8 @@ const agentSchema = z.object({
   name: z.string().min(1, 'Nombre requerido'),
   provider: z.enum(['openai', 'anthropic', 'custom']),
   model: z.string().min(1, 'Modelo requerido'),
-  apiKey: z.string().min(1, 'API Key requerida'),
+  // Optional when editing (empty = keep existing key); required only on create
+  apiKey: z.string().optional(),
   endpoint: z.string().optional(),
   systemPrompt: z.string().min(10, 'El system prompt debe tener al menos 10 caracteres'),
   knowledgeBases: z.array(z.string()).optional(),
@@ -270,29 +271,41 @@ function AgentDialog({
   kbs: { id: string; name: string }[]
 }) {
   const saveAgent = useSaveAIAgent(orgId)
+
+  function buildDefaultValues(a: AIAgent | null): AgentForm {
+    return a
+      ? {
+          name: a.name,
+          provider: a.provider,
+          model: a.model,
+          apiKey: '',           // Never pre-fill the stored key for security
+          endpoint: a.endpoint ?? '',
+          systemPrompt: a.systemPrompt,
+          knowledgeBases: a.knowledgeBases ?? [],
+          channels: a.channels ?? [],
+          active: a.active,
+        }
+      : { provider: 'openai', active: true, knowledgeBases: [], channels: [] }
+  }
+
   const {
     register,
     control,
     handleSubmit,
     watch,
     reset,
+    setError,
     formState: { errors },
   } = useForm<AgentForm>({
     resolver: zodResolver(agentSchema),
-    defaultValues: agent
-      ? {
-          name: agent.name,
-          provider: agent.provider,
-          model: agent.model,
-          apiKey: '',
-          endpoint: agent.endpoint ?? '',
-          systemPrompt: agent.systemPrompt,
-          knowledgeBases: agent.knowledgeBases ?? [],
-          channels: agent.channels ?? [],
-          active: agent.active,
-        }
-      : { provider: 'openai', active: true, knowledgeBases: [], channels: [] },
+    defaultValues: buildDefaultValues(agent),
   })
+
+  // Re-populate form whenever the dialog opens or the target agent changes
+  useEffect(() => {
+    reset(buildDefaultValues(agent))
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, agent?.id])
 
   const provider = watch('provider')
   const selectedKBs = watch('knowledgeBases') ?? []
@@ -300,6 +313,11 @@ function AgentDialog({
 
   async function onSubmit(data: AgentForm) {
     if (!orgId) return
+    // When creating a new agent the API key is mandatory
+    if (!agent && !data.apiKey?.trim()) {
+      setError('apiKey', { message: 'API Key requerida' })
+      return
+    }
     await saveAgent.mutateAsync({
       id: agent?.id,
       ...data,
@@ -380,8 +398,12 @@ function AgentDialog({
             </div>
 
             <div className="space-y-1.5">
-              <Label>API Key *</Label>
-              <Input type="password" placeholder="sk-..." {...register('apiKey')} />
+              <Label>{agent ? 'API Key' : 'API Key *'}</Label>
+              <Input
+                type="password"
+                placeholder={agent ? 'Dejar vacío para mantener la actual' : 'sk-...'}
+                {...register('apiKey')}
+              />
               {errors.apiKey && <p className="text-xs text-red-400">{errors.apiKey.message}</p>}
             </div>
           </div>
