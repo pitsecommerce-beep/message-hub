@@ -3,7 +3,6 @@ import {
   collection,
   query,
   where,
-  orderBy,
   getDocs,
   Timestamp,
 } from 'firebase/firestore'
@@ -51,27 +50,34 @@ export function useDashboard(orgId: string | undefined) {
     queryFn: async (): Promise<DashboardStats> => {
       if (!orgId) throw new Error('No orgId')
 
-      const [convsSnap, contactsSnap, ordersSnap] = await Promise.all([
+      // Use allSettled so one failing collection doesn't break the whole dashboard
+      const [convsResult, contactsResult, ordersResult] = await Promise.allSettled([
         getDocs(query(collection(db, 'conversations'), where('orgId', '==', orgId))),
         getDocs(query(collection(db, 'contacts'), where('orgId', '==', orgId))),
         getDocs(query(collection(db, 'orders'), where('orgId', '==', orgId))),
       ])
 
-      const convs = convsSnap.docs.map((d) => ({ id: d.id, ...d.data() })) as Array<{
-        id: string
-        funnelStage?: string
-        lastMessageAt?: Timestamp
-      }>
+      const convs = convsResult.status === 'fulfilled'
+        ? convsResult.value.docs.map((d) => ({ id: d.id, ...d.data() })) as Array<{
+            id: string
+            funnelStage?: string
+            lastMessageAt?: Timestamp
+          }>
+        : []
 
-      const contacts = contactsSnap.docs.map((d) => ({ id: d.id, ...d.data() })) as Array<{
-        id: string
-        funnelStage?: string
-      }>
+      const contacts = contactsResult.status === 'fulfilled'
+        ? contactsResult.value.docs.map((d) => ({ id: d.id, ...d.data() })) as Array<{
+            id: string
+            funnelStage?: string
+          }>
+        : []
 
-      const orders = ordersSnap.docs.map((d) => ({ id: d.id, ...d.data() })) as Array<{
-        id: string
-        status: string
-      }>
+      const orders = ordersResult.status === 'fulfilled'
+        ? ordersResult.value.docs.map((d) => ({ id: d.id, ...d.data() })) as Array<{
+            id: string
+            status: string
+          }>
+        : []
 
       // Last 7 days conversation stats
       const now = new Date()
@@ -117,5 +123,6 @@ export function useDashboard(orgId: string | undefined) {
     },
     enabled: !!orgId,
     staleTime: 1000 * 60 * 2,
+    retry: 1,
   })
 }

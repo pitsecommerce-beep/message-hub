@@ -64,11 +64,11 @@ export default function ContactDialog({ open, onOpenChange, contact, onSave, isS
               rfc: contact.rfc ?? '',
               address: contact.address ?? '',
               notes: contact.notes ?? '',
-              funnelStage: contact.funnelStage ?? '',
+              funnelStage: contact.funnelStage ?? '__none__',
             }
           : {
               name: '', company: '', phone: '', email: '',
-              rfc: '', address: '', notes: '', funnelStage: '',
+              rfc: '', address: '', notes: '', funnelStage: '__none__',
             },
       )
     }
@@ -127,7 +127,7 @@ export default function ContactDialog({ open, onOpenChange, contact, onSave, isS
                       <SelectValue placeholder="Sin etapa" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="">Sin etapa</SelectItem>
+                      <SelectItem value="__none__">Sin etapa</SelectItem>
                       {FUNNEL_STAGES.map((s) => (
                         <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
                       ))}
