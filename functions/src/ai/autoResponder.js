@@ -82,13 +82,18 @@ async function buildSystemPrompt(agent, orgId, userMessage) {
             const columns = kb.columns || Object.keys(rows[0]).filter(k => k !== 'id');
 
             const PROMPT_MAX_ROWS = 15;
+            const FALLBACK_ROWS  = 5;
             let rowsToInclude;
             if (terms.size > 0 || years.length > 0) {
-                rowsToInclude = rows
+                const scored = rows
                     .map(row => ({ row, score: scoreRow(row, terms, years) }))
-                    .sort((a, b) => b.score - a.score)
-                    .slice(0, PROMPT_MAX_ROWS)
-                    .map(({ row }) => row);
+                    .sort((a, b) => b.score - a.score);
+                // Only include rows that actually matched (score > 0) — reduces token waste.
+                // If nothing matched fall back to the first FALLBACK_ROWS rows as context.
+                const matched = scored.filter(({ score }) => score > 0).slice(0, PROMPT_MAX_ROWS);
+                rowsToInclude = matched.length > 0
+                    ? matched.map(({ row }) => row)
+                    : rows.slice(0, FALLBACK_ROWS);
             } else {
                 rowsToInclude = rows.slice(0, PROMPT_MAX_ROWS);
             }
@@ -275,15 +280,20 @@ async function executeQueryDatabase(orgId, args) {
             return 'No se encontraron productos en la base de datos.';
         }
 
-        // Scoring semántico: ordenar por relevancia sin descartar score=0.
+        // Scoring semántico: retornar sólo filas relevantes (score > 0) para
+        // minimizar los tokens enviados al modelo. Si ninguna fila puntúa,
+        // se devuelven las primeras `limit` filas como fallback.
         let results = rows;
         if (searchQuery) {
             const { terms, years } = expandSearchTerms(searchQuery);
             if (terms.size > 0 || years.length > 0) {
-                results = rows
+                const scored = rows
                     .map(row => ({ row, score: scoreRow(row, terms, years) }))
-                    .sort((a, b) => b.score - a.score)
-                    .map(({ row }) => row);
+                    .sort((a, b) => b.score - a.score);
+                const matched = scored.filter(({ score }) => score > 0);
+                results = matched.length > 0
+                    ? matched.map(({ row }) => row)
+                    : scored.map(({ row }) => row);   // fallback: all rows sorted
             }
         }
 
