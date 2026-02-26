@@ -83,7 +83,7 @@ async function buildSystemPrompt(agent, orgId, userMessage) {
     prompt += '- Cuando el cliente CONFIRME que quiere comprar uno o más productos → llama a create_order.\n';
     prompt += '- REQUISITO: save_contact DEBE haberse llamado antes. Si no se ha hecho, pide el nombre primero.\n';
     prompt += '- Incluye todos los productos con nombre, SKU (si lo tienes), cantidad y precio unitario.\n';
-    prompt += '- Después de crear el pedido, confirma al cliente: número de pedido, productos y total.\n\n';
+    prompt += '- Después de crear el pedido, SIEMPRE comparte al cliente su número de pedido (ej: PED-00001), el resumen de productos y el total. Dile que puede usar ese número para dar seguimiento o hacer consultas posteriores.\n\n';
 
     prompt += 'REGLAS ADICIONALES:\n';
     prompt += '- Las herramientas se ejecutan automáticamente. Solo invócalas; el sistema se encarga del resto.\n';
