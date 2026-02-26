@@ -3511,12 +3511,12 @@ async function callOpenAI(agent, systemPrompt, messages, tools) {
                     args.knowledgeBaseId,
                     args.searchQuery || '',
                     args.filters || {},
-                    args.limit || 10
+                    args.limit || 25
                 );
                 toolResults.push({
                     role: 'tool',
                     tool_call_id: tc.id,
-                    content: JSON.stringify(results)
+                    content: results
                 });
             } else if (tc.function.name === 'save_contact') {
                 const args = JSON.parse(tc.function.arguments);
@@ -3626,12 +3626,12 @@ async function callAnthropic(agent, systemPrompt, messages, tools) {
                     tb.input.knowledgeBaseId,
                     tb.input.searchQuery || '',
                     tb.input.filters || {},
-                    tb.input.limit || 10
+                    tb.input.limit || 25
                 );
                 toolResultContents.push({
                     type: 'tool_result',
                     tool_use_id: tb.id,
-                    content: JSON.stringify(results)
+                    content: results
                 });
             } else if (tb.name === 'save_contact') {
                 const result = await saveContactFromAI(tb.input);
@@ -4625,44 +4625,60 @@ async function saveContactFromAI(contactData) {
     }
 }
 
-// Ejecuta una consulta a la base de datos (usa caché interna)
-async function queryKnowledgeBase(kbId, searchQuery, filters, limit = 10) {
-    if (!currentOrganization) return [];
+// Ejecuta una consulta a la base de datos (usa caché interna).
+// Devuelve texto formateado listo para la IA — nunca JSON crudo ni precio_compra.
+async function queryKnowledgeBase(kbId, searchQuery, filters, limit = 25) {
+    if (!currentOrganization) return 'Error: no hay organización activa.';
 
     // No hacer consulta a Firebase si no hay búsqueda ni filtros definidos
     const hasQuery = searchQuery && searchQuery.trim().length > 0;
     const hasFilters = filters && typeof filters === 'object' && Object.keys(filters).length > 0;
-    if (!hasQuery && !hasFilters) return [];
+    if (!hasQuery && !hasFilters) return 'No se especificó ningún criterio de búsqueda.';
 
     try {
-        let results = await getKBRows(kbId);
+        let rows = await getKBRows(kbId);
 
-        // Scoring semántico: ordenar por relevancia sin descartar score=0.
-        // Así la IA siempre recibe resultados, priorizados del más al menos relevante.
+        if (rows.length === 0) return 'No se encontraron productos en la base de datos.';
+
+        // Scoring semántico: retornar sólo filas relevantes (score > 0).
+        // Si ninguna puntúa, devolver todas ordenadas como fallback.
         if (searchQuery) {
             const { terms: qTerms, years: qYears } = expandSearchTerms(searchQuery);
             if (qTerms.size > 0 || qYears.length > 0) {
-                results = results
+                const scored = rows
                     .map(row => ({ row, score: scoreRow(row, qTerms, qYears) }))
-                    .sort((a, b) => b.score - a.score)
-                    .map(({ row }) => row);
+                    .sort((a, b) => b.score - a.score);
+                const matched = scored.filter(({ score }) => score > 0);
+                rows = matched.length > 0
+                    ? matched.map(({ row }) => row)
+                    : scored.map(({ row }) => row);
             }
         }
 
         // Aplicar filtros de columna adicionales
-        if (filters && typeof filters === 'object') {
+        if (hasFilters) {
             Object.entries(filters).forEach(([key, value]) => {
-                results = results.filter(row => {
+                rows = rows.filter(row => {
                     const rowVal = String(row[key] || '').toLowerCase();
                     return rowVal.includes(String(value).toLowerCase());
                 });
             });
         }
 
-        return results.slice(0, Math.min(limit, 50));
+        const total = rows.length;
+        rows = rows.slice(0, Math.min(limit, 50));
+
+        // Formatear como texto legible, excluyendo precio_compra (confidencial)
+        const columns = Object.keys(rows[0] || {}).filter(k => k !== 'id' && k !== 'precio_compra');
+        const formatted = rows.map((row, i) => {
+            return `${i + 1}. ${columns.map(col => `${col}: ${row[col] ?? ''}`).join(' | ')}`;
+        }).join('\n');
+
+        const totalInfo = total > rows.length ? ` (top ${rows.length} de ${total})` : ` (${rows.length})`;
+        return `Resultados${totalInfo}:\n${formatted}`;
     } catch (error) {
         console.error('Error consultando base de datos:', error);
-        return [];
+        return 'Error al consultar la base de datos.';
     }
 }
 
