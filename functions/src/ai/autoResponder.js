@@ -63,16 +63,32 @@ async function buildSystemPrompt(agent, orgId, userMessage) {
     prompt += '- NUNCA inventes precios, existencias ni datos que no estén en tu base de datos.\n';
     prompt += '- NUNCA digas que no tienes acceso a la base de datos, que no puedes consultar en tiempo real, ni que necesitas "verificar después". SIEMPRE tienes acceso — usa la herramienta query_database.\n\n';
 
-    prompt += 'USO DE HERRAMIENTAS:\n';
-    prompt += '- Las herramientas se ejecutan automáticamente. Solo invócalas; el sistema se encarga del resto.\n';
-    prompt += '- save_contact: Cuando el cliente mencione su nombre, empresa o datos → úsala de inmediato. Si llevas 2+ mensajes sin saber su nombre, pregúntaselo.\n';
-    prompt += '- create_order: Cuando el cliente confirme un pedido. Llama save_contact ANTES si no lo has hecho.\n';
+    prompt += 'FLUJO DE TRABAJO OBLIGATORIO (seguir siempre en este orden):\n\n';
 
     const kbIds = agent.knowledgeBases || [];
     if (kbIds.length > 0) {
-        prompt += '- query_database: Para buscar productos que NO estén en los datos de referencia de abajo. Pasa los filtros que tengas (marca, modelo, parte, año, lado, etc.).\n';
+        prompt += 'PASO 1 — BUSCAR PRODUCTOS Y RESOLVER LA CONSULTA (query_database):\n';
+        prompt += '- PRIORIDAD: Cuando el cliente pregunte por piezas, precios o disponibilidad → llama a query_database DE INMEDIATO.\n';
+        prompt += '- Pasa los filtros disponibles: marca, modelo, parte, año, lado, etc.\n';
+        prompt += '- Si la pieza NO está en los datos de referencia, SIEMPRE busca con query_database antes de decir que no la tienes.\n';
+        prompt += '- Resuelve primero la necesidad del cliente (cotización, disponibilidad, opciones). NO pidas datos personales antes de resolver su consulta.\n\n';
     }
-    prompt += '\n';
+
+    prompt += 'PASO 2 — GUARDAR CONTACTO (save_contact):\n';
+    prompt += '- DESPUÉS de resolver la consulta del cliente (darle precio, disponibilidad, opciones), pídele sus datos para rastreo o envío: nombre, empresa/taller, teléfono, etc.\n';
+    prompt += '- Si el cliente ya mencionó su nombre o empresa en cualquier momento → llama a save_contact DE INMEDIATO sin esperar.\n';
+    prompt += '- IMPORTANTE: Debes llamar save_contact ANTES de crear cualquier pedido para que el pedido se vincule al contacto.\n\n';
+
+    prompt += 'PASO 3 — CREAR PEDIDO (create_order):\n';
+    prompt += '- Cuando el cliente CONFIRME que quiere comprar uno o más productos → llama a create_order.\n';
+    prompt += '- REQUISITO: save_contact DEBE haberse llamado antes. Si no se ha hecho, pide el nombre primero.\n';
+    prompt += '- Incluye todos los productos con nombre, SKU (si lo tienes), cantidad y precio unitario.\n';
+    prompt += '- Después de crear el pedido, confirma al cliente: número de pedido, productos y total.\n\n';
+
+    prompt += 'REGLAS ADICIONALES:\n';
+    prompt += '- Las herramientas se ejecutan automáticamente. Solo invócalas; el sistema se encarga del resto.\n';
+    prompt += '- NUNCA crees un pedido sin antes haber guardado el contacto.\n';
+    prompt += '- Si el cliente quiere modificar un pedido, crea uno nuevo con los datos actualizados.\n\n';
 
     // ── 3. Datos de referencia de KBs ───────────────────────────────────────
     if (kbIds.length === 0) return prompt;
@@ -192,7 +208,7 @@ function buildToolDefinitions(agent) {
             type: 'function',
             function: {
                 name: 'save_contact',
-                description: 'Registra o actualiza los datos del cliente en el CRM. LLÁMALA INMEDIATAMENTE cuando el cliente mencione su nombre, empresa, taller o cualquier dato personal — no esperes a que haga un pedido. Si llevas varios mensajes sin saber el nombre del cliente, pregúntaselo y en cuanto lo dé, llama a esta función.',
+                description: 'Registra o actualiza los datos del cliente en el CRM. LLÁMALA INMEDIATAMENTE cuando el cliente mencione su nombre, empresa, taller o cualquier dato personal. OBLIGATORIO llamarla ANTES de create_order para que el pedido se vincule al contacto. Si no sabes el nombre del cliente, pregúntaselo.',
                 parameters: {
                     type: 'object',
                     properties: {
@@ -212,7 +228,7 @@ function buildToolDefinitions(agent) {
             type: 'function',
             function: {
                 name: 'create_order',
-                description: 'Crea un nuevo pedido cuando el cliente confirma los productos que desea comprar. Úsala SIEMPRE que el cliente confirme su pedido indicando productos y/o cantidades. Incluye el precio si lo conoces.',
+                description: 'Crea un nuevo pedido cuando el cliente CONFIRMA que quiere comprar. REQUISITO: save_contact DEBE haberse llamado antes para vincular el pedido al contacto. Si no se ha guardado el contacto, pide el nombre primero. Incluye todos los productos con cantidad y precio unitario si lo conoces.',
                 parameters: {
                     type: 'object',
                     properties: {
