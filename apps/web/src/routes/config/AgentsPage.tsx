@@ -198,7 +198,7 @@ function buildTestTools(agent: AIAgent, hasKBs: boolean) {
           properties: {
             searchQuery: { type: 'string', description: 'Búsqueda libre' },
             marca: { type: 'string' }, modelo: { type: 'string' },
-            parte: { type: 'string' }, año: { type: 'number' },
+            parte: { type: 'string' }, anio: { type: 'number' },
             lado: { type: 'string' }, del_tras: { type: 'string' },
             int_ext: { type: 'string' }, limit: { type: 'number' },
           },
@@ -220,7 +220,7 @@ function executeLocalQuery(params: Record<string, unknown>, kbCache: Map<string,
 
   const searchTerms = [
     params.searchQuery, params.marca, params.modelo,
-    params.parte, params.año != null ? String(params.año) : null,
+    params.parte, params.anio != null ? String(params.anio) : null,
     params.lado, params.del_tras, params.int_ext,
   ].filter((s): s is string => !!s).map((s) => String(s).toLowerCase())
 
