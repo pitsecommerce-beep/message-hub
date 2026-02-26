@@ -3432,7 +3432,11 @@ async function sendTestMessage() {
         } else if (errMsg.includes('insufficient_quota') || errMsg.includes('billing')) {
             errMsg = 'Sin crédito disponible en la cuenta del proveedor de IA. Recarga tu saldo.';
         } else if (errMsg.includes('Failed to fetch') || errMsg.includes('NetworkError')) {
-            errMsg = 'Error de conexión. Verifica tu internet o que la API Key y endpoint sean correctos.';
+            if (aiTestAgent?.provider === 'custom') {
+                errMsg = 'Error de conexión con el endpoint personalizado. Verifica que la URL sea correcta y que el servidor tenga CORS habilitado para este dominio (Access-Control-Allow-Origin).';
+            } else {
+                errMsg = 'Error de conexión. Verifica tu internet o que la API Key sea correcta.';
+            }
         }
         appendTestMessage('assistant', `Error: ${errMsg}`);
     } finally {
@@ -4210,9 +4214,11 @@ const AUTOPARTE_EXPANSIONS = {
     'derecho':       ['r', 'der', 'dcho', 'dere'],
     'derecha':       ['r', 'der', 'dcha', 'dere'],
     'right':         ['r', 'der'],
+    'copiloto':      ['r', 'der', 'dcho', 'dere'],
     'izquierdo':     ['l', 'izq', 'izqdo'],
     'izquierda':     ['l', 'izq', 'izqda'],
     'left':          ['l', 'izq'],
+    'piloto':        ['l', 'izq', 'izqdo'],
     // Posición en el vehículo
     'delantero':     ['del', 'front', 'frt', 'delan'],
     'delantera':     ['del', 'front', 'frt', 'delan'],
@@ -4411,8 +4417,8 @@ async function buildAISystemPromptWithData(agent, userMessage) {
     const { terms, years } = expandSearchTerms(userMessage || '');
 
     prompt += '\n\n=== DATOS DE REFERENCIA ===\n';
-    prompt += 'A continuación tienes los datos reales de tus bases de datos. SIEMPRE usa estos datos para responder preguntas sobre productos, precios, disponibilidad, etc.\n';
-    prompt += 'NUNCA inventes datos. Si el cliente pregunta algo que no está en estos datos, dile que no tienes esa información disponible.\n\n';
+    prompt += 'A continuación tienes UNA MUESTRA PARCIAL de tus bases de datos. SIEMPRE usa estos datos para responder preguntas sobre productos, precios, disponibilidad, etc.\n';
+    prompt += 'IMPORTANTE: Estos datos son una muestra — NO representan el inventario completo. Si el cliente pregunta por un producto que no aparece aquí, NO asumas que no existe: DEBES llamar a query_database para verificarlo antes de responder.\nNUNCA inventes precios ni datos.\n\n';
 
     for (const kb of agentKBs) {
         prompt += `--- ${kb.name.toUpperCase()} ---\n`;
@@ -4431,10 +4437,7 @@ async function buildAISystemPromptWithData(agent, userMessage) {
 
             const PROMPT_MAX_ROWS = 15; // balance: contexto amplio sin exceso de tokens
             let rowsToInclude;
-            if (detectedParte) {
-                // Filtrados por Firestore → mostrar todos (ya son ≤30)
-                rowsToInclude = rows;
-            } else if (terms.size > 0 || years.length > 0) {
+            if (terms.size > 0 || years.length > 0) {
                 // Ordenar por relevancia (sin filtrar por score > 0, para no descartar
                 // filas útiles cuando el scoring no hace match perfecto)
                 rowsToInclude = rows
@@ -4446,8 +4449,7 @@ async function buildAISystemPromptWithData(agent, userMessage) {
                 rowsToInclude = rows.slice(0, PROMPT_MAX_ROWS);
             }
 
-            const totalInfo = detectedParte ? '' : ` (de ${rows.length} totales)`;
-            prompt += `Mostrando ${rowsToInclude.length}${totalInfo} registros relevantes:\n\n`;
+            prompt += `Mostrando ${rowsToInclude.length} de ${rows.length} registros relevantes:\n\n`;
 
             rowsToInclude.forEach((row, i) => {
                 const parts = columns.map(col => `${col}: ${row[col] ?? ''}`);
@@ -4465,8 +4467,10 @@ async function buildAISystemPromptWithData(agent, userMessage) {
     prompt += 'INSTRUCCIONES IMPORTANTES:\n';
     prompt += '- Responde SIEMPRE basándote en los datos anteriores.\n';
     prompt += '- Si te preguntan precios, busca el producto en los datos y da el precio exacto.\n';
-    prompt += '- Si un producto no está en los datos mostrados, usa la herramienta query_database con el filtro "parte" correcto para buscar más registros antes de decir que no está disponible.\n';
+    prompt += '- OBLIGATORIO: Si el cliente pregunta por una pieza o producto y no lo ves en los datos de arriba, DEBES llamar a query_database de inmediato para buscarlo. NUNCA respondas "no contamos con esa pieza", "no la tenemos" o similar sin haber llamado primero a query_database y comprobado que realmente no existe.\n';
+    prompt += '- Si el cliente no mencionó una categoría específica, puedes preguntar qué tipo de parte necesita.\n';
     prompt += '- Puedes mencionar productos similares que sí estén en los datos.\n';
+    prompt += '- Si el cliente da su nombre o empresa en cualquier momento, llama a save_contact de inmediato.\n';
     prompt += '- SIEMPRE llama primero a save_contact (con el nombre completo y empresa del cliente) ANTES de llamar a create_order. Esto asegura que el pedido quede asociado al cliente correcto.\n';
 
     return prompt;
@@ -4540,8 +4544,7 @@ function buildAIToolDefinitions(agent) {
             type: 'function',
             function: {
                 name: 'query_database',
-                description: 'Consulta la base de datos de productos cuando necesitas buscar precios, SKUs, disponibilidad o características específicas. '
-                    + 'Úsala siempre que el cliente pregunte por un producto concreto y los datos del prompt no sean suficientes. '
+                description: 'Consulta la base de datos de productos. DEBES llamar a esta función SIEMPRE que el cliente pregunte por una pieza o producto específico. Los datos del system prompt son solo una muestra parcial del inventario — si no ves el producto ahí, NO asumas que no existe: búscalo aquí primero. Úsala también para obtener precios exactos, SKUs y disponibilidad. '
                     + 'Bases disponibles: ' + agentKBs.map(kb => `"${kb.name}" (${(kb.columns || []).join(', ')})`).join('; '),
                 parameters: {
                     type: 'object',
