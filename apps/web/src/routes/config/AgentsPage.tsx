@@ -3,7 +3,7 @@ import { useForm, Controller } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { Bot, Plus, Pencil, Trash2, TestTube2, Send, RefreshCw, Database } from 'lucide-react'
-import { collection, doc, getDoc, getDocs } from 'firebase/firestore'
+import { collection, doc, getDoc, getDocs, addDoc, updateDoc, query, where, serverTimestamp, getCountFromServer } from 'firebase/firestore'
 import { db as firestoreDb } from '@/lib/firebase'
 import { useAppStore } from '@/store/app.store'
 import {
@@ -122,7 +122,7 @@ function buildEnrichedPrompt(agent: AIAgent, kbCache: Map<string, KBCache>): str
   prompt += '- Cuando el cliente CONFIRME que quiere comprar → llama a create_order.\n'
   prompt += '- REQUISITO: save_contact DEBE haberse llamado antes.\n'
   prompt += '- Incluye productos con nombre, SKU, cantidad y precio unitario.\n'
-  prompt += '- Confirma al cliente: número de pedido, productos y total.\n\n'
+  prompt += '- SIEMPRE comparte al cliente su número de pedido, resumen de productos y total. Dile que puede usarlo para dar seguimiento o consultas.\n\n'
   prompt += 'REGLAS ADICIONALES:\n'
   prompt += '- Las herramientas se ejecutan automáticamente.\n'
   prompt += '- NUNCA crees un pedido sin antes haber guardado el contacto.\n\n'
@@ -256,10 +256,79 @@ function executeLocalQuery(params: Record<string, unknown>, kbCache: Map<string,
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function executeTestTool(name: string, params: any, kbCache: Map<string, KBCache>): string {
+async function executeTestTool(name: string, params: any, kbCache: Map<string, KBCache>, orgId: string | undefined): Promise<string> {
   if (name === 'query_database') return executeLocalQuery(params, kbCache)
-  if (name === 'save_contact') return `Contacto registrado: ${params.name || 'Cliente'}`
-  if (name === 'create_order') return `Pedido registrado con ${(params.items || []).length} producto(s).`
+  if (!orgId) return 'Error: sin organización configurada.'
+
+  if (name === 'save_contact') {
+    try {
+      const phone = params.phone ? String(params.phone).trim() : ''
+      const contactsRef = collection(firestoreDb, 'organizations', orgId, 'contacts')
+
+      // Dedup por teléfono: si ya existe un contacto con ese número, actualizar
+      if (phone) {
+        const q = query(contactsRef, where('phone', '==', phone))
+        const existing = await getDocs(q)
+        if (!existing.empty) {
+          const existingDoc = existing.docs[0]
+          await updateDoc(existingDoc.ref, {
+            ...params,
+            updatedAt: serverTimestamp(),
+          })
+          return `Contacto ya existente actualizado: ${params.name || existingDoc.data().name}. Teléfono: ${phone}`
+        }
+      }
+
+      // Crear contacto nuevo
+      await addDoc(contactsRef, {
+        ...params,
+        funnelStage: 'curioso',
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      })
+      return `Contacto creado: ${params.name || 'Cliente'}${phone ? `. Teléfono: ${phone}` : ''}`
+    } catch (err) {
+      console.error('[executeTestTool] Error saving contact:', err)
+      return `Error al guardar contacto: ${(err as Error).message}`
+    }
+  }
+
+  if (name === 'create_order') {
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const items = (params.items || []).map((item: any) => ({
+        product: String(item.product || ''),
+        sku: String(item.sku || ''),
+        quantity: Number(item.quantity) || 1,
+        unitPrice: Number(item.unitPrice) || 0,
+        notes: String(item.notes || ''),
+      }))
+      const total = items.reduce((sum: number, i: { quantity: number; unitPrice: number }) => sum + i.quantity * i.unitPrice, 0)
+
+      // Generar número de pedido secuencial
+      const ordersRef = collection(firestoreDb, 'organizations', orgId, 'orders')
+      const countSnap = await getCountFromServer(ordersRef)
+      const count = countSnap.data().count || 0
+      const orderNumber = 'PED-' + String(count + 1).padStart(5, '0')
+
+      await addDoc(ordersRef, {
+        orderNumber,
+        items,
+        total,
+        notes: params.notes || '',
+        status: 'nuevo',
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+        createdBy: 'ai',
+      })
+
+      return `Pedido creado exitosamente. Número de pedido: ${orderNumber}. Total: $${total.toFixed(2)}. Comparte este número al cliente para que pueda dar seguimiento.`
+    } catch (err) {
+      console.error('[executeTestTool] Error creating order:', err)
+      return `Error al crear pedido: ${(err as Error).message}`
+    }
+  }
+
   return 'OK'
 }
 
@@ -341,9 +410,9 @@ function AgentTestDialog({
       let reply: string
 
       if (agent.provider === 'anthropic') {
-        reply = await callAnthropicMultiTurn(agent, apiKey, systemPrompt, newMessages, tools, kbCache)
+        reply = await callAnthropicMultiTurn(agent, apiKey, systemPrompt, newMessages, tools, kbCache, orgId)
       } else {
-        reply = await callOpenAIMultiTurn(agent, apiKey, systemPrompt, newMessages, tools, kbCache)
+        reply = await callOpenAIMultiTurn(agent, apiKey, systemPrompt, newMessages, tools, kbCache, orgId)
       }
 
       setMessages([...newMessages, { role: 'assistant', content: reply }])
@@ -467,7 +536,7 @@ async function callOpenAIMultiTurn(
   agent: AIAgent, apiKey: string, systemPrompt: string,
   chatMessages: TestMessage[],
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  tools: any[], kbCache: Map<string, KBCache>,
+  tools: any[], kbCache: Map<string, KBCache>, orgId: string | undefined,
 ): Promise<string> {
   const endpoint = (agent.provider === 'custom' && (agent as AIAgent & { endpoint?: string }).endpoint)
     ? (agent as AIAgent & { endpoint?: string }).endpoint!
@@ -499,12 +568,13 @@ async function callOpenAIMultiTurn(
 
     // Native tool calls
     if (choice?.finish_reason === 'tool_calls' || choice?.message?.tool_calls?.length) {
-      const toolResults = (choice.message.tool_calls || []).map(
+      const toolResults = await Promise.all(
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (tc: any) => {
+        (choice.message.tool_calls || []).map(async (tc: any) => {
           const args = JSON.parse(tc.function.arguments)
-          return { role: 'tool' as const, tool_call_id: tc.id, content: executeTestTool(tc.function.name, args, kbCache) }
-        },
+          const content = await executeTestTool(tc.function.name, args, kbCache, orgId)
+          return { role: 'tool' as const, tool_call_id: tc.id, content }
+        }),
       )
       history.push(choice.message)
       history.push(...toolResults)
@@ -520,7 +590,7 @@ async function callAnthropicMultiTurn(
   agent: AIAgent, apiKey: string, systemPrompt: string,
   chatMessages: TestMessage[],
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  tools: any[], kbCache: Map<string, KBCache>,
+  tools: any[], kbCache: Map<string, KBCache>, orgId: string | undefined,
 ): Promise<string> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const history: any[] = chatMessages.map((m) => ({ role: m.role, content: m.content }))
@@ -553,11 +623,13 @@ async function callAnthropicMultiTurn(
     const toolUseBlocks = (data.content || []).filter((b: any) => b.type === 'tool_use')
 
     if (toolUseBlocks.length > 0) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const results = toolUseBlocks.map((tb: any) => ({
-        type: 'tool_result' as const, tool_use_id: tb.id,
-        content: executeTestTool(tb.name, tb.input, kbCache),
-      }))
+      const results = await Promise.all(
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        toolUseBlocks.map(async (tb: any) => ({
+          type: 'tool_result' as const, tool_use_id: tb.id,
+          content: await executeTestTool(tb.name, tb.input, kbCache, orgId),
+        })),
+      )
       history.push({ role: 'assistant', content: data.content })
       history.push({ role: 'user', content: results })
       continue

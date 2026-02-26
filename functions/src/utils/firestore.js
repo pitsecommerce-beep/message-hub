@@ -262,27 +262,57 @@ async function saveOrUpdateContact(orgId, convId, contactData) {
             .collection('organizations').doc(orgId)
             .collection('contacts').doc(existingContactId)
             .update({ ...data, updatedAt: FieldValue.serverTimestamp() });
-        return { success: true, action: 'updated', name: data.name };
-    } else {
-        const docRef = await db
+        return { success: true, action: 'updated', name: data.name, contactId: existingContactId };
+    }
+
+    // ── Deduplicación por teléfono ──────────────────────────────────────────
+    // Antes de crear un contacto nuevo, verificar si ya existe uno con el
+    // mismo número de teléfono en la organización.
+    const phone = data.phone || conv.contactPhone || '';
+    if (phone) {
+        const phoneSnap = await db
             .collection('organizations').doc(orgId)
             .collection('contacts')
-            .add({
-                ...data,
-                funnelStage: 'curioso',
-                createdAt:   FieldValue.serverTimestamp(),
-                updatedAt:   FieldValue.serverTimestamp(),
-            });
-        await db
-            .collection('organizations').doc(orgId)
-            .collection('conversations').doc(convId)
-            .update({
-                contactId:    docRef.id,
-                contactName:  data.name,
-                contactPhone: data.phone || conv.contactPhone || '',
-            });
-        return { success: true, action: 'created', name: data.name, contactId: docRef.id };
+            .where('phone', '==', phone)
+            .limit(1)
+            .get();
+
+        if (!phoneSnap.empty) {
+            const existingDoc = phoneSnap.docs[0];
+            await existingDoc.ref.update({ ...data, updatedAt: FieldValue.serverTimestamp() });
+            // Vincular la conversación al contacto existente
+            await db
+                .collection('organizations').doc(orgId)
+                .collection('conversations').doc(convId)
+                .update({
+                    contactId:    existingDoc.id,
+                    contactName:  data.name || existingDoc.data().name,
+                    contactPhone: phone,
+                });
+            return { success: true, action: 'updated', name: data.name, contactId: existingDoc.id };
+        }
     }
+
+    // ── Crear contacto nuevo ────────────────────────────────────────────────
+    const docRef = await db
+        .collection('organizations').doc(orgId)
+        .collection('contacts')
+        .add({
+            ...data,
+            phone,
+            funnelStage: 'curioso',
+            createdAt:   FieldValue.serverTimestamp(),
+            updatedAt:   FieldValue.serverTimestamp(),
+        });
+    await db
+        .collection('organizations').doc(orgId)
+        .collection('conversations').doc(convId)
+        .update({
+            contactId:    docRef.id,
+            contactName:  data.name,
+            contactPhone: phone,
+        });
+    return { success: true, action: 'created', name: data.name, contactId: docRef.id };
 }
 
 // ---------------------------------------------------------------------------
