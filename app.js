@@ -4408,11 +4408,11 @@ async function buildAISystemPromptWithData(agent, userMessage) {
            + '3. PEDIDO: SIEMPRE llama primero a save_contact y después a create_order. Nunca al revés.\n'
            + '4. save_contact se puede llamar varias veces para ir actualizando datos del cliente.';
 
-    const agentKBs = (agent.knowledgeBases || [])
-        .map(kbId => knowledgeBases.find(kb => kb.id === kbId))
-        .filter(Boolean);
-
-    if (agentKBs.length === 0) return prompt;
+    // Usar IDs raw del agente como fuente de verdad.
+    // Si el metadata está cargado en knowledgeBases, úsalo para enriquecer el prompt.
+    // Si no está cargado (timing o cualquier razón), aún cargamos las filas con el ID raw.
+    const agentKbIds = agent.knowledgeBases || [];
+    if (agentKbIds.length === 0) return prompt;
 
     const { terms, years } = expandSearchTerms(userMessage || '');
 
@@ -4420,20 +4420,22 @@ async function buildAISystemPromptWithData(agent, userMessage) {
     prompt += 'A continuación tienes UNA MUESTRA PARCIAL de tus bases de datos. SIEMPRE usa estos datos para responder preguntas sobre productos, precios, disponibilidad, etc.\n';
     prompt += 'IMPORTANTE: Estos datos son una muestra — NO representan el inventario completo. Si el cliente pregunta por un producto que no aparece aquí, NO asumas que no existe: DEBES llamar a query_database para verificarlo antes de responder.\nNUNCA inventes precios ni datos.\n\n';
 
-    for (const kb of agentKBs) {
-        prompt += `--- ${kb.name.toUpperCase()} ---\n`;
-        if (kb.description) prompt += `(${kb.description})\n`;
-        prompt += `Columnas: ${(kb.columns || []).join(' | ')}\n\n`;
+    for (const kbId of agentKbIds) {
+        const kb = knowledgeBases.find(k => k.id === kbId);
+        const kbName = kb?.name || kbId;
+        prompt += `--- ${kbName.toUpperCase()} ---\n`;
+        if (kb?.description) prompt += `(${kb.description})\n`;
+        if (kb?.columns?.length) prompt += `Columnas: ${kb.columns.join(' | ')}\n\n`;
 
         try {
-            const rows = await getKBRows(kb.id);
+            const rows = await getKBRows(kbId);
 
             if (rows.length === 0) {
                 prompt += '(Sin datos cargados en esta base)\n\n';
                 continue;
             }
 
-            const columns = kb.columns || Object.keys(rows[0]).filter(k => k !== 'id');
+            const columns = kb?.columns || Object.keys(rows[0]).filter(k => k !== 'id' && k !== 'precio_compra');
 
             const PROMPT_MAX_ROWS = 15; // balance: contexto amplio sin exceso de tokens
             let rowsToInclude;
@@ -4458,7 +4460,7 @@ async function buildAISystemPromptWithData(agent, userMessage) {
 
             prompt += '\n';
         } catch (err) {
-            console.error(`Error cargando datos de KB ${kb.id}:`, err);
+            console.error(`Error cargando datos de KB ${kbId}:`, err);
             prompt += '(Error al cargar datos)\n\n';
         }
     }
@@ -4535,24 +4537,32 @@ function buildAIToolDefinitions(agent) {
     });
 
     // --- Herramienta 3: consultar base de datos (solo si hay KBs) ---
-    const agentKBs = (agent.knowledgeBases || [])
+    // Usar los IDs raw del agente como fuente de verdad para el enum.
+    // No depender de que el metadata esté cargado en el array global knowledgeBases:
+    // si no está cargado, la herramienta se omite incorrectamente y el modelo
+    // genera pseudo-XML en lugar de un tool_use real.
+    const agentKbIds = agent.knowledgeBases || [];
+    const agentKBsMeta = agentKbIds
         .map(kbId => knowledgeBases.find(kb => kb.id === kbId))
         .filter(Boolean);
 
-    if (agentKBs.length > 0) {
+    if (agentKbIds.length > 0) {
+        const basesInfo = agentKBsMeta.length > 0
+            ? agentKBsMeta.map(kb => `"${kb.name}" (${(kb.columns || []).join(', ')})`).join('; ')
+            : agentKbIds.join(', ');
         tools.push({
             type: 'function',
             function: {
                 name: 'query_database',
                 description: 'Consulta la base de datos de productos. DEBES llamar a esta función SIEMPRE que el cliente pregunte por una pieza o producto específico. Los datos del system prompt son solo una muestra parcial del inventario — si no ves el producto ahí, NO asumas que no existe: búscalo aquí primero. Úsala también para obtener precios exactos, SKUs y disponibilidad. '
-                    + 'Bases disponibles: ' + agentKBs.map(kb => `"${kb.name}" (${(kb.columns || []).join(', ')})`).join('; '),
+                    + 'Bases disponibles: ' + basesInfo,
                 parameters: {
                     type: 'object',
                     properties: {
                         knowledgeBaseId: {
                             type: 'string',
                             description: 'ID de la base de datos a consultar',
-                            enum: agentKBs.map(kb => kb.id),
+                            enum: agentKbIds,
                         },
                         searchQuery: {
                             type: 'string',
