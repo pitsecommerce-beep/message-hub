@@ -233,25 +233,48 @@ function buildToolDefinitions(agent) {
             type: 'function',
             function: {
                 name: 'query_database',
-                description: 'Consulta la base de datos de productos. DEBES llamar a esta función SIEMPRE que el cliente pregunte por una pieza o producto específico. Los datos del system prompt son solo una muestra parcial del inventario — si no ves el producto ahí, NO asumas que no existe: búscalo aquí primero. Úsala también para obtener precios exactos, SKUs y disponibilidad.',
+                description: 'Consulta el inventario de productos. DEBES llamar a esta función SIEMPRE que el cliente pregunte por piezas, precios o disponibilidad. Pasa los datos que el cliente mencione: marca, modelo, año, tipo de pieza, lado, etc. No inventes resultados — si no encuentras, dilo honestamente.',
                 parameters: {
                     type: 'object',
                     properties: {
-                        knowledgeBaseId: {
-                            type: 'string',
-                            enum: kbIds,
-                            description: 'ID de la base de datos a consultar',
-                        },
                         searchQuery: {
                             type: 'string',
-                            description: 'Texto de búsqueda: describe el producto con marca, modelo, año, SKU u otras características',
+                            description: 'Búsqueda libre: cualquier término descriptivo del producto',
+                        },
+                        marca: {
+                            type: 'string',
+                            description: 'Marca del vehículo. Ej: TOYOTA, NISSAN, CHEVROLET, AUDI, HONDA',
+                        },
+                        modelo: {
+                            type: 'string',
+                            description: 'Modelo del vehículo. Ej: COROLLA, SENTRA, TRAX, A1, CIVIC',
+                        },
+                        parte: {
+                            type: 'string',
+                            description: 'Categoría de la pieza. Ej: ESPEJOS, FAROS, MANIJAS EXTERIORES, DEFENSAS DELANTERAS, CALAVERAS',
+                        },
+                        año: {
+                            type: 'number',
+                            description: 'Año del vehículo. Ej: 2015',
+                        },
+                        lado: {
+                            type: 'string',
+                            description: 'IZQUIERDA o DERECHA (conductor=IZQUIERDA, copiloto=DERECHA)',
+                        },
+                        del_tras: {
+                            type: 'string',
+                            description: 'DELANTERA o TRASERA',
+                        },
+                        int_ext: {
+                            type: 'string',
+                            description: 'INTERIOR o EXTERIOR',
                         },
                         limit: {
                             type: 'number',
                             description: 'Máximo de resultados a devolver (default: 25, máx: 50)',
                         },
                     },
-                    required: ['knowledgeBaseId', 'searchQuery'],
+                    required: [],
                 },
             },
         });
@@ -265,49 +288,84 @@ function buildToolDefinitions(agent) {
 // ---------------------------------------------------------------------------
 
 /**
- * Ejecuta una consulta semántica a la KB.
+ * Ejecuta una consulta a la KB con búsqueda en dos fases:
+ *   Fase 1 — Filtro exacto por marca y parte (campos confiables, siempre presentes).
+ *   Fase 2 — Scoring semántico por modelo, año, lado, del_tras, int_ext y searchQuery.
  *
- * @param {string} orgId
- * @param {{ knowledgeBaseId: string, searchQuery?: string, limit?: number }} args
- * @returns {Promise<string>} - Resultado formateado para el modelo de IA
+ * Acepta parámetros estructurados (marca, modelo, parte, año, lado, del_tras, int_ext)
+ * además del texto libre searchQuery. Si no se pasa knowledgeBaseId, usa la primera KB
+ * del agente automáticamente.
+ *
+ * @param {string}   orgId
+ * @param {object}   args    - Parámetros de la herramienta (ver buildToolDefinitions)
+ * @param {string[]} kbIds   - IDs de KBs del agente (fallback si no viene knowledgeBaseId)
+ * @returns {Promise<string>}
  */
-async function executeQueryDatabase(orgId, args) {
+async function executeQueryDatabase(orgId, args, kbIds) {
     try {
-        const kbId       = args.knowledgeBaseId;
-        const searchQuery = args.searchQuery || '';
-        const limit       = Math.min(Number(args.limit) || 25, 50);
+        // Auto-selección de KB: usa la que el modelo indique o la primera del agente
+        const kbId = args.knowledgeBaseId || (Array.isArray(kbIds) && kbIds.length > 0 ? kbIds[0] : null);
+        if (!kbId) return 'No hay base de datos configurada para esta consulta.';
 
-        const rows = await loadKBRows(orgId, kbId);
+        const limit = Math.min(Number(args.limit) || 25, 50);
+        const rows  = await loadKBRows(orgId, kbId);
 
         if (rows.length === 0) {
             return 'No se encontraron productos en la base de datos.';
         }
 
-        // Scoring semántico: retornar sólo filas relevantes (score > 0) para
-        // minimizar los tokens enviados al modelo. Si ninguna fila puntúa,
-        // se devuelven las primeras `limit` filas como fallback.
-        let results = rows;
-        if (searchQuery) {
-            const { terms, years } = expandSearchTerms(searchQuery);
+        // ── Fase 1: filtro exacto (no-excluyente) por campos de alta confianza ──────
+        // Solo aplica el filtro si reduce el conjunto; si elimina todo, lo ignora.
+        let candidates = rows;
+
+        if (args.marca) {
+            const val      = String(args.marca).toUpperCase().trim();
+            const filtered = candidates.filter(r => String(r.marca || '').toUpperCase().includes(val));
+            if (filtered.length > 0) candidates = filtered;
+        }
+
+        if (args.parte) {
+            const val      = String(args.parte).toUpperCase().trim();
+            const filtered = candidates.filter(r => String(r.parte || '').toUpperCase().includes(val));
+            if (filtered.length > 0) candidates = filtered;
+        }
+
+        // ── Fase 2: scoring semántico sobre los candidatos restantes ─────────────────
+        // Combina todos los filtros opcionales en un único texto de búsqueda.
+        const scoreParts = [
+            args.searchQuery  || '',
+            args.modelo       || '',
+            args.año          ? String(args.año) : '',
+            args.lado         || '',
+            args.del_tras     || '',
+            args.int_ext      || '',
+        ].filter(Boolean).join(' ').trim();
+
+        if (scoreParts) {
+            const { terms, years } = expandSearchTerms(scoreParts);
             if (terms.size > 0 || years.length > 0) {
-                const scored = rows
-                    .map(row => ({ row, score: scoreRow(row, terms, years) }))
-                    .sort((a, b) => b.score - a.score);
-                const matched = scored.filter(({ score }) => score > 0);
-                results = matched.length > 0
-                    ? matched.map(({ row }) => row)
-                    : scored.map(({ row }) => row);   // fallback: all rows sorted
+                const scored  = candidates.map(row => ({ row, score: scoreRow(row, terms, years) }))
+                                          .sort((a, b) => b.score - a.score);
+                const matched = scored.filter(s => s.score > 0);
+                // Si hay matches con score > 0, úsalos; si no, mantén el orden filtrado
+                if (matched.length > 0) candidates = matched.map(s => s.row);
             }
         }
 
-        results = results.slice(0, limit);
-        const columns = Object.keys(results[0]).filter(k => k !== 'id');
-        const formatted = results.map((row, i) => {
-            return `${i + 1}. ${columns.map(col => `${col}: ${row[col] ?? ''}`).join(' | ')}`;
-        }).join('\n');
+        const results = candidates.slice(0, limit);
+        if (results.length === 0) {
+            return 'No se encontraron productos con los criterios especificados.';
+        }
 
-        const totalInfo = rows.length > limit ? ` (top ${results.length} de ${rows.length})` : ` (${results.length})`;
-        return `Resultados${totalInfo}:\n${formatted}`;
+        const columns   = Object.keys(results[0]).filter(k => k !== 'id');
+        const formatted = results.map((row, i) =>
+            `${i + 1}. ${columns.map(col => `${col}: ${row[col] ?? ''}`).join(' | ')}`
+        ).join('\n');
+
+        const info = candidates.length > limit
+            ? ` (top ${results.length} de ${candidates.length})`
+            : ` (${results.length})`;
+        return `Resultados${info}:\n${formatted}`;
     } catch (err) {
         console.error('[executeQueryDatabase] Error:', err);
         return 'Error al consultar la base de datos.';
@@ -315,19 +373,100 @@ async function executeQueryDatabase(orgId, args) {
 }
 
 // ---------------------------------------------------------------------------
+// Helper: limpia artefactos de herramientas que el modelo pudiera filtrar en texto
+// ---------------------------------------------------------------------------
+
+/**
+ * Elimina bloques XML de function-calls que algunos modelos incluyen en el
+ * texto de la respuesta (comportamiento legacy / modelos que no soportan
+ * tool_use nativo). También normaliza espacios en blanco extra.
+ *
+ * @param {string} text
+ * @returns {string}
+ */
+function cleanResponse(text) {
+    if (!text) return text;
+    return text
+        .replace(/<function_calls>[\s\S]*?<\/function_calls>/gi, '')
+        .replace(/<invoke[\s\S]*?<\/antml:invoke>/gi, '')
+        .replace(/\n{3,}/g, '\n\n')
+        .trim();
+}
+
+// ---------------------------------------------------------------------------
 // Llamadas a proveedores de IA (con soporte de herramientas)
 // ---------------------------------------------------------------------------
 
 /**
- * Llama a OpenAI. Si el modelo invoca save_contact, ejecuta la herramienta
- * y hace una segunda llamada para obtener el mensaje final al cliente.
+ * Ejecuta las herramientas solicitadas por el modelo (OpenAI format).
+ * Devuelve el array de tool results para agregar al historial.
+ */
+async function executeToolCallsOpenAI(toolCalls, orgId, convId, kbIds) {
+    const results = [];
+    for (const tc of toolCalls) {
+        let content;
+        const args = JSON.parse(tc.function.arguments);
+
+        if (tc.function.name === 'save_contact') {
+            const r = await saveOrUpdateContact(orgId, convId, args);
+            content = r.success
+                ? `Contacto ${r.action === 'created' ? 'creado' : 'actualizado'} correctamente: ${r.name}`
+                : `Error al guardar contacto: ${r.message}`;
+        } else if (tc.function.name === 'create_order') {
+            const r = await createOrder(orgId, convId, args);
+            content = r.success
+                ? `Pedido creado. Número: ${r.orderNumber}. Total: $${(r.total || 0).toFixed(2)}.`
+                : `Error al crear pedido: ${r.message}`;
+        } else if (tc.function.name === 'query_database') {
+            content = await executeQueryDatabase(orgId, args, kbIds);
+        } else {
+            content = 'Herramienta no reconocida.';
+        }
+
+        results.push({ role: 'tool', tool_call_id: tc.id, content });
+    }
+    return results;
+}
+
+/**
+ * Ejecuta las herramientas solicitadas por el modelo (Anthropic format).
+ * Devuelve el array de tool_result contents para el siguiente turno.
+ */
+async function executeToolCallsAnthropic(toolUseBlocks, orgId, convId, kbIds) {
+    const results = [];
+    for (const tb of toolUseBlocks) {
+        let content;
+
+        if (tb.name === 'save_contact') {
+            const r = await saveOrUpdateContact(orgId, convId, tb.input);
+            content = r.success
+                ? `Contacto ${r.action === 'created' ? 'creado' : 'actualizado'} correctamente: ${r.name}`
+                : `Error al guardar contacto: ${r.message}`;
+        } else if (tb.name === 'create_order') {
+            const r = await createOrder(orgId, convId, tb.input);
+            content = r.success
+                ? `Pedido creado. Número: ${r.orderNumber}. Total: $${(r.total || 0).toFixed(2)}.`
+                : `Error al crear pedido: ${r.message}`;
+        } else if (tb.name === 'query_database') {
+            content = await executeQueryDatabase(orgId, tb.input, kbIds);
+        } else {
+            content = 'Herramienta no reconocida.';
+        }
+
+        results.push({ type: 'tool_result', tool_use_id: tb.id, content });
+    }
+    return results;
+}
+
+/**
+ * Llama a la API de OpenAI con soporte de herramientas (multi-turno: hasta 5 rondas).
  *
- * @param {object} agent
- * @param {string} systemPrompt
+ * @param {object}   agent
+ * @param {string}   systemPrompt
  * @param {object[]} messages
  * @param {object[]} tools
- * @param {string} orgId
- * @param {string} convId
+ * @param {string}   orgId
+ * @param {string}   convId
  * @returns {Promise<string>}
  */
 async function callOpenAI(agent, systemPrompt, messages, tools, orgId, convId) {
@@ -335,95 +474,67 @@ async function callOpenAI(agent, systemPrompt, messages, tools, orgId, convId) {
         ? agent.endpoint
         : 'https://api.openai.com/v1/chat/completions';
 
-    const body = {
-        model:       agent.model,
-        messages:    [{ role: 'system', content: systemPrompt }, ...messages],
-        max_tokens:  1024,
-        temperature: 0.7,
-    };
-    if (tools.length > 0) body.tools = tools;
+    const kbIds    = agent.knowledgeBases || [];
+    const history  = [{ role: 'system', content: systemPrompt }, ...messages];
+    const MAX_ROUNDS = 5;
 
-    const res = await fetch(endpoint, {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${agent.apiKey}` },
-        body:    JSON.stringify(body),
-    });
+    for (let round = 0; round < MAX_ROUNDS; round++) {
+        const body = {
+            model:       agent.model,
+            messages:    history,
+            max_tokens:  2048,
+            temperature: 0.7,
+        };
+        if (tools.length > 0) body.tools = tools;
 
-    if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err.error?.message || `OpenAI error ${res.status}`);
+        const res = await fetch(endpoint, {
+            method:  'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${agent.apiKey}` },
+            body:    JSON.stringify(body),
+        });
+
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err.error?.message || `OpenAI error ${res.status}`);
+        }
+
+        const data   = await res.json();
+        const choice = data.choices?.[0];
+
+        // Sin tool calls → respuesta final
+        if (choice?.finish_reason !== 'tool_calls' && !choice?.message?.tool_calls?.length) {
+            return cleanResponse(choice?.message?.content || '');
+        }
+
+        // Ejecutar las herramientas y continuar el ciclo
+        const toolResults = await executeToolCallsOpenAI(
+            choice.message.tool_calls || [], orgId, convId, kbIds
+        );
+
+        // Agregar la respuesta del asistente y los resultados al historial
+        history.push(choice.message);
+        history.push(...toolResults);
     }
 
-    const data   = await res.json();
-    const choice = data.choices?.[0];
-
-    // Manejar llamadas a herramientas
-    if (choice?.finish_reason === 'tool_calls' || choice?.message?.tool_calls) {
-        const toolResults = [];
-        for (const tc of (choice.message.tool_calls || [])) {
-            if (tc.function.name === 'save_contact') {
-                const args   = JSON.parse(tc.function.arguments);
-                const result = await saveOrUpdateContact(orgId, convId, args);
-                toolResults.push({
-                    role:         'tool',
-                    tool_call_id: tc.id,
-                    content: result.success
-                        ? `Contacto ${result.action === 'created' ? 'creado' : 'actualizado'} correctamente: ${result.name}`
-                        : `Error al guardar contacto: ${result.message}`,
-                });
-            } else if (tc.function.name === 'create_order') {
-                const args   = JSON.parse(tc.function.arguments);
-                const result = await createOrder(orgId, convId, args);
-                toolResults.push({
-                    role:         'tool',
-                    tool_call_id: tc.id,
-                    content: result.success
-                        ? `Pedido creado correctamente. Número: ${result.orderNumber}. Total: $${(result.total || 0).toFixed(2)}.`
-                        : `Error al crear pedido: ${result.message}`,
-                });
-            } else if (tc.function.name === 'query_database') {
-                const args   = JSON.parse(tc.function.arguments);
-                const content = await executeQueryDatabase(orgId, args);
-                toolResults.push({ role: 'tool', tool_call_id: tc.id, content });
-            }
-        }
-        if (toolResults.length > 0) {
-            const res2 = await fetch(endpoint, {
-                method:  'POST',
-                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${agent.apiKey}` },
-                body: JSON.stringify({
-                    model:    agent.model,
-                    messages: [{ role: 'system', content: systemPrompt }, ...messages, choice.message, ...toolResults],
-                    max_tokens:  1024,
-                    temperature: 0.7,
-                }),
-            });
-            if (!res2.ok) {
-                const err2 = await res2.json().catch(() => ({}));
-                throw new Error(err2.error?.message || `OpenAI error ${res2.status}`);
-            }
-            const data2 = await res2.json();
-            return data2.choices?.[0]?.message?.content || '';
-        }
-    }
-
-    return choice?.message?.content || '';
+    return '';
 }
 
 /**
- * Llama a Anthropic. Si el modelo invoca save_contact, ejecuta la herramienta
- * y hace una segunda llamada para obtener el mensaje final al cliente.
+ * Llama a la API de Anthropic con soporte de herramientas (multi-turno: hasta 5 rondas).
  *
- * @param {object} agent
- * @param {string} systemPrompt
+ * @param {object}   agent
+ * @param {string}   systemPrompt
  * @param {object[]} messages
  * @param {object[]} tools
- * @param {string} orgId
- * @param {string} convId
+ * @param {string}   orgId
+ * @param {string}   convId
  * @returns {Promise<string>}
  */
 async function callAnthropic(agent, systemPrompt, messages, tools, orgId, convId) {
-    const anthropicMessages = messages.map(m => ({
+    const kbIds = agent.knowledgeBases || [];
+
+    // Anthropic necesita los mensajes sin el rol 'system'
+    const anthropicHistory = messages.map(m => ({
         role:    m.role === 'assistant' ? 'assistant' : 'user',
         content: m.content,
     }));
@@ -434,82 +545,50 @@ async function callAnthropic(agent, systemPrompt, messages, tools, orgId, convId
         input_schema: t.function.parameters,
     }));
 
-    const body = {
-        model:       agent.model,
-        max_tokens:  1024,
-        system:      systemPrompt,
-        messages:    anthropicMessages,
-        ...(anthropicTools.length > 0 ? { tools: anthropicTools } : {}),
-    };
+    const MAX_ROUNDS = 5;
 
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/json', 'x-api-key': agent.apiKey, 'anthropic-version': '2023-06-01' },
-        body:    JSON.stringify(body),
-    });
+    for (let round = 0; round < MAX_ROUNDS; round++) {
+        const body = {
+            model:      agent.model,
+            max_tokens: 2048,
+            system:     systemPrompt,
+            messages:   anthropicHistory,
+            ...(anthropicTools.length > 0 ? { tools: anthropicTools } : {}),
+        };
 
-    if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err.error?.message || `Anthropic error ${res.status}`);
+        const res = await fetch('https://api.anthropic.com/v1/messages', {
+            method:  'POST',
+            headers: {
+                'Content-Type':    'application/json',
+                'x-api-key':       agent.apiKey,
+                'anthropic-version': '2023-06-01',
+            },
+            body: JSON.stringify(body),
+        });
+
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err.error?.message || `Anthropic error ${res.status}`);
+        }
+
+        const data          = await res.json();
+        const toolUseBlocks = (data.content || []).filter(b => b.type === 'tool_use');
+
+        // Sin tool_use → respuesta final: toma el primer bloque de texto
+        if (toolUseBlocks.length === 0) {
+            const textBlock = (data.content || []).find(b => b.type === 'text');
+            return cleanResponse(textBlock?.text || '');
+        }
+
+        // Ejecutar las herramientas y continuar el ciclo
+        const toolResults = await executeToolCallsAnthropic(toolUseBlocks, orgId, convId, kbIds);
+
+        // Agregar la respuesta del asistente (con tool_use) y los resultados al historial
+        anthropicHistory.push({ role: 'assistant', content: data.content });
+        anthropicHistory.push({ role: 'user',      content: toolResults });
     }
 
-    const data          = await res.json();
-    const toolUseBlocks = (data.content || []).filter(b => b.type === 'tool_use');
-
-    if (toolUseBlocks.length > 0) {
-        const toolResultContents = [];
-        for (const tb of toolUseBlocks) {
-            if (tb.name === 'save_contact') {
-                const result = await saveOrUpdateContact(orgId, convId, tb.input);
-                toolResultContents.push({
-                    type:        'tool_result',
-                    tool_use_id: tb.id,
-                    content: result.success
-                        ? `Contacto ${result.action === 'created' ? 'creado' : 'actualizado'} correctamente: ${result.name}`
-                        : `Error al guardar contacto: ${result.message}`,
-                });
-            } else if (tb.name === 'create_order') {
-                const result = await createOrder(orgId, convId, tb.input);
-                toolResultContents.push({
-                    type:        'tool_result',
-                    tool_use_id: tb.id,
-                    content: result.success
-                        ? `Pedido creado correctamente. Número: ${result.orderNumber}. Total: $${(result.total || 0).toFixed(2)}.`
-                        : `Error al crear pedido: ${result.message}`,
-                });
-            } else if (tb.name === 'query_database') {
-                const content = await executeQueryDatabase(orgId, tb.input);
-                toolResultContents.push({ type: 'tool_result', tool_use_id: tb.id, content });
-            }
-        }
-        if (toolResultContents.length > 0) {
-            const res2 = await fetch('https://api.anthropic.com/v1/messages', {
-                method:  'POST',
-                headers: { 'Content-Type': 'application/json', 'x-api-key': agent.apiKey, 'anthropic-version': '2023-06-01' },
-                body: JSON.stringify({
-                    model:    agent.model,
-                    max_tokens: 1024,
-                    system:   systemPrompt,
-                    messages: [
-                        ...anthropicMessages,
-                        { role: 'assistant', content: data.content },
-                        { role: 'user',      content: toolResultContents },
-                    ],
-                    ...(anthropicTools.length > 0 ? { tools: anthropicTools } : {}),
-                }),
-            });
-            if (!res2.ok) {
-                const err2 = await res2.json().catch(() => ({}));
-                throw new Error(err2.error?.message || `Anthropic error ${res2.status}`);
-            }
-            const data2     = await res2.json();
-            const textBlock = (data2.content || []).find(b => b.type === 'text');
-            return textBlock?.text || '';
-        }
-    }
-
-    const textBlock = (data.content || []).find(b => b.type === 'text');
-    return textBlock?.text || '';
+    return '';
 }
 
 // ---------------------------------------------------------------------------
