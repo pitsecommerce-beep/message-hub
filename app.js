@@ -3446,9 +3446,106 @@ async function sendTestMessage() {
     }
 }
 
+// ── Limpieza de respuestas del modelo (quita XML, narración interna) ────────
+function cleanAIResponse(text) {
+    if (!text) return text;
+    let cleaned = text;
+
+    // Bloques XML de function-calls
+    cleaned = cleaned.replace(/<function_calls>[\s\S]*?<\/function_calls>/gi, '');
+    cleaned = cleaned.replace(/<invoke[\s\S]*?<\/invoke>/gi, '');
+    cleaned = cleaned.replace(/<invoke[\s\S]*?<\/antml:invoke>/gi, '');
+    cleaned = cleaned.replace(/<parameter[\s\S]*?<\/parameter>/gi, '');
+    cleaned = cleaned.replace(/<\/?(function_calls|invoke|parameter|antml:invoke)[^>]*>/gi, '');
+
+    // Bloques markdown de código con tool calls
+    cleaned = cleaned.replace(/```[a-z]*\n?[\s\S]*?```/g, (match) => {
+        if (/invoke|function_call|query_database|save_contact|create_order|<parameter/i.test(match)) return '';
+        return match;
+    });
+
+    // Narrativa de consultas internas
+    const narrativePatterns = [
+        /[Dd]éjame\s+(consultar|verificar|revisar|buscar|checar)\s+[^.!?\n]*[.…]{0,3}\s*/g,
+        /[Vv]oy\s+a\s+(consultar|verificar|revisar|buscar|checar)\s+[^.!?\n]*[.…]{0,3}\s*/g,
+        /[Pp]ermíteme\s+(consultar|verificar|revisar|buscar|checar)\s+[^.!?\n]*[.…]{0,3}\s*/g,
+        /[Cc]onsultando\s+(en\s+)?(el\s+)?(sistema|inventario|base\s+de\s+datos)[^.!?\n]*[.…]{0,3}\s*/g,
+        /[Ll]isto,?\s*déjame\s+revisar\s+[^.!?\n]*[.…]{0,3}\s*/g,
+        /[Uu]n\s+momento\s+(mientras|que)\s+(consulto|verifico|reviso|busco)[^.!?\n]*[.…]{0,3}\s*/g,
+    ];
+    for (const pattern of narrativePatterns) {
+        cleaned = cleaned.replace(pattern, '');
+    }
+
+    cleaned = cleaned.replace(/\n{3,}/g, '\n\n').trim();
+    return cleaned;
+}
+
+// ── Parseo de tool calls XML incrustados en texto ───────────────────────────
+function parseTextToolCallsFromResponse(text) {
+    if (!text) return [];
+    const calls = [];
+    const invokeRegex = /<invoke\s+name="([^"]+)">([\s\S]*?)<\/invoke>/gi;
+    let match;
+    while ((match = invokeRegex.exec(text)) !== null) {
+        const name = match[1];
+        const body = match[2];
+        const params = {};
+        const paramRegex = /<parameter\s+name="([^"]+)">([\s\S]*?)<\/parameter>/gi;
+        let pm;
+        while ((pm = paramRegex.exec(body)) !== null) {
+            let val = pm[2].trim();
+            if (/^\d+(\.\d+)?$/.test(val)) val = Number(val);
+            params[pm[1]] = val;
+        }
+        calls.push({ name, params });
+    }
+    return calls;
+}
+
+// ── Ejecutar tool calls recuperados del texto (browser-side) ────────────────
+async function executeRecoveredToolCalls(calls, agent) {
+    const results = [];
+    for (const call of calls) {
+        let content;
+        try {
+            if (call.name === 'query_database') {
+                const kbId = call.params.knowledgeBaseId
+                    || (agent.knowledgeBases?.length ? agent.knowledgeBases[0] : null);
+                if (kbId) {
+                    content = await queryKnowledgeBase(
+                        kbId,
+                        call.params.searchQuery || '',
+                        call.params,
+                        call.params.limit || 25
+                    );
+                } else {
+                    content = 'No hay base de datos configurada.';
+                }
+            } else if (call.name === 'save_contact') {
+                const r = await saveContactFromAI(call.params);
+                content = r.success
+                    ? `Contacto ${r.action}: ${r.name}`
+                    : `Error: ${r.message}`;
+            } else if (call.name === 'create_order') {
+                const r = await createOrderFromAI(call.params);
+                content = r.success
+                    ? `Pedido ${r.orderNumber}. Total: $${(r.total || 0).toFixed(2)}`
+                    : `Error: ${r.message}`;
+            } else {
+                continue;
+            }
+        } catch (err) {
+            console.error(`Error ejecutando ${call.name} recuperado:`, err);
+            content = `Error al ejecutar ${call.name}.`;
+        }
+        results.push({ name: call.name, content });
+    }
+    return results.length > 0 ? results : null;
+}
+
 // Call AI provider API (OpenAI / Anthropic / Custom)
 async function callAIProvider(agent, messages) {
-    // Extraer el último mensaje del usuario para filtrar filas relevantes de la KB
     const lastUserMsg = [...messages].reverse().find(m => m.role === 'user');
     const userMessage = lastUserMsg?.content || '';
     const systemPrompt = await buildAISystemPromptWithData(agent, userMessage);
@@ -3466,202 +3563,138 @@ async function callOpenAI(agent, systemPrompt, messages, tools) {
         ? agent.endpoint
         : 'https://api.openai.com/v1/chat/completions';
 
-    const apiMessages = [
+    const history = [
         { role: 'system', content: systemPrompt },
         ...messages
     ];
 
-    const body = {
-        model: agent.model,
-        messages: apiMessages,
-        max_tokens: 1024,
-        temperature: 0.7
-    };
+    const MAX_ROUNDS = 5;
 
-    if (tools.length > 0) {
-        body.tools = tools;
-    }
+    for (let round = 0; round < MAX_ROUNDS; round++) {
+        const body = {
+            model: agent.model,
+            messages: history,
+            max_tokens: 2048,
+            temperature: 0.7
+        };
+        if (tools.length > 0) body.tools = tools;
 
-    const res = await fetch(endpoint, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${agent.apiKey}`
-        },
-        body: JSON.stringify(body)
-    });
-
-    if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err.error?.message || `Error ${res.status}: ${res.statusText}`);
-    }
-
-    const data = await res.json();
-    const choice = data.choices?.[0];
-
-    // Handle function calling (tool use)
-    if (choice?.finish_reason === 'tool_calls' || choice?.message?.tool_calls) {
-        const toolCalls = choice.message.tool_calls;
-        const toolResults = [];
-
-        for (const tc of toolCalls) {
-            if (tc.function.name === 'query_database') {
-                const args = JSON.parse(tc.function.arguments);
-                const results = await queryKnowledgeBase(
-                    args.knowledgeBaseId,
-                    args.searchQuery || '',
-                    args.filters || {},
-                    args.limit || 25
-                );
-                toolResults.push({
-                    role: 'tool',
-                    tool_call_id: tc.id,
-                    content: results
-                });
-            } else if (tc.function.name === 'save_contact') {
-                const args = JSON.parse(tc.function.arguments);
-                const result = await saveContactFromAI(args);
-                toolResults.push({
-                    role: 'tool',
-                    tool_call_id: tc.id,
-                    content: result.success
-                        ? `Contacto ${result.action === 'created' ? 'creado' : 'actualizado'} correctamente: ${result.name}`
-                        : `Error al guardar contacto: ${result.message}`
-                });
-            } else if (tc.function.name === 'create_order') {
-                const args = JSON.parse(tc.function.arguments);
-                const result = await createOrderFromAI(args);
-                toolResults.push({
-                    role: 'tool',
-                    tool_call_id: tc.id,
-                    content: result.success
-                        ? `Pedido creado correctamente. Número: ${result.orderNumber}. Total: $${result.total.toLocaleString('es-MX', { minimumFractionDigits: 2 })}.`
-                        : `Error al crear pedido: ${result.message}`
-                });
-            }
-        }
-
-        // Second call with tool results
-        const followUpMessages = [
-            { role: 'system', content: systemPrompt },
-            ...messages,
-            choice.message,
-            ...toolResults
-        ];
-
-        const res2 = await fetch(endpoint, {
+        const res = await fetch(endpoint, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
                 'Authorization': `Bearer ${agent.apiKey}`
             },
-            body: JSON.stringify({
-                model: agent.model,
-                messages: followUpMessages,
-                max_tokens: 1024,
-                temperature: 0.7
-            })
+            body: JSON.stringify(body)
         });
 
-        if (!res2.ok) {
-            const err2 = await res2.json().catch(() => ({}));
-            throw new Error(err2.error?.message || `Error ${res2.status}`);
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err.error?.message || `Error ${res.status}: ${res.statusText}`);
         }
 
-        const data2 = await res2.json();
-        return data2.choices?.[0]?.message?.content || 'Sin respuesta del modelo.';
+        const data = await res.json();
+        const choice = data.choices?.[0];
+
+        // ── Ruta nativa: tool calls via API ─────────────────────────────
+        if (choice?.finish_reason === 'tool_calls' || choice?.message?.tool_calls?.length) {
+            const toolCalls = choice.message.tool_calls;
+            const toolResults = [];
+
+            for (const tc of toolCalls) {
+                const args = JSON.parse(tc.function.arguments);
+                let content;
+
+                if (tc.function.name === 'query_database') {
+                    const kbId = args.knowledgeBaseId
+                        || (agent.knowledgeBases?.length ? agent.knowledgeBases[0] : null);
+                    content = kbId
+                        ? await queryKnowledgeBase(kbId, args.searchQuery || '', args, args.limit || 25)
+                        : 'No hay base de datos configurada.';
+                } else if (tc.function.name === 'save_contact') {
+                    const r = await saveContactFromAI(args);
+                    content = r.success
+                        ? `Contacto ${r.action === 'created' ? 'creado' : 'actualizado'}: ${r.name}`
+                        : `Error: ${r.message}`;
+                } else if (tc.function.name === 'create_order') {
+                    const r = await createOrderFromAI(args);
+                    content = r.success
+                        ? `Pedido creado. Número: ${r.orderNumber}. Total: $${(r.total || 0).toFixed(2)}.`
+                        : `Error: ${r.message}`;
+                } else {
+                    content = 'Herramienta no reconocida.';
+                }
+
+                toolResults.push({ role: 'tool', tool_call_id: tc.id, content });
+            }
+
+            history.push(choice.message);
+            history.push(...toolResults);
+            continue;
+        }
+
+        // ── Respuesta final (texto) ─────────────────────────────────────
+        const rawText = choice?.message?.content || '';
+
+        // ── Recuperación: tool calls XML en texto ───────────────────────
+        if (round < MAX_ROUNDS - 1) {
+            const textCalls = parseTextToolCallsFromResponse(rawText);
+            if (textCalls.length > 0) {
+                const recovered = await executeRecoveredToolCalls(textCalls, agent);
+                if (recovered) {
+                    const resultsText = recovered
+                        .map(r => `[Resultado de ${r.name}]:\n${r.content}`)
+                        .join('\n\n');
+
+                    history.push({
+                        role: 'assistant',
+                        content: cleanAIResponse(rawText) || 'Consulté el inventario.',
+                    });
+                    history.push({
+                        role: 'user',
+                        content: '[SISTEMA] Los resultados de la consulta al inventario son:\n\n'
+                            + resultsText + '\n\n'
+                            + 'Responde al cliente directamente con esta información. '
+                            + 'Presenta producto, precio, disponibilidad y tiempo de entrega. '
+                            + 'NO narres que hiciste una consulta. NO incluyas XML ni etiquetas.',
+                    });
+                    continue;
+                }
+            }
+        }
+
+        return cleanAIResponse(rawText) || 'Sin respuesta del modelo.';
     }
 
-    return choice?.message?.content || 'Sin respuesta del modelo.';
+    return 'Sin respuesta del modelo.';
 }
 
 async function callAnthropic(agent, systemPrompt, messages, tools) {
-    const anthropicMessages = messages.map(m => ({
+    const anthropicHistory = messages.map(m => ({
         role: m.role === 'assistant' ? 'assistant' : 'user',
         content: m.content
     }));
 
-    const body = {
-        model: agent.model,
-        max_tokens: 1024,
-        system: systemPrompt,
-        messages: anthropicMessages
-    };
-
-    // Convert OpenAI tools format to Anthropic format
-    if (tools.length > 0) {
-        body.tools = tools.map(t => ({
+    const anthropicTools = tools.length > 0
+        ? tools.map(t => ({
             name: t.function.name,
             description: t.function.description,
             input_schema: t.function.parameters
-        }));
-    }
+        }))
+        : [];
 
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'x-api-key': agent.apiKey,
-            'anthropic-version': '2023-06-01',
-            'anthropic-dangerous-direct-browser-access': 'true'
-        },
-        body: JSON.stringify(body)
-    });
+    const MAX_ROUNDS = 5;
 
-    if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err.error?.message || `Error ${res.status}: ${res.statusText}`);
-    }
+    for (let round = 0; round < MAX_ROUNDS; round++) {
+        const body = {
+            model: agent.model,
+            max_tokens: 2048,
+            system: systemPrompt,
+            messages: anthropicHistory,
+            ...(anthropicTools.length > 0 ? { tools: anthropicTools } : {}),
+        };
 
-    const data = await res.json();
-
-    // Handle tool use
-    const toolUseBlocks = (data.content || []).filter(b => b.type === 'tool_use');
-    if (toolUseBlocks.length > 0) {
-        const toolResultContents = [];
-
-        for (const tb of toolUseBlocks) {
-            if (tb.name === 'query_database') {
-                const results = await queryKnowledgeBase(
-                    tb.input.knowledgeBaseId,
-                    tb.input.searchQuery || '',
-                    tb.input.filters || {},
-                    tb.input.limit || 25
-                );
-                toolResultContents.push({
-                    type: 'tool_result',
-                    tool_use_id: tb.id,
-                    content: results
-                });
-            } else if (tb.name === 'save_contact') {
-                const result = await saveContactFromAI(tb.input);
-                toolResultContents.push({
-                    type: 'tool_result',
-                    tool_use_id: tb.id,
-                    content: result.success
-                        ? `Contacto ${result.action === 'created' ? 'creado' : 'actualizado'} correctamente: ${result.name}`
-                        : `Error al guardar contacto: ${result.message}`
-                });
-            } else if (tb.name === 'create_order') {
-                const result = await createOrderFromAI(tb.input);
-                toolResultContents.push({
-                    type: 'tool_result',
-                    tool_use_id: tb.id,
-                    content: result.success
-                        ? `Pedido creado correctamente. Número: ${result.orderNumber}. Total: $${result.total.toLocaleString('es-MX', { minimumFractionDigits: 2 })}.`
-                        : `Error al crear pedido: ${result.message}`
-                });
-            }
-        }
-
-        // Second call with tool results
-        const followUpMessages = [
-            ...anthropicMessages,
-            { role: 'assistant', content: data.content },
-            { role: 'user', content: toolResultContents }
-        ];
-
-        const res2 = await fetch('https://api.anthropic.com/v1/messages', {
+        const res = await fetch('https://api.anthropic.com/v1/messages', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -3669,27 +3702,87 @@ async function callAnthropic(agent, systemPrompt, messages, tools) {
                 'anthropic-version': '2023-06-01',
                 'anthropic-dangerous-direct-browser-access': 'true'
             },
-            body: JSON.stringify({
-                model: agent.model,
-                max_tokens: 1024,
-                system: systemPrompt,
-                messages: followUpMessages,
-                tools: body.tools
-            })
+            body: JSON.stringify(body)
         });
 
-        if (!res2.ok) {
-            const err2 = await res2.json().catch(() => ({}));
-            throw new Error(err2.error?.message || `Error ${res2.status}`);
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err.error?.message || `Error ${res.status}: ${res.statusText}`);
         }
 
-        const data2 = await res2.json();
-        const textBlocks = (data2.content || []).filter(b => b.type === 'text');
-        return textBlocks.map(b => b.text).join('\n') || 'Sin respuesta del modelo.';
+        const data = await res.json();
+        const toolUseBlocks = (data.content || []).filter(b => b.type === 'tool_use');
+
+        // ── Ruta nativa: tool_use via API ───────────────────────────────
+        if (toolUseBlocks.length > 0) {
+            const toolResultContents = [];
+
+            for (const tb of toolUseBlocks) {
+                let content;
+
+                if (tb.name === 'query_database') {
+                    const kbId = tb.input.knowledgeBaseId
+                        || (agent.knowledgeBases?.length ? agent.knowledgeBases[0] : null);
+                    content = kbId
+                        ? await queryKnowledgeBase(kbId, tb.input.searchQuery || '', tb.input, tb.input.limit || 25)
+                        : 'No hay base de datos configurada.';
+                } else if (tb.name === 'save_contact') {
+                    const r = await saveContactFromAI(tb.input);
+                    content = r.success
+                        ? `Contacto ${r.action === 'created' ? 'creado' : 'actualizado'}: ${r.name}`
+                        : `Error: ${r.message}`;
+                } else if (tb.name === 'create_order') {
+                    const r = await createOrderFromAI(tb.input);
+                    content = r.success
+                        ? `Pedido creado. Número: ${r.orderNumber}. Total: $${(r.total || 0).toFixed(2)}.`
+                        : `Error: ${r.message}`;
+                } else {
+                    content = 'Herramienta no reconocida.';
+                }
+
+                toolResultContents.push({ type: 'tool_result', tool_use_id: tb.id, content });
+            }
+
+            anthropicHistory.push({ role: 'assistant', content: data.content });
+            anthropicHistory.push({ role: 'user', content: toolResultContents });
+            continue;
+        }
+
+        // ── Respuesta final (texto) ─────────────────────────────────────
+        const textBlock = (data.content || []).find(b => b.type === 'text');
+        const rawText = textBlock?.text || '';
+
+        // ── Recuperación: tool calls XML en texto ───────────────────────
+        if (round < MAX_ROUNDS - 1) {
+            const textCalls = parseTextToolCallsFromResponse(rawText);
+            if (textCalls.length > 0) {
+                const recovered = await executeRecoveredToolCalls(textCalls, agent);
+                if (recovered) {
+                    const resultsText = recovered
+                        .map(r => `[Resultado de ${r.name}]:\n${r.content}`)
+                        .join('\n\n');
+
+                    anthropicHistory.push({
+                        role: 'assistant',
+                        content: cleanAIResponse(rawText) || 'Consulté el inventario.',
+                    });
+                    anthropicHistory.push({
+                        role: 'user',
+                        content: '[SISTEMA] Los resultados de la consulta al inventario son:\n\n'
+                            + resultsText + '\n\n'
+                            + 'Responde al cliente directamente con esta información. '
+                            + 'Presenta producto, precio, disponibilidad y tiempo de entrega. '
+                            + 'NO narres que hiciste una consulta. NO incluyas XML ni etiquetas.',
+                    });
+                    continue;
+                }
+            }
+        }
+
+        return cleanAIResponse(rawText) || 'Sin respuesta del modelo.';
     }
 
-    const textBlocks = (data.content || []).filter(b => b.type === 'text');
-    return textBlocks.map(b => b.text).join('\n') || 'Sin respuesta del modelo.';
+    return 'Sin respuesta del modelo.';
 }
 
 // ========== BASES DE DATOS / KNOWLEDGE BASES ==========
@@ -4400,25 +4493,37 @@ function scoreRow(row, terms, years) {
 // Versión asíncrona que carga datos filtrados de Firestore y los embebe en el prompt
 // userMessage: último mensaje del usuario para filtrar filas relevantes (máx 30)
 async function buildAISystemPromptWithData(agent, userMessage) {
+    // ── 1. Prompt base del usuario ──────────────────────────────────────────
     let prompt = agent.systemPrompt || '';
-    // Always remind AI to call save_contact before create_order
-    prompt += '\n\nREGLAS OBLIGATORIAS DE HERRAMIENTAS:\n'
-           + '1. CONTACTO: Si el cliente dice su nombre o empresa en CUALQUIER mensaje → llama a save_contact DE INMEDIATO, sin esperar.\n'
-           + '2. CONTACTO: Si llevas 2+ mensajes sin saber el nombre del cliente → pregúntaselo ("¿Con quién tengo el gusto?" o similar).\n'
-           + '3. PEDIDO: SIEMPRE llama primero a save_contact y después a create_order. Nunca al revés.\n'
-           + '4. save_contact se puede llamar varias veces para ir actualizando datos del cliente.';
 
-    // Usar IDs raw del agente como fuente de verdad.
-    // Si el metadata está cargado en knowledgeBases, úsalo para enriquecer el prompt.
-    // Si no está cargado (timing o cualquier razón), aún cargamos las filas con el ID raw.
+    // ── 2. Reglas de formato (aplican SIEMPRE) ─────────────────────────────
+    prompt += '\n\n---\nREGLAS DE FORMATO DE RESPUESTA (obligatorias):\n';
+    prompt += '- Responde SIEMPRE de forma directa con la información. NUNCA narres el proceso interno ("déjame consultar...", "buscando en sistema...", "revisando resultados...").\n';
+    prompt += '- NUNCA incluyas XML, JSON, etiquetas HTML, bloques de código, ni sintaxis técnica en tus respuestas al cliente.\n';
+    prompt += '- NUNCA muestres los parámetros ni nombres de herramientas internas (query_database, save_contact, etc.).\n';
+    prompt += '- Si ya tienes la información para responder (producto, precio, disponibilidad), preséntala de inmediato SIN hacer preguntas adicionales.\n';
+    prompt += '- Solo pregunta al cliente datos que sean GENUINAMENTE necesarios para identificar la pieza y que NO puedas inferir del contexto.\n';
+    prompt += '- Sé conciso y directo. El cliente usa mensajería instantánea y prefiere mensajes cortos.\n';
+    prompt += '- NUNCA inventes precios, existencias ni datos que no estén en tu base de datos.\n\n';
+
+    prompt += 'USO DE HERRAMIENTAS:\n';
+    prompt += '- Las herramientas se ejecutan automáticamente. Solo invócalas; el sistema se encarga del resto.\n';
+    prompt += '- save_contact: Cuando el cliente mencione su nombre, empresa o datos → úsala de inmediato. Si llevas 2+ mensajes sin saber su nombre, pregúntaselo.\n';
+    prompt += '- create_order: Cuando el cliente confirme un pedido. Llama save_contact ANTES si no lo has hecho.\n';
+
     const agentKbIds = agent.knowledgeBases || [];
+    if (agentKbIds.length > 0) {
+        prompt += '- query_database: Para buscar productos que NO estén en los datos de referencia de abajo.\n';
+    }
+    prompt += '\n';
+
+    // ── 3. Datos de referencia de KBs ───────────────────────────────────────
     if (agentKbIds.length === 0) return prompt;
 
     const { terms, years } = expandSearchTerms(userMessage || '');
 
-    prompt += '\n\n=== DATOS DE REFERENCIA ===\n';
-    prompt += 'A continuación tienes UNA MUESTRA PARCIAL de tus bases de datos. SIEMPRE usa estos datos para responder preguntas sobre productos, precios, disponibilidad, etc.\n';
-    prompt += 'IMPORTANTE: Estos datos son una muestra — NO representan el inventario completo. Si el cliente pregunta por un producto que no aparece aquí, NO asumas que no existe: DEBES llamar a query_database para verificarlo antes de responder.\nNUNCA inventes precios ni datos.\n\n';
+    prompt += '=== DATOS DE REFERENCIA (muestra del inventario) ===\n';
+    prompt += 'Usa estos datos para responder. Si el producto NO aparece aquí, llama a query_database.\n\n';
 
     for (const kbId of agentKbIds) {
         const kb = knowledgeBases.find(k => k.id === kbId);
@@ -4431,27 +4536,27 @@ async function buildAISystemPromptWithData(agent, userMessage) {
             const rows = await getKBRows(kbId);
 
             if (rows.length === 0) {
-                prompt += '(Sin datos cargados en esta base)\n\n';
+                prompt += '(Sin datos cargados)\n\n';
                 continue;
             }
 
             const columns = kb?.columns || Object.keys(rows[0]).filter(k => k !== 'id' && k !== 'precio_compra');
 
-            const PROMPT_MAX_ROWS = 15; // balance: contexto amplio sin exceso de tokens
+            const PROMPT_MAX_ROWS = 15;
             let rowsToInclude;
             if (terms.size > 0 || years.length > 0) {
-                // Ordenar por relevancia (sin filtrar por score > 0, para no descartar
-                // filas útiles cuando el scoring no hace match perfecto)
-                rowsToInclude = rows
+                const scored = rows
                     .map(row => ({ row, score: scoreRow(row, terms, years) }))
-                    .sort((a, b) => b.score - a.score)
-                    .slice(0, PROMPT_MAX_ROWS)
-                    .map(({ row }) => row);
+                    .sort((a, b) => b.score - a.score);
+                const matched = scored.filter(({ score }) => score > 0).slice(0, PROMPT_MAX_ROWS);
+                rowsToInclude = matched.length > 0
+                    ? matched.map(({ row }) => row)
+                    : rows.slice(0, PROMPT_MAX_ROWS);
             } else {
                 rowsToInclude = rows.slice(0, PROMPT_MAX_ROWS);
             }
 
-            prompt += `Mostrando ${rowsToInclude.length} de ${rows.length} registros relevantes:\n\n`;
+            prompt += `Mostrando ${rowsToInclude.length} de ${rows.length} registros:\n\n`;
 
             rowsToInclude.forEach((row, i) => {
                 const parts = columns.map(col => `${col}: ${row[col] ?? ''}`);
@@ -4465,15 +4570,13 @@ async function buildAISystemPromptWithData(agent, userMessage) {
         }
     }
 
+    // ── 4. Instrucciones post-datos ─────────────────────────────────────────
     prompt += '=== FIN DE DATOS ===\n\n';
-    prompt += 'INSTRUCCIONES IMPORTANTES:\n';
-    prompt += '- Responde SIEMPRE basándote en los datos anteriores.\n';
-    prompt += '- Si te preguntan precios, busca el producto en los datos y da el precio exacto.\n';
-    prompt += '- OBLIGATORIO: Si el cliente pregunta por una pieza o producto y no lo ves en los datos de arriba, DEBES llamar a query_database de inmediato para buscarlo. NUNCA respondas "no contamos con esa pieza", "no la tenemos" o similar sin haber llamado primero a query_database y comprobado que realmente no existe.\n';
-    prompt += '- Si el cliente no mencionó una categoría específica, puedes preguntar qué tipo de parte necesita.\n';
-    prompt += '- Puedes mencionar productos similares que sí estén en los datos.\n';
-    prompt += '- Si el cliente da su nombre o empresa en cualquier momento, llama a save_contact de inmediato.\n';
-    prompt += '- SIEMPRE llama primero a save_contact (con el nombre completo y empresa del cliente) ANTES de llamar a create_order. Esto asegura que el pedido quede asociado al cliente correcto.\n';
+    prompt += 'CÓMO USAR LOS DATOS:\n';
+    prompt += '- Si el producto aparece arriba → úsalo directamente para dar precio, disponibilidad y tiempo de entrega.\n';
+    prompt += '- Si NO aparece arriba → llama a query_database con los datos del cliente (marca, modelo, parte, año, etc.).\n';
+    prompt += '- NUNCA digas "no tenemos esa pieza" sin antes haber buscado con query_database.\n';
+    prompt += '- Si query_database no devuelve resultados, entonces sí informa que no se encontró y ofrece alternativas o escalar con un asesor.\n';
 
     return prompt;
 }
