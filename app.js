@@ -3466,12 +3466,14 @@ function cleanAIResponse(text) {
 
     // Narrativa de consultas internas
     const narrativePatterns = [
-        /[Dd]éjame\s+(consultar|verificar|revisar|buscar|checar)\s+[^.!?\n]*[.…]{0,3}\s*/g,
-        /[Vv]oy\s+a\s+(consultar|verificar|revisar|buscar|checar)\s+[^.!?\n]*[.…]{0,3}\s*/g,
-        /[Pp]ermíteme\s+(consultar|verificar|revisar|buscar|checar)\s+[^.!?\n]*[.…]{0,3}\s*/g,
+        /[Dd]éjame\s+(consultar|verificar|revisar|buscar|checar)\w*\s*[^.!?\n]*[.…]{0,3}\s*/g,
+        /[Vv]oy\s+a\s+(consultar|verificar|revisar|buscar|checar)\w*\s*[^.!?\n]*[.…]{0,3}\s*/g,
+        /[Pp]ermíteme\s+(consultar|verificar|revisar|buscar|checar)\w*\s*[^.!?\n]*[.…]{0,3}\s*/g,
         /[Cc]onsultando\s+(en\s+)?(el\s+)?(sistema|inventario|base\s+de\s+datos)[^.!?\n]*[.…]{0,3}\s*/g,
+        /[Bb]uscando\s+(en\s+)?(el\s+)?(sistema|inventario|base\s+de\s+datos|catálogo)[^.!?\n]*[.…*]{0,5}\s*/g,
         /[Ll]isto,?\s*déjame\s+revisar\s+[^.!?\n]*[.…]{0,3}\s*/g,
         /[Uu]n\s+momento\s+(mientras|que)\s+(consulto|verifico|reviso|busco)[^.!?\n]*[.…]{0,3}\s*/g,
+        /🔍[^.!?\n]*[.…*]{0,5}\s*/g,
     ];
     for (const pattern of narrativePatterns) {
         cleaned = cleaned.replace(pattern, '');
@@ -4504,7 +4506,8 @@ async function buildAISystemPromptWithData(agent, userMessage) {
     prompt += '- Si ya tienes la información para responder (producto, precio, disponibilidad), preséntala de inmediato SIN hacer preguntas adicionales.\n';
     prompt += '- Solo pregunta al cliente datos que sean GENUINAMENTE necesarios para identificar la pieza y que NO puedas inferir del contexto.\n';
     prompt += '- Sé conciso y directo. El cliente usa mensajería instantánea y prefiere mensajes cortos.\n';
-    prompt += '- NUNCA inventes precios, existencias ni datos que no estén en tu base de datos.\n\n';
+    prompt += '- NUNCA inventes precios, existencias ni datos que no estén en tu base de datos.\n';
+    prompt += '- NUNCA digas que no tienes acceso a la base de datos, que no puedes consultar en tiempo real, ni que necesitas "verificar después". SIEMPRE tienes acceso — usa la herramienta query_database.\n\n';
 
     prompt += 'USO DE HERRAMIENTAS:\n';
     prompt += '- Las herramientas se ejecutan automáticamente. Solo invócalas; el sistema se encarga del resto.\n';
