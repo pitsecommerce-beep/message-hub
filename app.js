@@ -4495,107 +4495,32 @@ function scoreRow(row, terms, years) {
 // Versión asíncrona que carga datos filtrados de Firestore y los embebe en el prompt
 // userMessage: último mensaje del usuario para filtrar filas relevantes (máx 30)
 async function buildAISystemPromptWithData(agent, userMessage) {
-    // ── 1. Prompt base del usuario ──────────────────────────────────────────
     let prompt = agent.systemPrompt || '';
 
-    // ── 2. Reglas de formato (aplican SIEMPRE) ─────────────────────────────
-    prompt += '\n\n---\nREGLAS DE FORMATO DE RESPUESTA (obligatorias):\n';
-    prompt += '- Responde SIEMPRE de forma directa con la información. NUNCA narres el proceso interno ("déjame consultar...", "buscando en sistema...", "revisando resultados...").\n';
-    prompt += '- NUNCA incluyas XML, JSON, etiquetas HTML, bloques de código, ni sintaxis técnica en tus respuestas al cliente.\n';
-    prompt += '- NUNCA muestres los parámetros ni nombres de herramientas internas (query_database, save_contact, etc.).\n';
-    prompt += '- Si ya tienes la información para responder (producto, precio, disponibilidad), preséntala de inmediato SIN hacer preguntas adicionales.\n';
-    prompt += '- Solo pregunta al cliente datos que sean GENUINAMENTE necesarios para identificar la pieza y que NO puedas inferir del contexto.\n';
-    prompt += '- Sé conciso y directo. El cliente usa mensajería instantánea y prefiere mensajes cortos.\n';
-    prompt += '- NUNCA inventes precios, existencias ni datos que no estén en tu base de datos.\n';
-    prompt += '- NUNCA digas que no tienes acceso a la base de datos, que no puedes consultar en tiempo real, ni que necesitas "verificar después". SIEMPRE tienes acceso — usa la herramienta query_database.\n\n';
+    prompt += '\n\n---\nREGLAS:\n';
+    prompt += '- Responde directo. No narres proceso interno ("déjame buscar...", "consultando...").\n';
+    prompt += '- Sin XML/JSON/código/nombres de herramientas en respuestas al cliente.\n';
+    prompt += '- No inventes precios, existencias ni números de pedido.\n';
+    prompt += '- DEBES LLAMAR las herramientas para ejecutar acciones. NUNCA simules que ya lo hiciste. Si no llamaste save_contact, el contacto NO se guardó. Si no llamaste create_order, el pedido NO se creó.\n\n';
 
-    prompt += 'FLUJO DE TRABAJO OBLIGATORIO (seguir siempre en este orden):\n\n';
-
+    prompt += 'FLUJO:\n';
     const agentKbIds = agent.knowledgeBases || [];
     if (agentKbIds.length > 0) {
-        prompt += 'PASO 1 — BUSCAR PRODUCTOS Y RESOLVER LA CONSULTA (query_database):\n';
-        prompt += '- PRIORIDAD: Cuando el cliente pregunte por piezas, precios o disponibilidad → llama a query_database DE INMEDIATO.\n';
-        prompt += '- Pasa los filtros disponibles: marca, modelo, parte, año, lado, etc.\n';
-        prompt += '- Si la pieza NO está en los datos de referencia, SIEMPRE busca con query_database antes de decir que no la tienes.\n';
-        prompt += '- Resuelve primero la necesidad del cliente (cotización, disponibilidad, opciones). NO pidas datos personales antes de resolver su consulta.\n\n';
+        prompt += '1. BUSCAR → Llama query_database con marca, modelo, parte, anio, lado. Nunca digas "no tenemos" sin buscar primero.\n';
     }
+    prompt += '2. CONTACTO → Pide nombre + número de celular (OBLIGATORIO para validar si ya existe). Llama save_contact con ambos.\n';
+    prompt += '3. PEDIDO → Cuando confirme compra, llama create_order. Comparte al cliente el número de pedido que DEVUELVA la herramienta.\n';
+    prompt += '- Orden obligatorio: save_contact ANTES de create_order.\n\n';
 
-    prompt += 'PASO 2 — GUARDAR CONTACTO (save_contact):\n';
-    prompt += '- DESPUÉS de resolver la consulta del cliente (darle precio, disponibilidad, opciones), pídele sus datos para rastreo o envío: nombre, empresa/taller, teléfono, etc.\n';
-    prompt += '- Si el cliente ya mencionó su nombre o empresa en cualquier momento → llama a save_contact DE INMEDIATO sin esperar.\n';
-    prompt += '- IMPORTANTE: Debes llamar save_contact ANTES de crear cualquier pedido para que el pedido se vincule al contacto.\n\n';
-
-    prompt += 'PASO 3 — CREAR PEDIDO (create_order):\n';
-    prompt += '- Cuando el cliente CONFIRME que quiere comprar uno o más productos → llama a create_order.\n';
-    prompt += '- REQUISITO: save_contact DEBE haberse llamado antes. Si no se ha hecho, pide el nombre primero.\n';
-    prompt += '- Incluye todos los productos con nombre, SKU (si lo tienes), cantidad y precio unitario.\n';
-    prompt += '- Después de crear el pedido, SIEMPRE comparte al cliente su número de pedido (ej: PED-00001), el resumen de productos y el total. Dile que puede usar ese número para dar seguimiento o hacer consultas posteriores.\n\n';
-
-    prompt += 'REGLAS ADICIONALES:\n';
-    prompt += '- Las herramientas se ejecutan automáticamente. Solo invócalas; el sistema se encarga del resto.\n';
-    prompt += '- NUNCA crees un pedido sin antes haber guardado el contacto.\n';
-    prompt += '- Si el cliente quiere modificar un pedido, crea uno nuevo con los datos actualizados.\n\n';
-
-    // ── 3. Datos de referencia de KBs ───────────────────────────────────────
-    if (agentKbIds.length === 0) return prompt;
-
-    const { terms, years } = expandSearchTerms(userMessage || '');
-
-    prompt += '=== DATOS DE REFERENCIA (muestra del inventario) ===\n';
-    prompt += 'Usa estos datos para responder. Si el producto NO aparece aquí, llama a query_database.\n\n';
-
-    for (const kbId of agentKbIds) {
-        const kb = knowledgeBases.find(k => k.id === kbId);
-        const kbName = kb?.name || kbId;
-        prompt += `--- ${kbName.toUpperCase()} ---\n`;
-        if (kb?.description) prompt += `(${kb.description})\n`;
-        if (kb?.columns?.length) prompt += `Columnas: ${kb.columns.join(' | ')}\n\n`;
-
-        try {
-            const rows = await getKBRows(kbId);
-
-            if (rows.length === 0) {
-                prompt += '(Sin datos cargados)\n\n';
-                continue;
+    if (agentKbIds.length > 0) {
+        for (const kbId of agentKbIds) {
+            const kb = knowledgeBases.find(k => k.id === kbId);
+            if (kb) {
+                prompt += `Base "${kb.name}": columnas: ${(kb.columns || []).join(', ')}.\n`;
             }
-
-            const columns = kb?.columns || Object.keys(rows[0]).filter(k => k !== 'id' && k !== 'precio_compra');
-
-            const PROMPT_MAX_ROWS = 15;
-            let rowsToInclude;
-            if (terms.size > 0 || years.length > 0) {
-                const scored = rows
-                    .map(row => ({ row, score: scoreRow(row, terms, years) }))
-                    .sort((a, b) => b.score - a.score);
-                const matched = scored.filter(({ score }) => score > 0).slice(0, PROMPT_MAX_ROWS);
-                rowsToInclude = matched.length > 0
-                    ? matched.map(({ row }) => row)
-                    : rows.slice(0, PROMPT_MAX_ROWS);
-            } else {
-                rowsToInclude = rows.slice(0, PROMPT_MAX_ROWS);
-            }
-
-            prompt += `Mostrando ${rowsToInclude.length} de ${rows.length} registros:\n\n`;
-
-            rowsToInclude.forEach((row, i) => {
-                const parts = columns.map(col => `${col}: ${row[col] ?? ''}`);
-                prompt += `${i + 1}. ${parts.join(' | ')}\n`;
-            });
-
-            prompt += '\n';
-        } catch (err) {
-            console.error(`Error cargando datos de KB ${kbId}:`, err);
-            prompt += '(Error al cargar datos)\n\n';
         }
+        prompt += 'Usa query_database para buscar productos en estas bases.\n';
     }
-
-    // ── 4. Instrucciones post-datos ─────────────────────────────────────────
-    prompt += '=== FIN DE DATOS ===\n\n';
-    prompt += 'CÓMO USAR LOS DATOS:\n';
-    prompt += '- Si el producto aparece arriba → úsalo directamente para dar precio, disponibilidad y tiempo de entrega.\n';
-    prompt += '- Si NO aparece arriba → llama a query_database con los datos del cliente (marca, modelo, parte, año, etc.).\n';
-    prompt += '- NUNCA digas "no tenemos esa pieza" sin antes haber buscado con query_database.\n';
-    prompt += '- Si query_database no devuelve resultados, entonces sí informa que no se encontró y ofrece alternativas o escalar con un asesor.\n';
 
     return prompt;
 }
@@ -4610,19 +4535,19 @@ function buildAIToolDefinitions(agent) {
         type: 'function',
         function: {
             name: 'save_contact',
-            description: 'Registra o actualiza los datos del cliente en el CRM. LLÁMALA INMEDIATAMENTE cuando el cliente mencione su nombre, empresa, taller o cualquier dato personal. OBLIGATORIO llamarla ANTES de create_order para que el pedido se vincule al contacto. Si no sabes el nombre del cliente, pregúntaselo.',
+            description: 'Guarda o actualiza contacto en CRM. Pide nombre y celular SIEMPRE. El celular valida si ya existe. OBLIGATORIO antes de create_order.',
             parameters: {
                 type: 'object',
                 properties: {
-                    name:    { type: 'string', description: 'Nombre completo del cliente o responsable' },
-                    company: { type: 'string', description: 'Nombre del taller, empresa o negocio' },
-                    phone:   { type: 'string', description: 'Número de teléfono' },
+                    name:    { type: 'string', description: 'Nombre completo' },
+                    company: { type: 'string', description: 'Empresa o taller' },
+                    phone:   { type: 'string', description: 'Número de celular (OBLIGATORIO para deduplicación)' },
                     email:   { type: 'string', description: 'Correo electrónico' },
-                    address: { type: 'string', description: 'Dirección completa' },
-                    rfc:     { type: 'string', description: 'RFC para facturación fiscal' },
-                    notes:   { type: 'string', description: 'Notas adicionales relevantes' },
+                    address: { type: 'string', description: 'Dirección' },
+                    rfc:     { type: 'string', description: 'RFC' },
+                    notes:   { type: 'string', description: 'Notas' },
                 },
-                required: ['name'],
+                required: ['name', 'phone'],
             },
         },
     });
@@ -4632,7 +4557,7 @@ function buildAIToolDefinitions(agent) {
         type: 'function',
         function: {
             name: 'create_order',
-            description: 'Crea un nuevo pedido cuando el cliente CONFIRMA que quiere comprar. REQUISITO: save_contact DEBE haberse llamado antes para vincular el pedido al contacto. Si no se ha guardado el contacto, pide el nombre primero. Incluye todos los productos con cantidad y precio unitario si lo conoces.',
+            description: 'Crea pedido. REQUISITO: save_contact debe haberse llamado antes. La herramienta devuelve el número de pedido — compártelo al cliente.',
             parameters: {
                 type: 'object',
                 properties: {

@@ -97,58 +97,26 @@ function cleanTestResponse(text: string): string {
 function buildEnrichedPrompt(agent: AIAgent, kbCache: Map<string, KBCache>): string {
   let prompt = agent.systemPrompt || ''
 
-  prompt += '\n\n---\nREGLAS DE FORMATO DE RESPUESTA (obligatorias):\n'
-  prompt += '- Responde SIEMPRE de forma directa con la información. NUNCA narres el proceso interno.\n'
-  prompt += '- NUNCA incluyas XML, JSON, etiquetas, bloques de código ni sintaxis técnica.\n'
-  prompt += '- NUNCA muestres nombres de herramientas internas al cliente.\n'
-  prompt += '- Si ya tienes la información, preséntala de inmediato SIN hacer preguntas adicionales.\n'
-  prompt += '- Solo pregunta datos GENUINAMENTE necesarios que NO puedas inferir del contexto.\n'
-  prompt += '- Sé conciso y directo.\n'
-  prompt += '- NUNCA inventes precios ni datos.\n'
-  prompt += '- NUNCA digas que no tienes acceso a la base de datos. SIEMPRE tienes acceso — usa query_database.\n\n'
+  prompt += '\n\n---\nREGLAS:\n'
+  prompt += '- Responde directo. No narres proceso interno ("déjame buscar...", "consultando...").\n'
+  prompt += '- Sin XML/JSON/código/nombres de herramientas en respuestas al cliente.\n'
+  prompt += '- No inventes precios, existencias ni números de pedido.\n'
+  prompt += '- DEBES LLAMAR las herramientas para ejecutar acciones. NUNCA simules que ya lo hiciste.\n\n'
 
-  prompt += 'FLUJO DE TRABAJO OBLIGATORIO (seguir siempre en este orden):\n\n'
+  prompt += 'FLUJO:\n'
   if (kbCache.size > 0) {
-    prompt += 'PASO 1 — BUSCAR PRODUCTOS Y RESOLVER LA CONSULTA (query_database):\n'
-    prompt += '- PRIORIDAD: Cuando el cliente pregunte por piezas, precios o disponibilidad → llama a query_database DE INMEDIATO.\n'
-    prompt += '- Pasa los filtros disponibles: marca, modelo, parte, año, lado, etc.\n'
-    prompt += '- Resuelve primero la necesidad del cliente. NO pidas datos personales antes de resolver su consulta.\n\n'
+    prompt += '1. BUSCAR → Llama query_database con marca, modelo, parte, anio, lado. Nunca digas "no tenemos" sin buscar.\n'
   }
-  prompt += 'PASO 2 — GUARDAR CONTACTO (save_contact):\n'
-  prompt += '- DESPUÉS de resolver la consulta, pídele sus datos para rastreo o envío: nombre, empresa/taller, teléfono.\n'
-  prompt += '- Si el cliente ya mencionó su nombre en cualquier momento → llama a save_contact DE INMEDIATO.\n'
-  prompt += '- IMPORTANTE: Debes llamar save_contact ANTES de crear cualquier pedido.\n\n'
-  prompt += 'PASO 3 — CREAR PEDIDO (create_order):\n'
-  prompt += '- Cuando el cliente CONFIRME que quiere comprar → llama a create_order.\n'
-  prompt += '- REQUISITO: save_contact DEBE haberse llamado antes.\n'
-  prompt += '- Incluye productos con nombre, SKU, cantidad y precio unitario.\n'
-  prompt += '- SIEMPRE comparte al cliente su número de pedido, resumen de productos y total. Dile que puede usarlo para dar seguimiento o consultas.\n\n'
-  prompt += 'REGLAS ADICIONALES:\n'
-  prompt += '- Las herramientas se ejecutan automáticamente.\n'
-  prompt += '- NUNCA crees un pedido sin antes haber guardado el contacto.\n\n'
+  prompt += '2. CONTACTO → Pide nombre + celular (OBLIGATORIO). Llama save_contact con ambos.\n'
+  prompt += '3. PEDIDO → Cuando confirme compra, llama create_order. Comparte el número de pedido que DEVUELVA la herramienta.\n'
+  prompt += '- Orden: save_contact ANTES de create_order.\n\n'
 
-  if (kbCache.size === 0) return prompt
-
-  prompt += '=== DATOS DE REFERENCIA (muestra del inventario) ===\n'
-  prompt += 'Usa estos datos para responder. Si el producto NO aparece aquí, llama a query_database.\n\n'
-
-  for (const [, kb] of kbCache) {
-    prompt += `--- ${kb.name.toUpperCase()} ---\n`
-    prompt += `Columnas: ${kb.columns.join(' | ')}\n\n`
-    const slice = kb.rows.slice(0, 15)
-    prompt += `Mostrando ${slice.length} de ${kb.rows.length} registros:\n\n`
-    slice.forEach((row, i) => {
-      const parts = kb.columns.map((col) => `${col}: ${row[col] ?? ''}`)
-      prompt += `${i + 1}. ${parts.join(' | ')}\n`
-    })
-    prompt += '\n'
+  if (kbCache.size > 0) {
+    for (const [, kb] of kbCache) {
+      prompt += `Base "${kb.name}": columnas: ${kb.columns.join(', ')}.\n`
+    }
+    prompt += 'Usa query_database para buscar productos.\n'
   }
-
-  prompt += '=== FIN DE DATOS ===\n\n'
-  prompt += 'CÓMO USAR LOS DATOS:\n'
-  prompt += '- Si el producto aparece arriba → úsalo directamente.\n'
-  prompt += '- Si NO aparece → llama a query_database.\n'
-  prompt += '- NUNCA digas "no tenemos esa pieza" sin antes buscar con query_database.\n'
 
   return prompt
 }
@@ -160,15 +128,16 @@ function buildTestTools(agent: AIAgent, hasKBs: boolean) {
       type: 'function',
       function: {
         name: 'save_contact',
-        description: 'Registra o actualiza los datos del cliente en el CRM. OBLIGATORIO llamarla ANTES de create_order para vincular el pedido al contacto.',
+        description: 'Guarda o actualiza contacto. Pide nombre y celular SIEMPRE. OBLIGATORIO antes de create_order.',
         parameters: {
           type: 'object',
           properties: {
             name: { type: 'string', description: 'Nombre completo' },
             company: { type: 'string', description: 'Empresa o taller' },
-            phone: { type: 'string' }, email: { type: 'string' },
+            phone: { type: 'string', description: 'Celular (OBLIGATORIO para deduplicación)' },
+            email: { type: 'string' },
           },
-          required: ['name'],
+          required: ['name', 'phone'],
         },
       },
     },
@@ -176,7 +145,7 @@ function buildTestTools(agent: AIAgent, hasKBs: boolean) {
       type: 'function',
       function: {
         name: 'create_order',
-        description: 'Crea un pedido cuando el cliente CONFIRMA la compra. REQUISITO: save_contact DEBE haberse llamado antes para vincular el pedido al contacto.',
+        description: 'Crea pedido. REQUISITO: save_contact debe haberse llamado antes. Devuelve número de pedido — compártelo al cliente.',
         parameters: {
           type: 'object',
           properties: {
@@ -203,7 +172,7 @@ function buildTestTools(agent: AIAgent, hasKBs: boolean) {
       type: 'function',
       function: {
         name: 'query_database',
-        description: 'Consulta el inventario de productos. Pasa los filtros disponibles.',
+        description: 'Busca productos en inventario. Pasa los filtros que tengas.',
         parameters: {
           type: 'object',
           properties: {
