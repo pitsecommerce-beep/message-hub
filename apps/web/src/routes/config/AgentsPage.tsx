@@ -108,15 +108,16 @@ function buildEnrichedPrompt(agent: AIAgent, kbCache: Map<string, KBCache>): str
   prompt += '- NUNCA digas que no tienes acceso a la base de datos. SIEMPRE tienes acceso — usa query_database.\n\n'
 
   prompt += 'FLUJO DE TRABAJO OBLIGATORIO (seguir siempre en este orden):\n\n'
-  prompt += 'PASO 1 — GUARDAR CONTACTO (save_contact):\n'
-  prompt += '- Cuando el cliente diga su nombre, empresa o cualquier dato personal → llama a save_contact DE INMEDIATO.\n'
-  prompt += '- Si llevas 2+ mensajes y no sabes su nombre, pregúntaselo.\n'
-  prompt += '- IMPORTANTE: Debes llamar save_contact ANTES de crear cualquier pedido.\n\n'
   if (kbCache.size > 0) {
-    prompt += 'PASO 2 — BUSCAR PRODUCTOS (query_database):\n'
-    prompt += '- Cuando el cliente pregunte por piezas, precios o disponibilidad → llama a query_database.\n'
-    prompt += '- Pasa los filtros disponibles: marca, modelo, parte, año, lado, etc.\n\n'
+    prompt += 'PASO 1 — BUSCAR PRODUCTOS Y RESOLVER LA CONSULTA (query_database):\n'
+    prompt += '- PRIORIDAD: Cuando el cliente pregunte por piezas, precios o disponibilidad → llama a query_database DE INMEDIATO.\n'
+    prompt += '- Pasa los filtros disponibles: marca, modelo, parte, año, lado, etc.\n'
+    prompt += '- Resuelve primero la necesidad del cliente. NO pidas datos personales antes de resolver su consulta.\n\n'
   }
+  prompt += 'PASO 2 — GUARDAR CONTACTO (save_contact):\n'
+  prompt += '- DESPUÉS de resolver la consulta, pídele sus datos para rastreo o envío: nombre, empresa/taller, teléfono.\n'
+  prompt += '- Si el cliente ya mencionó su nombre en cualquier momento → llama a save_contact DE INMEDIATO.\n'
+  prompt += '- IMPORTANTE: Debes llamar save_contact ANTES de crear cualquier pedido.\n\n'
   prompt += 'PASO 3 — CREAR PEDIDO (create_order):\n'
   prompt += '- Cuando el cliente CONFIRME que quiere comprar → llama a create_order.\n'
   prompt += '- REQUISITO: save_contact DEBE haberse llamado antes.\n'
