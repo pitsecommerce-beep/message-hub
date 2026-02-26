@@ -107,14 +107,24 @@ function buildEnrichedPrompt(agent: AIAgent, kbCache: Map<string, KBCache>): str
   prompt += '- NUNCA inventes precios ni datos.\n'
   prompt += '- NUNCA digas que no tienes acceso a la base de datos. SIEMPRE tienes acceso — usa query_database.\n\n'
 
-  prompt += 'USO DE HERRAMIENTAS:\n'
-  prompt += '- Las herramientas se ejecutan automáticamente.\n'
-  prompt += '- save_contact: Cuando el cliente mencione su nombre o empresa.\n'
-  prompt += '- create_order: Cuando el cliente confirme un pedido.\n'
+  prompt += 'FLUJO DE TRABAJO OBLIGATORIO (seguir siempre en este orden):\n\n'
+  prompt += 'PASO 1 — GUARDAR CONTACTO (save_contact):\n'
+  prompt += '- Cuando el cliente diga su nombre, empresa o cualquier dato personal → llama a save_contact DE INMEDIATO.\n'
+  prompt += '- Si llevas 2+ mensajes y no sabes su nombre, pregúntaselo.\n'
+  prompt += '- IMPORTANTE: Debes llamar save_contact ANTES de crear cualquier pedido.\n\n'
   if (kbCache.size > 0) {
-    prompt += '- query_database: Para buscar productos que NO estén en los datos de referencia.\n'
+    prompt += 'PASO 2 — BUSCAR PRODUCTOS (query_database):\n'
+    prompt += '- Cuando el cliente pregunte por piezas, precios o disponibilidad → llama a query_database.\n'
+    prompt += '- Pasa los filtros disponibles: marca, modelo, parte, año, lado, etc.\n\n'
   }
-  prompt += '\n'
+  prompt += 'PASO 3 — CREAR PEDIDO (create_order):\n'
+  prompt += '- Cuando el cliente CONFIRME que quiere comprar → llama a create_order.\n'
+  prompt += '- REQUISITO: save_contact DEBE haberse llamado antes.\n'
+  prompt += '- Incluye productos con nombre, SKU, cantidad y precio unitario.\n'
+  prompt += '- Confirma al cliente: número de pedido, productos y total.\n\n'
+  prompt += 'REGLAS ADICIONALES:\n'
+  prompt += '- Las herramientas se ejecutan automáticamente.\n'
+  prompt += '- NUNCA crees un pedido sin antes haber guardado el contacto.\n\n'
 
   if (kbCache.size === 0) return prompt
 
@@ -149,7 +159,7 @@ function buildTestTools(agent: AIAgent, hasKBs: boolean) {
       type: 'function',
       function: {
         name: 'save_contact',
-        description: 'Registra o actualiza los datos del cliente en el CRM.',
+        description: 'Registra o actualiza los datos del cliente en el CRM. OBLIGATORIO llamarla ANTES de create_order para vincular el pedido al contacto.',
         parameters: {
           type: 'object',
           properties: {
@@ -165,7 +175,7 @@ function buildTestTools(agent: AIAgent, hasKBs: boolean) {
       type: 'function',
       function: {
         name: 'create_order',
-        description: 'Crea un pedido cuando el cliente confirma productos.',
+        description: 'Crea un pedido cuando el cliente CONFIRMA la compra. REQUISITO: save_contact DEBE haberse llamado antes para vincular el pedido al contacto.',
         parameters: {
           type: 'object',
           properties: {
