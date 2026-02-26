@@ -266,7 +266,7 @@ function buildToolDefinitions(agent) {
                             type: 'string',
                             description: 'Categoría de la pieza. Ej: ESPEJOS, FAROS, MANIJAS EXTERIORES, DEFENSAS DELANTERAS, CALAVERAS',
                         },
-                        año: {
+                        anio: {
                             type: 'number',
                             description: 'Año del vehículo. Ej: 2015',
                         },
@@ -348,7 +348,7 @@ async function executeQueryDatabase(orgId, args, kbIds) {
         const scoreParts = [
             args.searchQuery  || '',
             args.modelo       || '',
-            args.año          ? String(args.año) : '',
+            args.anio         ? String(args.anio) : '',
             args.lado         || '',
             args.del_tras     || '',
             args.int_ext      || '',
