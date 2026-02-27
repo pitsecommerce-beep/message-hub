@@ -210,7 +210,7 @@ interface OrderRowProps {
 }
 
 function OrderRow({ order, onStatusChange, isUpdating }: OrderRowProps) {
-  const config = STATUS_CONFIG[order.status]
+  const config = STATUS_CONFIG[order.status] ?? { label: order.status, variant: 'secondary' as const }
   return (
     <tr className="hover:bg-white/3 transition-colors">
       <td className="px-4 py-3">
