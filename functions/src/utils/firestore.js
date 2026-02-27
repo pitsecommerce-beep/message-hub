@@ -35,10 +35,10 @@ async function findOrgByIntegrationField(fieldName, fieldValue) {
     if (snapshot.empty) return null;
 
     const integDoc = snapshot.docs[0];
-    // Las integraciones se guardan en la colección raíz "integrations" con
-    // campo orgId, por lo que parent.parent sería null. Usamos data().orgId
-    // como fuente primaria y el path como fallback para subcollecciones.
-    const orgId = integDoc.data().orgId || integDoc.ref.parent.parent?.id;
+    // Las integraciones viven dentro de organizations/{orgId}/integrations.
+    // Extraemos el orgId del path del documento (parent es la colección
+    // "integrations", parent.parent es el doc de la organización).
+    const orgId = integDoc.ref.parent.parent?.id;
     if (!orgId) return null;
 
     const orgDoc = await db.collection('organizations').doc(orgId).get();
@@ -158,7 +158,7 @@ async function saveIncomingMessage(orgId, convId, messageData) {
 
 /**
  * Busca el primer agente IA activo que tenga habilitado el canal indicado.
- * Los agentes se guardan en la colección raíz "aiAgents" con campo "orgId".
+ * Los agentes se guardan dentro de organizations/{orgId}/aiAgents.
  * El campo de activación es "active" (boolean) y los canales son un array.
  *
  * @param {string} orgId
@@ -167,8 +167,8 @@ async function saveIncomingMessage(orgId, convId, messageData) {
  */
 async function findAgentForPlatform(orgId, platform) {
     const snapshot = await db
+        .collection('organizations').doc(orgId)
         .collection('aiAgents')
-        .where('orgId', '==', orgId)
         .where('active', '==', true)
         .get();
 
@@ -708,8 +708,8 @@ async function createOrder(orgId, convId, orderData) {
  */
 async function getEvolutionConfig(orgId) {
     const snap = await db
+        .collection('organizations').doc(orgId)
         .collection('integrations')
-        .where('orgId', '==', orgId)
         .where('platform', '==', 'whatsapp')
         .where('method', '==', 'evolution')
         .where('connected', '==', true)

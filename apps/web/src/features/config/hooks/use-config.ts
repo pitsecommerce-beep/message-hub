@@ -5,7 +5,6 @@ import {
   where,
   getDocs,
   doc,
-  setDoc,
   addDoc,
   updateDoc,
   deleteDoc,
@@ -51,7 +50,7 @@ export function useAIAgents(orgId: string | undefined) {
     queryFn: async (): Promise<AIAgent[]> => {
       if (!orgId) return []
       const snap = await getDocs(
-        query(collection(db, 'aiAgents'), where('orgId', '==', orgId)),
+        collection(db, 'organizations', orgId, 'aiAgents'),
       )
       return snap.docs.map((d) => ({ id: d.id, ...d.data() } as AIAgent))
     },
@@ -67,25 +66,24 @@ export function useSaveAIAgent(orgId: string | undefined) {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: async ({ id, ...data }: SaveAgentInput) => {
+      if (!orgId) throw new Error('No orgId')
       // Explicitly pick only valid agent fields — never persist org-level branding data
       const {
         name, provider, model, apiKey, endpoint,
         systemPrompt, knowledgeBases, channels, active,
-        orgId: agentOrgId,
       } = data
       const agentPayload: Record<string, unknown> = {
         name, provider, model, endpoint: endpoint ?? '',
         systemPrompt, knowledgeBases: knowledgeBases ?? [],
         channels: channels ?? [], active,
-        orgId: agentOrgId,
       }
       // Only include apiKey when it is explicitly provided (non-empty string)
       if (apiKey) agentPayload.apiKey = apiKey
 
       if (id) {
-        await updateDoc(doc(db, 'aiAgents', id), { ...agentPayload, updatedAt: serverTimestamp() })
+        await updateDoc(doc(db, 'organizations', orgId, 'aiAgents', id), { ...agentPayload, updatedAt: serverTimestamp() })
       } else {
-        await addDoc(collection(db, 'aiAgents'), { ...agentPayload, createdAt: serverTimestamp() })
+        await addDoc(collection(db, 'organizations', orgId, 'aiAgents'), { ...agentPayload, createdAt: serverTimestamp() })
       }
     },
     onSuccess: () => {
@@ -100,7 +98,8 @@ export function useDeleteAIAgent(orgId: string | undefined) {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: async (id: string) => {
-      await deleteDoc(doc(db, 'aiAgents', id))
+      if (!orgId) throw new Error('No orgId')
+      await deleteDoc(doc(db, 'organizations', orgId, 'aiAgents', id))
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['ai-agents', orgId] })
@@ -118,7 +117,7 @@ export function useIntegrations(orgId: string | undefined) {
     queryFn: async (): Promise<IntegrationConfig[]> => {
       if (!orgId) return []
       const snap = await getDocs(
-        query(collection(db, 'integrations'), where('orgId', '==', orgId)),
+        collection(db, 'organizations', orgId, 'integrations'),
       )
       return snap.docs.map((d) => ({ id: d.id, ...d.data() } as IntegrationConfig))
     },
@@ -136,10 +135,11 @@ export function useSaveIntegration(orgId: string | undefined) {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: async ({ id, ...data }: SaveIntegrationInput) => {
+      if (!orgId) throw new Error('No orgId')
       if (id) {
-        await updateDoc(doc(db, 'integrations', id), { ...data, updatedAt: serverTimestamp() })
+        await updateDoc(doc(db, 'organizations', orgId, 'integrations', id), { ...data, updatedAt: serverTimestamp() })
       } else {
-        await addDoc(collection(db, 'integrations'), { ...data, updatedAt: serverTimestamp() })
+        await addDoc(collection(db, 'organizations', orgId, 'integrations'), { ...data, updatedAt: serverTimestamp() })
       }
     },
     onSuccess: () => {
@@ -154,7 +154,8 @@ export function useDeleteIntegration(orgId: string | undefined) {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: async (id: string) => {
-      await deleteDoc(doc(db, 'integrations', id))
+      if (!orgId) throw new Error('No orgId')
+      await deleteDoc(doc(db, 'organizations', orgId, 'integrations', id))
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['integrations', orgId] })

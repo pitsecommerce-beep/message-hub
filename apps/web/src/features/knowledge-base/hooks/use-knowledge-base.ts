@@ -1,13 +1,9 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   collection,
-  query,
-  where,
   getDocs,
   doc,
   setDoc,
-  updateDoc,
-  deleteDoc,
   writeBatch,
   serverTimestamp,
 } from 'firebase/firestore'
@@ -21,7 +17,7 @@ export function useKnowledgeBases(orgId: string | undefined) {
     queryFn: async (): Promise<KnowledgeBase[]> => {
       if (!orgId) return []
       const snap = await getDocs(
-        query(collection(db, 'knowledgeBases'), where('orgId', '==', orgId)),
+        collection(db, 'organizations', orgId, 'knowledgeBases'),
       )
       const docs = snap.docs.map((d) => ({ id: d.id, ...d.data() } as KnowledgeBase))
       docs.sort((a, b) => {
@@ -49,12 +45,11 @@ export function useImportKnowledgeBase() {
   return useMutation({
     mutationFn: async ({ kbId, name, description, orgId, rows, columns }: ImportKBInput) => {
       const id = kbId ?? `kb_${Date.now()}`
-      const kbRef = doc(db, 'knowledgeBases', id)
+      const kbRef = doc(db, 'organizations', orgId, 'knowledgeBases', id)
 
       await setDoc(kbRef, {
         name,
         description: description ?? '',
-        orgId,
         rowCount: rows.length,
         columns,
         createdAt: serverTimestamp(),
@@ -63,7 +58,7 @@ export function useImportKnowledgeBase() {
 
       // Delete existing rows if updating
       if (kbId) {
-        const existingSnap = await getDocs(collection(db, 'knowledgeBases', id, 'rows'))
+        const existingSnap = await getDocs(collection(db, 'organizations', orgId, 'knowledgeBases', id, 'rows'))
         const deleteBatch = writeBatch(db)
         existingSnap.docs.forEach((d) => deleteBatch.delete(d.ref))
         await deleteBatch.commit()
@@ -74,7 +69,7 @@ export function useImportKnowledgeBase() {
       for (let i = 0; i < rows.length; i += BATCH_SIZE) {
         const batch = writeBatch(db)
         rows.slice(i, i + BATCH_SIZE).forEach((row, j) => {
-          const rowRef = doc(collection(db, 'knowledgeBases', id, 'rows'))
+          const rowRef = doc(collection(db, 'organizations', orgId, 'knowledgeBases', id, 'rows'))
           batch.set(rowRef, { ...row, _rowIndex: i + j })
         })
         await batch.commit()
@@ -94,11 +89,12 @@ export function useDeleteKnowledgeBase(orgId: string | undefined) {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: async (kbId: string) => {
+      if (!orgId) throw new Error('No orgId')
       // Delete rows
-      const rowsSnap = await getDocs(collection(db, 'knowledgeBases', kbId, 'rows'))
+      const rowsSnap = await getDocs(collection(db, 'organizations', orgId, 'knowledgeBases', kbId, 'rows'))
       const batch = writeBatch(db)
       rowsSnap.docs.forEach((d) => batch.delete(d.ref))
-      batch.delete(doc(db, 'knowledgeBases', kbId))
+      batch.delete(doc(db, 'organizations', orgId, 'knowledgeBases', kbId))
       await batch.commit()
     },
     onSuccess: () => {
