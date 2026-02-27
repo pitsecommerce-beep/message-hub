@@ -327,6 +327,7 @@ function AgentTestDialog({
   // Load KB data when dialog opens
   useEffect(() => {
     if (!open || !orgId) return
+    const org = orgId
     const kbIds = agent.knowledgeBases ?? []
     if (kbIds.length === 0) { setKbCache(new Map()); return }
 
@@ -337,10 +338,10 @@ function AgentTestDialog({
       const cache = new Map<string, KBCache>()
       for (const kbId of kbIds) {
         try {
-          const metaSnap = await getDoc(doc(firestoreDb, 'organizations', orgId, 'knowledgeBases', kbId))
+          const metaSnap = await getDoc(doc(firestoreDb, 'organizations', org, 'knowledgeBases', kbId))
           if (!metaSnap.exists()) continue
           const meta = metaSnap.data()
-          const rowsSnap = await getDocs(collection(firestoreDb, 'organizations', orgId, 'knowledgeBases', kbId, 'rows'))
+          const rowsSnap = await getDocs(collection(firestoreDb, 'organizations', org, 'knowledgeBases', kbId, 'rows'))
           const rows = rowsSnap.docs.map((d) => d.data())
           cache.set(kbId, {
             name: meta.name || kbId,
