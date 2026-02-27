@@ -1,8 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import {
   collection,
-  query,
-  where,
   getDocs,
   Timestamp,
 } from 'firebase/firestore'
@@ -52,9 +50,9 @@ export function useDashboard(orgId: string | undefined) {
 
       // Use allSettled so one failing collection doesn't break the whole dashboard
       const [convsResult, contactsResult, ordersResult] = await Promise.allSettled([
-        getDocs(query(collection(db, 'conversations'), where('orgId', '==', orgId))),
-        getDocs(query(collection(db, 'contacts'), where('orgId', '==', orgId))),
-        getDocs(query(collection(db, 'orders'), where('orgId', '==', orgId))),
+        getDocs(collection(db, 'organizations', orgId, 'conversations')),
+        getDocs(collection(db, 'organizations', orgId, 'contacts')),
+        getDocs(collection(db, 'organizations', orgId, 'orders')),
       ])
 
       const convs = convsResult.status === 'fulfilled'

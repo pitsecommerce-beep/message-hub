@@ -169,8 +169,8 @@ function ConversationPanel({
   onClose: () => void
   userName: string
 }) {
-  const { messages, loading } = useMessages(conv.id)
-  const sendMessage = useSendMessage()
+  const { messages, loading } = useMessages(conv.orgId, conv.id)
+  const sendMessage = useSendMessage(conv.orgId)
   const deleteConv = useDeleteConversation(conv.orgId)
   const toggleAI = useToggleConvAI(conv.orgId)
   const [text, setText] = useState('')

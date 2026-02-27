@@ -337,10 +337,10 @@ function AgentTestDialog({
       const cache = new Map<string, KBCache>()
       for (const kbId of kbIds) {
         try {
-          const metaSnap = await getDoc(doc(firestoreDb, 'knowledgeBases', kbId))
+          const metaSnap = await getDoc(doc(firestoreDb, 'organizations', orgId, 'knowledgeBases', kbId))
           if (!metaSnap.exists()) continue
           const meta = metaSnap.data()
-          const rowsSnap = await getDocs(collection(firestoreDb, 'knowledgeBases', kbId, 'rows'))
+          const rowsSnap = await getDocs(collection(firestoreDb, 'organizations', orgId, 'knowledgeBases', kbId, 'rows'))
           const rows = rowsSnap.docs.map((d) => d.data())
           cache.set(kbId, {
             name: meta.name || kbId,

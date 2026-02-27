@@ -1,8 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   collection,
-  query,
-  where,
   getDocs,
   doc,
   addDoc,
@@ -44,7 +42,7 @@ export function useOrders(orgId: string | undefined) {
     queryFn: async (): Promise<Order[]> => {
       if (!orgId) return []
       const snap = await getDocs(
-        query(collection(db, 'orders'), where('orgId', '==', orgId)),
+        collection(db, 'organizations', orgId, 'orders'),
       )
       // Sort client-side to avoid requiring a Firestore composite index
       const docs = snap.docs.map((d) => ({ id: d.id, ...d.data() } as Order))
@@ -65,10 +63,9 @@ export function useCreateOrder(orgId: string | undefined) {
     mutationFn: async (input: CreateOrderInput) => {
       if (!orgId) throw new Error('No orgId')
       const orderNumber = generateOrderNumber()
-      await addDoc(collection(db, 'orders'), {
+      await addDoc(collection(db, 'organizations', orgId, 'orders'), {
         ...stripUndefined(input),
         orderNumber,
-        orgId,
         createdAt: serverTimestamp(),
       })
     },
@@ -84,7 +81,8 @@ export function useUpdateOrderStatus(orgId: string | undefined) {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: async ({ orderId, status }: { orderId: string; status: OrderStatus }) => {
-      await updateDoc(doc(db, 'orders', orderId), {
+      if (!orgId) throw new Error('No orgId')
+      await updateDoc(doc(db, 'organizations', orgId, 'orders', orderId), {
         status,
         updatedAt: serverTimestamp(),
       })

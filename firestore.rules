@@ -6,13 +6,17 @@ rules_version = '2';
 // completo. No se necesita ninguna regla adicional para que las funciones
 // puedan leer/escribir en Firestore. Las reglas siguientes aplican
 // exclusivamente a clientes del SDK de navegador (frontend).
+//
+// ARQUITECTURA DE DATOS:
+// Todos los datos de negocio (conversaciones, contactos, pedidos, agentes IA,
+// integraciones, bases de conocimiento, etc.) se almacenan como sub-colecciones
+// dentro de organizations/{orgId}/... Las únicas colecciones raíz son "users"
+// y "organizations".
 
 service cloud.firestore {
   match /databases/{database}/documents {
 
     // Helper: verifica si el usuario autenticado es miembro de la organización.
-    // Usa exists() para evitar errores si el documento no existe, y
-    // data.get('members', []) para manejar el campo ausente sin lanzar excepción.
     function isOrgMember(orgId) {
       return request.auth != null
         && exists(/databases/$(database)/documents/organizations/$(orgId))
@@ -40,65 +44,12 @@ service cloud.firestore {
         request.auth.uid in request.resource.data.members
       );
 
-      // Sub-colecciones de organizaciones
+      // Todas las sub-colecciones de la organización (conversations, contacts,
+      // orders, aiAgents, integrations, knowledgeBases, paymentLinks, etc.)
+      // son accesibles solo por miembros de la organización.
       match /{path=**} {
         allow read, write: if isOrgMember(orgId);
       }
-    }
-
-    // ===== CONVERSACIONES =====
-    // Colección raíz con campo orgId — miembros de la org pueden leer/escribir
-    match /conversations/{convId} {
-      allow read, write: if request.auth != null && isOrgMember(resource.data.orgId);
-      allow create:       if request.auth != null && isOrgMember(request.resource.data.orgId);
-
-      // Sub-colección de mensajes dentro de cada conversación
-      match /messages/{msgId} {
-        allow read, write: if request.auth != null &&
-          isOrgMember(get(/databases/$(database)/documents/conversations/$(convId)).data.orgId);
-      }
-    }
-
-    // ===== CONTACTOS =====
-    match /contacts/{contactId} {
-      allow read, write: if request.auth != null && isOrgMember(resource.data.orgId);
-      allow create:       if request.auth != null && isOrgMember(request.resource.data.orgId);
-    }
-
-    // ===== PEDIDOS =====
-    match /orders/{orderId} {
-      allow read, write: if request.auth != null && isOrgMember(resource.data.orgId);
-      allow create:       if request.auth != null && isOrgMember(request.resource.data.orgId);
-    }
-
-    // ===== AGENTES IA =====
-    match /aiAgents/{agentId} {
-      allow read, write: if request.auth != null && isOrgMember(resource.data.orgId);
-      allow create:       if request.auth != null && isOrgMember(request.resource.data.orgId);
-    }
-
-    // ===== INTEGRACIONES =====
-    match /integrations/{integrationId} {
-      allow read, write: if request.auth != null && isOrgMember(resource.data.orgId);
-      allow create:       if request.auth != null && isOrgMember(request.resource.data.orgId);
-    }
-
-    // ===== BASES DE CONOCIMIENTO =====
-    match /knowledgeBases/{kbId} {
-      allow read, write: if request.auth != null && isOrgMember(resource.data.orgId);
-      allow create:       if request.auth != null && isOrgMember(request.resource.data.orgId);
-
-      // Sub-colección de filas
-      match /rows/{rowId} {
-        allow read, write: if request.auth != null &&
-          isOrgMember(get(/databases/$(database)/documents/knowledgeBases/$(kbId)).data.orgId);
-      }
-    }
-
-    // ===== PAYMENT LINKS =====
-    match /paymentLinks/{linkId} {
-      allow read, write: if request.auth != null && isOrgMember(resource.data.orgId);
-      allow create:       if request.auth != null && isOrgMember(request.resource.data.orgId);
     }
   }
 }

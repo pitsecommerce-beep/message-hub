@@ -153,10 +153,9 @@ export default function NewChatDialog({
     setIsCreatingContact(true)
     try {
       // Create the contact directly so we can capture the new document ID
-      const contactRef = await addDoc(collection(db, 'contacts'), {
+      const contactRef = await addDoc(collection(db, 'organizations', orgId, 'contacts'), {
         name: data.name,
         ...(data.phone ? { phone: data.phone } : {}),
-        orgId,
         createdAt: serverTimestamp(),
       })
       // Invalidate contacts cache so the list refreshes

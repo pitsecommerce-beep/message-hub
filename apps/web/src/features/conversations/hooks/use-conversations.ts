@@ -2,7 +2,6 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   collection,
   query,
-  where,
   orderBy,
   getDocs,
   doc,
@@ -24,10 +23,10 @@ export function useConversations(orgId: string | undefined) {
     queryFn: async (): Promise<Conversation[]> => {
       if (!orgId) return []
       const snap = await getDocs(
-        query(collection(db, 'conversations'), where('orgId', '==', orgId)),
+        collection(db, 'organizations', orgId, 'conversations'),
       )
       // Sort client-side by lastMessageAt desc to avoid requiring a composite index
-      const docs = snap.docs.map((d) => ({ id: d.id, ...d.data() } as Conversation))
+      const docs = snap.docs.map((d) => ({ id: d.id, ...d.data(), orgId } as Conversation))
       docs.sort((a, b) => {
         const ta = a.lastMessageAt instanceof Timestamp ? a.lastMessageAt.toMillis() : 0
         const tb = b.lastMessageAt instanceof Timestamp ? b.lastMessageAt.toMillis() : 0
@@ -39,18 +38,18 @@ export function useConversations(orgId: string | undefined) {
   })
 }
 
-export function useMessages(convId: string | undefined) {
+export function useMessages(orgId: string | undefined, convId: string | undefined) {
   const [messages, setMessages] = useState<Message[]>([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    if (!convId) {
+    if (!orgId || !convId) {
       setLoading(false)
       return
     }
 
     const q = query(
-      collection(db, 'conversations', convId, 'messages'),
+      collection(db, 'organizations', orgId, 'conversations', convId, 'messages'),
       orderBy('timestamp', 'asc'),
     )
 
@@ -60,7 +59,7 @@ export function useMessages(convId: string | undefined) {
     })
 
     return unsub
-  }, [convId])
+  }, [orgId, convId])
 
   return { messages, loading }
 }
@@ -72,16 +71,17 @@ interface SendMessageInput {
   role: 'agent'
 }
 
-export function useSendMessage() {
+export function useSendMessage(orgId: string | undefined) {
   return useMutation({
     mutationFn: async ({ convId, text, senderName, role }: SendMessageInput) => {
-      await addDoc(collection(db, 'conversations', convId, 'messages'), {
+      if (!orgId) throw new Error('No orgId')
+      await addDoc(collection(db, 'organizations', orgId, 'conversations', convId, 'messages'), {
         text,
         senderName,
         role,
         timestamp: serverTimestamp(),
       })
-      await updateDoc(doc(db, 'conversations', convId), {
+      await updateDoc(doc(db, 'organizations', orgId, 'conversations', convId), {
         lastMessage: text,
         lastMessageAt: serverTimestamp(),
       })
@@ -94,7 +94,8 @@ export function useDeleteConversation(orgId: string | undefined) {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: async (convId: string) => {
-      await deleteDoc(doc(db, 'conversations', convId))
+      if (!orgId) throw new Error('No orgId')
+      await deleteDoc(doc(db, 'organizations', orgId, 'conversations', convId))
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['conversations', orgId] })
@@ -108,7 +109,8 @@ export function useUpdateConvStage(orgId: string | undefined) {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: async ({ convId, stage }: { convId: string; stage: FunnelStage }) => {
-      await updateDoc(doc(db, 'conversations', convId), {
+      if (!orgId) throw new Error('No orgId')
+      await updateDoc(doc(db, 'organizations', orgId, 'conversations', convId), {
         funnelStage: stage,
         updatedAt: serverTimestamp(),
       })
@@ -124,7 +126,8 @@ export function useToggleConvAI(orgId: string | undefined) {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: async ({ convId, enabled }: { convId: string; enabled: boolean }) => {
-      await updateDoc(doc(db, 'conversations', convId), { aiEnabled: enabled })
+      if (!orgId) throw new Error('No orgId')
+      await updateDoc(doc(db, 'organizations', orgId, 'conversations', convId), { aiEnabled: enabled })
     },
     onSuccess: (_, { enabled }) => {
       qc.invalidateQueries({ queryKey: ['conversations', orgId] })
@@ -150,18 +153,18 @@ export function useCreateConversation(orgId: string | undefined) {
     mutationFn: async ({
       contactId, contactName, contactPhone, platform, orgId: org, initialMessage, senderName,
     }: CreateConversationInput) => {
-      const convRef = await addDoc(collection(db, 'conversations'), {
+      if (!org) throw new Error('No orgId')
+      const convRef = await addDoc(collection(db, 'organizations', org, 'conversations'), {
         contactId,
         contactName,
         contactPhone: contactPhone ?? '',
         platform,
-        orgId: org,
         createdAt: serverTimestamp(),
         lastMessageAt: serverTimestamp(),
       })
 
       if (initialMessage) {
-        await addDoc(collection(db, 'conversations', convRef.id, 'messages'), {
+        await addDoc(collection(db, 'organizations', org, 'conversations', convRef.id, 'messages'), {
           text: initialMessage,
           senderName,
           role: 'agent',

@@ -1,8 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   collection,
-  query,
-  where,
   getDocs,
   doc,
   addDoc,
@@ -20,7 +18,7 @@ export function useContacts(orgId: string | undefined) {
     queryFn: async (): Promise<Contact[]> => {
       if (!orgId) return []
       const snap = await getDocs(
-        query(collection(db, 'contacts'), where('orgId', '==', orgId)),
+        collection(db, 'organizations', orgId, 'contacts'),
       )
       // Sort client-side to avoid requiring a Firestore composite index
       const docs = snap.docs.map((d) => ({ id: d.id, ...d.data() } as Contact))
@@ -58,9 +56,8 @@ export function useCreateContact(orgId: string | undefined) {
   return useMutation({
     mutationFn: async (input: CreateContactInput) => {
       if (!orgId) throw new Error('No orgId')
-      await addDoc(collection(db, 'contacts'), {
+      await addDoc(collection(db, 'organizations', orgId, 'contacts'), {
         ...stripUndefined(input),
-        orgId,
         createdAt: serverTimestamp(),
       })
     },
@@ -80,7 +77,8 @@ export function useUpdateContact(orgId: string | undefined) {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: async ({ id, ...data }: UpdateContactInput) => {
-      await updateDoc(doc(db, 'contacts', id), {
+      if (!orgId) throw new Error('No orgId')
+      await updateDoc(doc(db, 'organizations', orgId, 'contacts', id), {
         ...stripUndefined(data),
         updatedAt: serverTimestamp(),
       })
@@ -97,7 +95,8 @@ export function useDeleteContact(orgId: string | undefined) {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: async (id: string) => {
-      await deleteDoc(doc(db, 'contacts', id))
+      if (!orgId) throw new Error('No orgId')
+      await deleteDoc(doc(db, 'organizations', orgId, 'contacts', id))
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['contacts', orgId] })
@@ -111,7 +110,8 @@ export function useUpdateFunnelStage(orgId: string | undefined) {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: async ({ id, stage }: { id: string; stage: FunnelStage }) => {
-      await updateDoc(doc(db, 'contacts', id), {
+      if (!orgId) throw new Error('No orgId')
+      await updateDoc(doc(db, 'organizations', orgId, 'contacts', id), {
         funnelStage: stage,
         funnelUpdatedAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
