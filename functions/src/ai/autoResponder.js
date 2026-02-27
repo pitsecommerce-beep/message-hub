@@ -65,8 +65,8 @@ async function buildSystemPrompt(agent, orgId, userMessage) {
     if (kbIds.length > 0) {
         prompt += '1. BUSCAR → Llama query_database con marca, modelo, parte, anio, lado. Nunca digas "no tenemos" sin buscar primero.\n';
     }
-    prompt += '2. CONTACTO → Pide nombre + número de celular (OBLIGATORIO para validar si ya existe). Llama save_contact con ambos.\n';
-    prompt += '3. PEDIDO → Cuando confirme compra, llama create_order. Comparte al cliente el número de pedido que DEVUELVA la herramienta.\n';
+    prompt += '2. CONTACTO → Datos MÍNIMOS INDISPENSABLES: nombre, celular, dirección de entrega y nombre de empresa. Si quiere factura pide RFC. Llama save_contact con todos los datos.\n';
+    prompt += '3. PEDIDO → Cuando confirme compra, llama create_order con SKU, descripción y precio de la base de datos. Comparte al cliente el número de pedido que DEVUELVA la herramienta.\n';
     prompt += '- Orden obligatorio: save_contact ANTES de create_order.\n\n';
 
     // ── 4. Metadata de KBs (solo columnas — sin datos para ahorrar tokens) ─
@@ -139,19 +139,19 @@ function buildToolDefinitions(agent) {
             type: 'function',
             function: {
                 name: 'save_contact',
-                description: 'Guarda o actualiza contacto en CRM. Pide nombre y celular SIEMPRE. El celular valida si ya existe. OBLIGATORIO antes de create_order.',
+                description: 'Guarda o actualiza contacto en CRM. OBLIGATORIO antes de create_order. Datos mínimos indispensables: nombre, celular, dirección y nombre de empresa. Si el cliente desea factura, pide también su RFC.',
                 parameters: {
                     type: 'object',
                     properties: {
-                        name:    { type: 'string', description: 'Nombre completo' },
-                        company: { type: 'string', description: 'Empresa o taller' },
+                        name:    { type: 'string', description: 'Nombre completo del cliente' },
                         phone:   { type: 'string', description: 'Número de celular (OBLIGATORIO para deduplicación)' },
+                        address: { type: 'string', description: 'Dirección de entrega o domicilio del cliente' },
+                        company: { type: 'string', description: 'Nombre de la empresa o taller del cliente' },
+                        rfc:     { type: 'string', description: 'RFC del cliente (solo si requiere factura)' },
                         email:   { type: 'string', description: 'Correo electrónico' },
-                        address: { type: 'string', description: 'Dirección' },
-                        rfc:     { type: 'string', description: 'RFC' },
-                        notes:   { type: 'string', description: 'Notas' },
+                        notes:   { type: 'string', description: 'Notas adicionales' },
                     },
-                    required: ['name', 'phone'],
+                    required: ['name', 'phone', 'address', 'company'],
                 },
             },
         },

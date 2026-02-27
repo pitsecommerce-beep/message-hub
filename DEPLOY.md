@@ -138,7 +138,11 @@ Al finalizar, la CLI mostrará las URLs de cada función. Anota las URLs de los 
 Function URL (whatsappWebhook): https://REGION-PROJECT_ID.cloudfunctions.net/whatsappWebhook
 Function URL (instagramWebhook): https://REGION-PROJECT_ID.cloudfunctions.net/instagramWebhook
 Function URL (messengerWebhook): https://REGION-PROJECT_ID.cloudfunctions.net/messengerWebhook
+Function URL (whatsappEvolutionWebhook): https://REGION-PROJECT_ID.cloudfunctions.net/whatsappEvolutionWebhook
 ```
+
+> **Evolution API (WhatsApp vía QR):** Si usas Evolution API en lugar de Meta Cloud API,
+> consulta la guía detallada en [`EVOLUTION_API_SETUP.md`](./EVOLUTION_API_SETUP.md).
 
 ---
 

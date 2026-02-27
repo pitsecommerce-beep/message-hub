@@ -113,6 +113,7 @@ export const OrderStatusSchema = z.enum([
 export type OrderStatus = z.infer<typeof OrderStatusSchema>
 
 export const OrderItemSchema = z.object({
+  sku: z.string().optional(),
   description: z.string(),
   quantity: z.number(),
   unitPrice: z.number(),

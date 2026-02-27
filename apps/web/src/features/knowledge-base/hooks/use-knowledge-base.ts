@@ -85,6 +85,21 @@ export function useImportKnowledgeBase() {
   })
 }
 
+export function useKBRows(orgId: string | undefined, kbId: string | undefined) {
+  return useQuery({
+    queryKey: ['kb-rows', orgId, kbId],
+    queryFn: async (): Promise<Record<string, unknown>[]> => {
+      if (!orgId || !kbId) return []
+      const snap = await getDocs(
+        collection(db, 'organizations', orgId, 'knowledgeBases', kbId, 'rows'),
+      )
+      return snap.docs.map((d) => ({ id: d.id, ...d.data() }))
+    },
+    enabled: !!orgId && !!kbId,
+    staleTime: 5 * 60 * 1000,
+  })
+}
+
 export function useDeleteKnowledgeBase(orgId: string | undefined) {
   const qc = useQueryClient()
   return useMutation({
