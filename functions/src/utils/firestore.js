@@ -648,25 +648,64 @@ async function createOrder(orgId, convId, orderData) {
         const conv = convDoc.exists ? convDoc.data() : {};
 
         const items = (orderData.items || []).map(item => ({
-            product:   String(item.product   || ''),
-            sku:       String(item.sku       || ''),
-            quantity:  Number(item.quantity)  || 1,
-            unitPrice: Number(item.unitPrice) || 0,
-            notes:     String(item.notes     || '')
+            sku:         String(item.sku         || ''),
+            description: String(item.product     || item.description || ''),
+            quantity:    Number(item.quantity)    || 1,
+            unitPrice:   Number(item.unitPrice)  || 0,
+            total:       (Number(item.quantity) || 1) * (Number(item.unitPrice) || 0),
+            notes:       String(item.notes       || '')
         }));
 
-        const total = items.reduce((sum, i) => sum + i.quantity * i.unitPrice, 0);
+        const total = items.reduce((sum, i) => sum + i.total, 0);
         const orderNumber = await generateOrderNumber(orgId);
 
-        // Resolve contact company name
-        const contactId = conv.contactId || null;
+        // ── Resolve real contact ID ────────────────────────────────────────
+        // Try conversation's contactId first; if it doesn't point to a real
+        // contact document, fall back to a phone-based lookup.
+        let contactId = conv.contactId || null;
+        let contactName = orderData.contactName || conv.contactName || 'Cliente';
         let contactCompany = null;
+
+        let contactDoc = null;
         if (contactId) {
-            const contactDoc = await db
+            const ref = await db
                 .collection('organizations').doc(orgId)
                 .collection('contacts').doc(contactId)
                 .get();
-            if (contactDoc.exists) contactCompany = contactDoc.data().company || null;
+            if (ref.exists) contactDoc = ref;
+        }
+
+        // Fallback: search contact by phone if contactId wasn't a real doc
+        if (!contactDoc && conv.contactPhone) {
+            const phoneSnap = await db
+                .collection('organizations').doc(orgId)
+                .collection('contacts')
+                .where('phone', '==', conv.contactPhone)
+                .limit(1)
+                .get();
+            if (!phoneSnap.empty) {
+                contactDoc = phoneSnap.docs[0];
+                contactId = contactDoc.id;
+                // Also fix the conversation reference for future operations
+                await db
+                    .collection('organizations').doc(orgId)
+                    .collection('conversations').doc(convId)
+                    .update({ contactId: contactDoc.id, contactName: contactDoc.data().name || contactName });
+            }
+        }
+
+        if (contactDoc) {
+            const cData = contactDoc.data();
+            contactId = contactDoc.id;
+            contactName = cData.name || contactName;
+            contactCompany = cData.company || null;
+        }
+
+        if (!contactDoc) {
+            return {
+                success: false,
+                message: 'No se encontró un contacto vinculado. Llama save_contact primero antes de crear el pedido.',
+            };
         }
 
         await db
@@ -675,13 +714,13 @@ async function createOrder(orgId, convId, orderData) {
             .add({
                 orderNumber,
                 contactId,
-                contactName:    orderData.contactName || conv.contactName || 'Cliente',
+                contactName,
                 contactCompany,
                 conversationId: convId,
                 platform:       conv.platform    || 'manual',
                 items,
                 total,
-                status:    'nuevo',
+                status:    'pendiente',
                 notes:     orderData.notes || '',
                 createdAt: FieldValue.serverTimestamp(),
                 updatedAt: FieldValue.serverTimestamp(),
