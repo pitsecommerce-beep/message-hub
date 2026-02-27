@@ -3658,7 +3658,8 @@ async function callOpenAI(agent, systemPrompt, messages, tools) {
                             + resultsText + '\n\n'
                             + 'Responde al cliente directamente con esta información. '
                             + 'Presenta producto, precio, disponibilidad y tiempo de entrega. '
-                            + 'NO narres que hiciste una consulta. NO incluyas XML ni etiquetas.',
+                            + 'NO narres que hiciste una consulta. NO incluyas XML ni etiquetas. '
+                            + 'IMPORTANTE: Después de presentar la cotización, DEBES pedir los datos del cliente (nombre, celular, empresa, email, dirección, RFC) y llamar save_contact, y luego crear el pedido con create_order. Ambos son OBLIGATORIOS.',
                     });
                     continue;
                 }
@@ -3774,7 +3775,8 @@ async function callAnthropic(agent, systemPrompt, messages, tools) {
                             + resultsText + '\n\n'
                             + 'Responde al cliente directamente con esta información. '
                             + 'Presenta producto, precio, disponibilidad y tiempo de entrega. '
-                            + 'NO narres que hiciste una consulta. NO incluyas XML ni etiquetas.',
+                            + 'NO narres que hiciste una consulta. NO incluyas XML ni etiquetas. '
+                            + 'IMPORTANTE: Después de presentar la cotización, DEBES pedir los datos del cliente (nombre, celular, empresa, email, dirección, RFC) y llamar save_contact, y luego crear el pedido con create_order. Ambos son OBLIGATORIOS.',
                     });
                     continue;
                 }
@@ -4497,20 +4499,30 @@ function scoreRow(row, terms, years) {
 async function buildAISystemPromptWithData(agent, userMessage) {
     let prompt = agent.systemPrompt || '';
 
-    prompt += '\n\n---\nREGLAS:\n';
+    prompt += '\n\n---\nREGLAS OBLIGATORIAS:\n';
     prompt += '- Responde directo. No narres proceso interno ("déjame buscar...", "consultando...").\n';
     prompt += '- Sin XML/JSON/código/nombres de herramientas en respuestas al cliente.\n';
     prompt += '- No inventes precios, existencias ni números de pedido.\n';
-    prompt += '- DEBES LLAMAR las herramientas para ejecutar acciones. NUNCA simules que ya lo hiciste. Si no llamaste save_contact, el contacto NO se guardó. Si no llamaste create_order, el pedido NO se creó.\n\n';
+    prompt += '- DEBES LLAMAR las herramientas para ejecutar acciones. NUNCA simules que ya lo hiciste. Si no llamaste save_contact, el contacto NO se guardó. Si no llamaste create_order, el pedido NO se creó.\n';
+    prompt += '- PROHIBIDO terminar la conversación sin haber llamado save_contact Y create_order. Ambas son OBLIGATORIAS en cada cotización.\n\n';
 
-    prompt += 'FLUJO:\n';
+    prompt += 'FLUJO OBLIGATORIO (DEBES completar TODOS los pasos, sin excepción):\n';
     const agentKbIds = agent.knowledgeBases || [];
     if (agentKbIds.length > 0) {
         prompt += '1. BUSCAR → Llama query_database con marca, modelo, parte, anio, lado. Nunca digas "no tenemos" sin buscar primero.\n';
     }
-    prompt += '2. CONTACTO → Pide nombre + número de celular (OBLIGATORIO para validar si ya existe). Llama save_contact con ambos.\n';
-    prompt += '3. PEDIDO → Cuando confirme compra, llama create_order. Comparte al cliente el número de pedido que DEVUELVA la herramienta.\n';
-    prompt += '- Orden obligatorio: save_contact ANTES de create_order.\n\n';
+    prompt += '2. CONTACTO → OBLIGATORIO: Después de cotizar, pide AL CLIENTE TODOS estos datos uno por uno para guardar su contacto:\n';
+    prompt += '   - Nombre completo (obligatorio)\n';
+    prompt += '   - Número de celular (obligatorio)\n';
+    prompt += '   - Empresa o taller\n';
+    prompt += '   - Correo electrónico\n';
+    prompt += '   - Dirección de envío\n';
+    prompt += '   - RFC (si requiere factura)\n';
+    prompt += '   Una vez que tengas al menos nombre y celular, LLAMA save_contact INMEDIATAMENTE con todos los datos recopilados. NO sigas sin llamar a save_contact.\n';
+    prompt += '3. PEDIDO → OBLIGATORIO: Inmediatamente después de save_contact, LLAMA create_order con los productos cotizados, sus cantidades y precios. NO esperes confirmación adicional — el hecho de que el cliente pidió cotización y dio sus datos ES la confirmación. Comparte al cliente el número de pedido que DEVUELVA la herramienta.\n';
+    prompt += '- Orden estricto: save_contact SIEMPRE ANTES de create_order. Ambos son OBLIGATORIOS.\n';
+    prompt += '- Si el cliente ya dio nombre y celular en la conversación, NO los vuelvas a pedir — usa los que ya tienes y llama save_contact de inmediato.\n';
+    prompt += '- NUNCA termines la conversación solo con la cotización. SIEMPRE debes guardar contacto y crear pedido.\n\n';
 
     if (agentKbIds.length > 0) {
         for (const kbId of agentKbIds) {
@@ -4535,7 +4547,7 @@ function buildAIToolDefinitions(agent) {
         type: 'function',
         function: {
             name: 'save_contact',
-            description: 'Guarda o actualiza contacto en CRM. Pide nombre y celular SIEMPRE. El celular valida si ya existe. OBLIGATORIO antes de create_order.',
+            description: 'OBLIGATORIO en cada cotización. Guarda o actualiza contacto en CRM. DEBES pedir: nombre completo, celular, empresa/taller, email, dirección y RFC. Mínimo nombre + celular. DEBES llamar esta función ANTES de create_order. Si no la llamas, el contacto NO se guarda.',
             parameters: {
                 type: 'object',
                 properties: {
@@ -4557,7 +4569,7 @@ function buildAIToolDefinitions(agent) {
         type: 'function',
         function: {
             name: 'create_order',
-            description: 'Crea pedido. REQUISITO: save_contact debe haberse llamado antes. La herramienta devuelve el número de pedido — compártelo al cliente.',
+            description: 'OBLIGATORIO en cada cotización. Crea el pedido con los productos cotizados. REQUISITO: save_contact DEBE haberse llamado antes. DEBES llamar esta función después de guardar el contacto — NO esperes confirmación extra del cliente. La herramienta devuelve el número de pedido — compártelo al cliente.',
             parameters: {
                 type: 'object',
                 properties: {
