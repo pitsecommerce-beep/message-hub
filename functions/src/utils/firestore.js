@@ -647,14 +647,95 @@ async function createOrder(orgId, convId, orderData) {
 
         const conv = convDoc.exists ? convDoc.data() : {};
 
-        const items = (orderData.items || []).map(item => ({
-            sku:         String(item.sku         || ''),
-            description: String(item.product     || item.description || ''),
-            quantity:    Number(item.quantity)    || 1,
-            unitPrice:   Number(item.unitPrice)  || 0,
-            total:       (Number(item.quantity) || 1) * (Number(item.unitPrice) || 0),
-            notes:       String(item.notes       || '')
-        }));
+        // ── KB price lookup fallback ────────────────────────────────────────
+        // If the agent didn't provide a unitPrice, try to look it up from KB
+        // by matching the SKU against knowledge base rows.
+        let kbPriceMap = null; // sku → { unitPrice, description }
+        const rawItems = orderData.items || [];
+        const needsLookup = rawItems.some(item => !item.unitPrice && item.sku);
+        if (needsLookup) {
+            try {
+                // Find the agent's KB to look up prices
+                const agentSnap = await db
+                    .collection('organizations').doc(orgId)
+                    .collection('aiAgents')
+                    .where('active', '==', true)
+                    .limit(1)
+                    .get();
+
+                if (!agentSnap.empty) {
+                    const agent = agentSnap.docs[0].data();
+                    const kbIds = agent.knowledgeBases || [];
+                    if (kbIds.length > 0) {
+                        const rows = await loadKBRows(orgId, kbIds[0]);
+                        const kb = await loadKBMeta(orgId, kbIds[0]);
+                        if (kb && rows.length > 0) {
+                            const cols = kb.columns || [];
+                            const colsLower = cols.map(c => c.toLowerCase());
+
+                            // Detect price column
+                            let priceCol = null;
+                            for (const kw of ['precio_venta', 'precio venta', 'price', 'precio', 'pvp', 'venta', 'costo_venta']) {
+                                const idx = colsLower.findIndex(c => c.includes(kw));
+                                if (idx >= 0) { priceCol = cols[idx]; break; }
+                            }
+                            // Detect SKU column
+                            let skuCol = null;
+                            for (const kw of ['sku', 'codigo', 'código', 'code', 'clave', 'num_parte', 'parte_no']) {
+                                const idx = colsLower.findIndex(c => c.includes(kw));
+                                if (idx >= 0) { skuCol = cols[idx]; break; }
+                            }
+                            // Detect description column
+                            let descCol = null;
+                            for (const kw of ['descripcion', 'descripción', 'description', 'nombre', 'producto', 'product', 'name']) {
+                                const idx = colsLower.findIndex(c => c.includes(kw));
+                                if (idx >= 0) { descCol = cols[idx]; break; }
+                            }
+
+                            if (priceCol && skuCol) {
+                                kbPriceMap = {};
+                                for (const row of rows) {
+                                    const sku = String(row[skuCol] || '').trim().toUpperCase();
+                                    if (sku) {
+                                        kbPriceMap[sku] = {
+                                            unitPrice: Number(row[priceCol]) || 0,
+                                            description: descCol ? String(row[descCol] || '') : '',
+                                        };
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            } catch (kbErr) {
+                console.warn('[createOrder] KB price lookup failed:', kbErr.message);
+            }
+        }
+
+        const items = rawItems.map(item => {
+            let unitPrice = Number(item.unitPrice) || 0;
+            let description = String(item.product || item.description || '');
+            const sku = String(item.sku || '').trim();
+
+            // Fallback: look up price/description from KB if not provided
+            if (kbPriceMap && sku) {
+                const kbEntry = kbPriceMap[sku.toUpperCase()];
+                if (kbEntry) {
+                    if (!unitPrice && kbEntry.unitPrice) unitPrice = kbEntry.unitPrice;
+                    if (!description && kbEntry.description) description = kbEntry.description;
+                }
+            }
+
+            const quantity = Number(item.quantity) || 1;
+            return {
+                sku,
+                description,
+                quantity,
+                unitPrice,
+                total: quantity * unitPrice,
+                notes: String(item.notes || ''),
+            };
+        });
 
         const total = items.reduce((sum, i) => sum + i.total, 0);
         const orderNumber = await generateOrderNumber(orgId);

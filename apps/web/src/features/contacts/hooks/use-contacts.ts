@@ -3,6 +3,7 @@ import {
   collection,
   getDocs,
   doc,
+  getDoc,
   addDoc,
   updateDoc,
   deleteDoc,
@@ -30,6 +31,19 @@ export function useContacts(orgId: string | undefined) {
       return docs
     },
     enabled: !!orgId,
+  })
+}
+
+export function useContact(orgId: string | undefined, contactId: string | undefined) {
+  return useQuery({
+    queryKey: ['contacts', orgId, contactId],
+    queryFn: async (): Promise<Contact | null> => {
+      if (!orgId || !contactId) return null
+      const snap = await getDoc(doc(db, 'organizations', orgId, 'contacts', contactId))
+      if (!snap.exists()) return null
+      return { id: snap.id, ...snap.data() } as Contact
+    },
+    enabled: !!orgId && !!contactId,
   })
 }
 

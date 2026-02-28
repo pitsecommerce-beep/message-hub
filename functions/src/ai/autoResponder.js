@@ -66,7 +66,7 @@ async function buildSystemPrompt(agent, orgId, userMessage) {
         prompt += '1. BUSCAR → Llama query_database con marca, modelo, parte, anio, lado. Nunca digas "no tenemos" sin buscar primero.\n';
     }
     prompt += '2. CONTACTO → Datos MÍNIMOS INDISPENSABLES: nombre, celular, dirección de entrega y nombre de empresa. Si quiere factura pide RFC. Llama save_contact con todos los datos.\n';
-    prompt += '3. PEDIDO → Cuando confirme compra, llama create_order con SKU, descripción y precio de la base de datos. Comparte al cliente el número de pedido que DEVUELVA la herramienta.\n';
+    prompt += '3. PEDIDO → Cuando confirme compra, llama create_order. OBLIGATORIO en cada artículo: product (descripción completa), sku, quantity Y unitPrice (precio de VENTA de la base de datos). NUNCA omitas el precio ni la descripción. Comparte al cliente el número de pedido que DEVUELVA la herramienta.\n';
     prompt += '- Orden obligatorio: save_contact ANTES de create_order.\n\n';
 
     // ── 4. Metadata de KBs (solo columnas — sin datos para ahorrar tokens) ─
@@ -159,23 +159,23 @@ function buildToolDefinitions(agent) {
             type: 'function',
             function: {
                 name: 'create_order',
-                description: 'Crea pedido. REQUISITO: save_contact debe haberse llamado antes. La herramienta devuelve el número de pedido — compártelo al cliente.',
+                description: 'Crea pedido. REQUISITO: save_contact debe haberse llamado antes. OBLIGATORIO: cada artículo DEBE incluir product (descripción), sku, unitPrice (precio de la base de datos) y quantity. La herramienta devuelve el número de pedido — compártelo al cliente.',
                 parameters: {
                     type: 'object',
                     properties: {
                         items: {
                             type: 'array',
-                            description: 'Lista de productos del pedido',
+                            description: 'Lista de productos del pedido. CADA producto DEBE tener: product, sku, quantity y unitPrice tomados de la base de datos.',
                             items: {
                                 type: 'object',
                                 properties: {
-                                    product:   { type: 'string', description: 'Nombre del producto o servicio' },
-                                    sku:       { type: 'string', description: 'SKU o código del producto tal como aparece en la base de datos' },
+                                    product:   { type: 'string', description: 'Descripción completa del producto tal como aparece en la base de datos' },
+                                    sku:       { type: 'string', description: 'SKU o código del producto tal como aparece en la base de datos. OBLIGATORIO.' },
                                     quantity:  { type: 'number', description: 'Cantidad solicitada' },
-                                    unitPrice: { type: 'number', description: 'Precio unitario (sin símbolo de moneda)' },
+                                    unitPrice: { type: 'number', description: 'Precio unitario de VENTA de la base de datos (sin símbolo de moneda). OBLIGATORIO — nunca dejes este campo vacío.' },
                                     notes:     { type: 'string', description: 'Notas adicionales del producto' }
                                 },
-                                required: ['product', 'quantity']
+                                required: ['product', 'sku', 'quantity', 'unitPrice']
                             }
                         },
                         notes: { type: 'string', description: 'Notas generales del pedido' }

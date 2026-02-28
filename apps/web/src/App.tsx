@@ -19,6 +19,7 @@ const DashboardPage = lazy(() => import('@/routes/dashboard/DashboardPage'))
 const ConversationsPage = lazy(() => import('@/routes/conversations/ConversationsPage'))
 const ContactsPage = lazy(() => import('@/routes/contacts/ContactsPage'))
 const OrdersPage = lazy(() => import('@/routes/orders/OrdersPage'))
+const OrderDetailPage = lazy(() => import('@/routes/orders/OrderDetailPage'))
 const KnowledgeBasePage = lazy(() => import('@/routes/knowledge-base/KnowledgeBasePage'))
 const AgentsPage = lazy(() => import('@/routes/config/AgentsPage'))
 const IntegrationsPage = lazy(() => import('@/routes/config/IntegrationsPage'))
@@ -70,6 +71,7 @@ const router = createBrowserRouter([
           { path: '/conversations', element: <Suspense fallback={<LoadingScreen />}><ConversationsPage /></Suspense> },
           { path: '/contacts', element: <Suspense fallback={<LoadingScreen />}><ContactsPage /></Suspense> },
           { path: '/orders', element: <Suspense fallback={<LoadingScreen />}><OrdersPage /></Suspense> },
+          { path: '/orders/:orderId', element: <Suspense fallback={<LoadingScreen />}><OrderDetailPage /></Suspense> },
           { path: '/knowledge-base', element: <Suspense fallback={<LoadingScreen />}><KnowledgeBasePage /></Suspense> },
           { path: '/agents', element: <Suspense fallback={<LoadingScreen />}><AgentsPage /></Suspense> },
           { path: '/integrations', element: <Suspense fallback={<LoadingScreen />}><IntegrationsPage /></Suspense> },
