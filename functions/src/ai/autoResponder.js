@@ -65,9 +65,19 @@ async function buildSystemPrompt(agent, orgId, userMessage) {
     if (kbIds.length > 0) {
         prompt += '1. BUSCAR → Llama query_database con marca, modelo, parte, anio, lado. Nunca digas "no tenemos" sin buscar primero.\n';
     }
-    prompt += '2. CONTACTO → Datos MÍNIMOS INDISPENSABLES: nombre, celular, dirección de entrega y nombre de empresa. Si quiere factura pide RFC. Llama save_contact con todos los datos.\n';
-    prompt += '3. PEDIDO → Cuando confirme compra, llama create_order. OBLIGATORIO en cada artículo: product (descripción completa), sku, quantity Y unitPrice (precio de VENTA de la base de datos). NUNCA omitas el precio ni la descripción. Comparte al cliente el número de pedido que DEVUELVA la herramienta.\n';
-    prompt += '- Orden obligatorio: save_contact ANTES de create_order.\n\n';
+    prompt += '2. CONTACTO → ANTES de crear cualquier pedido, DEBES recopilar TODOS estos datos OBLIGATORIOS sin excepción:\n';
+    prompt += '   a) Nombre completo del cliente (OBLIGATORIO)\n';
+    prompt += '   b) Número de celular (OBLIGATORIO)\n';
+    prompt += '   c) Dirección de envío completa: calle, número, colonia, ciudad, estado, CP (OBLIGATORIO — pregúntala siempre)\n';
+    prompt += '   d) Nombre de taller o empresa (OBLIGATORIO — pregúntalo siempre, ej: "¿A nombre de qué taller o empresa?")\n';
+    prompt += '   e) Pregunta SIEMPRE: "¿Requiere factura?" → Si responde SÍ, pide RFC (OBLIGATORIO si quiere factura)\n';
+    prompt += '   NUNCA omitas preguntar la dirección de envío, el nombre de taller y si requiere factura. Son OBLIGATORIOS.\n';
+    prompt += '   Cuando tengas TODOS los datos, llama save_contact con todos los campos recopilados.\n';
+    prompt += '3. PEDIDO → Cuando confirme compra, llama create_order. OBLIGATORIO en cada artículo: product (descripción completa), sku, quantity Y unitPrice (precio de VENTA de la base de datos). NUNCA omitas el precio ni la descripción.\n';
+    prompt += '   OBLIGATORIO en create_order: shippingAddress (dirección de envío), workshopName (nombre de taller), requiresInvoice (true/false si quiere factura), y rfc (si quiere factura).\n';
+    prompt += '   Comparte al cliente el número de pedido que DEVUELVA la herramienta.\n';
+    prompt += '- Orden OBLIGATORIO: save_contact ANTES de create_order. NUNCA crees un pedido sin haber guardado el contacto primero.\n';
+    prompt += '- NUNCA crees un pedido sin tener dirección de envío, nombre de taller y haber preguntado si requiere factura.\n\n';
 
     // ── 4. Metadata de KBs (solo columnas — sin datos para ahorrar tokens) ─
     if (kbIds.length > 0) {
@@ -159,7 +169,7 @@ function buildToolDefinitions(agent) {
             type: 'function',
             function: {
                 name: 'create_order',
-                description: 'Crea pedido. REQUISITO: save_contact debe haberse llamado antes. OBLIGATORIO: cada artículo DEBE incluir product (descripción), sku, unitPrice (precio de la base de datos) y quantity. La herramienta devuelve el número de pedido — compártelo al cliente.',
+                description: 'Crea pedido. REQUISITO: save_contact debe haberse llamado antes. OBLIGATORIO: cada artículo DEBE incluir product (descripción), sku, unitPrice (precio de la base de datos) y quantity. TAMBIÉN OBLIGATORIO: shippingAddress, workshopName, requiresInvoice (y rfc si requiere factura). La herramienta devuelve el número de pedido — compártelo al cliente.',
                 parameters: {
                     type: 'object',
                     properties: {
@@ -178,9 +188,13 @@ function buildToolDefinitions(agent) {
                                 required: ['product', 'sku', 'quantity', 'unitPrice']
                             }
                         },
-                        notes: { type: 'string', description: 'Notas generales del pedido' }
+                        shippingAddress:  { type: 'string', description: 'Dirección de envío completa del cliente (calle, número, colonia, ciudad, estado, CP). OBLIGATORIO.' },
+                        workshopName:     { type: 'string', description: 'Nombre del taller o empresa del cliente. OBLIGATORIO.' },
+                        requiresInvoice:  { type: 'boolean', description: 'true si el cliente requiere factura, false si no. OBLIGATORIO — siempre pregunta al cliente.' },
+                        rfc:              { type: 'string', description: 'RFC del cliente. OBLIGATORIO si requiresInvoice es true.' },
+                        notes:            { type: 'string', description: 'Notas generales del pedido' }
                     },
-                    required: ['items']
+                    required: ['items', 'shippingAddress', 'workshopName', 'requiresInvoice']
                 },
             },
         },
@@ -460,7 +474,7 @@ async function recoverTextToolCalls(rawText, orgId, convId, kbIds) {
             } else if (call.name === 'save_contact') {
                 const r = await saveOrUpdateContact(orgId, convId, call.params);
                 content = r.success
-                    ? `Contacto ${r.action === 'created' ? 'creado' : 'actualizado'}: ${r.name}`
+                    ? `Contacto ${r.action === 'created' ? 'creado' : 'actualizado'}: ${r.name}. contactId: ${r.contactId}`
                     : `Error: ${r.message}`;
             } else if (call.name === 'create_order') {
                 const r = await createOrder(orgId, convId, call.params);
@@ -497,7 +511,7 @@ async function executeToolCallsOpenAI(toolCalls, orgId, convId, kbIds) {
         if (tc.function.name === 'save_contact') {
             const r = await saveOrUpdateContact(orgId, convId, args);
             content = r.success
-                ? `Contacto ${r.action === 'created' ? 'creado' : 'actualizado'} correctamente: ${r.name}`
+                ? `Contacto ${r.action === 'created' ? 'creado' : 'actualizado'} correctamente: ${r.name}. contactId: ${r.contactId}`
                 : `Error al guardar contacto: ${r.message}`;
         } else if (tc.function.name === 'create_order') {
             const r = await createOrder(orgId, convId, args);
@@ -527,7 +541,7 @@ async function executeToolCallsAnthropic(toolUseBlocks, orgId, convId, kbIds) {
         if (tb.name === 'save_contact') {
             const r = await saveOrUpdateContact(orgId, convId, tb.input);
             content = r.success
-                ? `Contacto ${r.action === 'created' ? 'creado' : 'actualizado'} correctamente: ${r.name}`
+                ? `Contacto ${r.action === 'created' ? 'creado' : 'actualizado'} correctamente: ${r.name}. contactId: ${r.contactId}`
                 : `Error al guardar contacto: ${r.message}`;
         } else if (tb.name === 'create_order') {
             const r = await createOrder(orgId, convId, tb.input);

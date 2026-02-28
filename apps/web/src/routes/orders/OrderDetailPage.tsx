@@ -240,6 +240,15 @@ export default function OrderDetailPage() {
               <InfoRow icon={Clock} label="Fecha de Creación" value={formatDateTime(order.createdAt)} />
               {order.updatedAt && <InfoRow icon={Clock} label="Última Actualización" value={formatDateTime(order.updatedAt)} />}
               {order.conversationId && <InfoRow icon={FileText} label="Origen" value="Conversación con agente IA" />}
+              {order.shippingAddress && <InfoRow icon={Truck} label="Dirección de Envío" value={order.shippingAddress} />}
+              {order.workshopName && <InfoRow icon={Building2} label="Taller / Empresa" value={order.workshopName} />}
+              {order.requiresInvoice != null && (
+                <InfoRow
+                  icon={FileText}
+                  label="Factura"
+                  value={order.requiresInvoice ? `Sí — RFC: ${order.rfc || '—'}` : 'No requiere'}
+                />
+              )}
               {order.notes && <InfoRow icon={FileText} label="Notas" value={order.notes} />}
             </div>
           </div>

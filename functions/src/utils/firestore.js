@@ -640,6 +640,31 @@ async function generateOrderNumber(orgId) {
  */
 async function createOrder(orgId, convId, orderData) {
     try {
+        // ── Validar campos obligatorios del pedido ────────────────────────────
+        const shippingAddress = (orderData.shippingAddress || '').trim();
+        const workshopName    = (orderData.workshopName || '').trim();
+        const requiresInvoice = orderData.requiresInvoice === true;
+        const rfc             = (orderData.rfc || '').trim().toUpperCase();
+
+        if (!shippingAddress) {
+            return {
+                success: false,
+                message: 'Falta la dirección de envío. Pregunta al cliente su dirección completa antes de crear el pedido.',
+            };
+        }
+        if (!workshopName) {
+            return {
+                success: false,
+                message: 'Falta el nombre de taller o empresa. Pregunta al cliente el nombre de su taller antes de crear el pedido.',
+            };
+        }
+        if (requiresInvoice && !rfc) {
+            return {
+                success: false,
+                message: 'El cliente requiere factura pero falta el RFC. Pregunta al cliente su RFC antes de crear el pedido.',
+            };
+        }
+
         const convDoc = await db
             .collection('organizations').doc(orgId)
             .collection('conversations').doc(convId)
@@ -797,10 +822,14 @@ async function createOrder(orgId, convId, orderData) {
                 contactId,
                 contactName,
                 contactCompany,
-                conversationId: convId,
-                platform:       conv.platform    || 'manual',
+                conversationId:  convId,
+                platform:        conv.platform    || 'manual',
                 items,
                 total,
+                shippingAddress,
+                workshopName,
+                requiresInvoice,
+                rfc:             requiresInvoice ? rfc : '',
                 status:    'pendiente',
                 notes:     orderData.notes || '',
                 createdAt: FieldValue.serverTimestamp(),
