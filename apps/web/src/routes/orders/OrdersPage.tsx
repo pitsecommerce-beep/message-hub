@@ -522,6 +522,31 @@ function OrderRow({ order, onStatusChange, isUpdating }: OrderRowProps) {
       {expanded && hasItems && (
         <tr>
           <td colSpan={6} className="px-4 pb-3">
+            {/* Order details: shipping, workshop, invoice */}
+            {(order.shippingAddress || order.workshopName || order.requiresInvoice != null) && (
+              <div className="ml-4 mb-2 grid grid-cols-3 gap-3 text-xs">
+                {order.shippingAddress && (
+                  <div className="rounded-lg border border-white/8 bg-white/5 px-3 py-2">
+                    <p className="text-gray-500 font-semibold mb-0.5">Dir. Envío</p>
+                    <p className="text-gray-200">{order.shippingAddress}</p>
+                  </div>
+                )}
+                {order.workshopName && (
+                  <div className="rounded-lg border border-white/8 bg-white/5 px-3 py-2">
+                    <p className="text-gray-500 font-semibold mb-0.5">Taller / Empresa</p>
+                    <p className="text-gray-200">{order.workshopName}</p>
+                  </div>
+                )}
+                {order.requiresInvoice != null && (
+                  <div className="rounded-lg border border-white/8 bg-white/5 px-3 py-2">
+                    <p className="text-gray-500 font-semibold mb-0.5">Factura</p>
+                    <p className="text-gray-200">
+                      {order.requiresInvoice ? `Sí — RFC: ${order.rfc || '—'}` : 'No requiere'}
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
             <div className="ml-4 rounded-lg border border-white/8 overflow-hidden">
               <table className="w-full text-xs">
                 <thead className="bg-white/5">
