@@ -3,6 +3,7 @@ import {
   collection,
   getDocs,
   doc,
+  getDoc,
   addDoc,
   updateDoc,
   serverTimestamp,
@@ -23,7 +24,7 @@ function generateOrderNumber(): string {
   const mm = String(now.getMonth() + 1).padStart(2, '0')
   const dd = String(now.getDate()).padStart(2, '0')
   const rand = Math.floor(1000 + Math.random() * 9000)
-  return `ORD-${yy}${mm}${dd}-${rand}`
+  return `PED-${yy}${mm}${dd}-${rand}`
 }
 
 interface CreateOrderInput {
@@ -74,6 +75,19 @@ export function useCreateOrder(orgId: string | undefined) {
       toast.success('Pedido creado')
     },
     onError: (err: Error) => toast.error(err.message),
+  })
+}
+
+export function useOrder(orgId: string | undefined, orderId: string | undefined) {
+  return useQuery({
+    queryKey: ['orders', orgId, orderId],
+    queryFn: async (): Promise<Order | null> => {
+      if (!orgId || !orderId) return null
+      const snap = await getDoc(doc(db, 'organizations', orgId, 'orders', orderId))
+      if (!snap.exists()) return null
+      return { id: snap.id, ...snap.data() } as Order
+    },
+    enabled: !!orgId && !!orderId,
   })
 }
 

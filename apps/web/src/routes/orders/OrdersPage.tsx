@@ -1,5 +1,6 @@
 import { useState, useMemo, useCallback } from 'react'
 import { useForm, Controller } from 'react-hook-form'
+import { useNavigate } from 'react-router-dom'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { ShoppingBag, Search, RefreshCw, Plus, Trash2, SearchIcon } from 'lucide-react'
@@ -446,6 +447,11 @@ function CreateOrderDialog({
 
 // ─── Order row ─────────────────────────────────────────────────────────────────
 
+function safeCurrency(val: unknown): string {
+  const n = Number(val)
+  return isNaN(n) ? '$0.00' : formatCurrency(n)
+}
+
 interface OrderRowProps {
   order: Order
   onStatusChange: (orderId: string, status: OrderStatus) => void
@@ -453,6 +459,7 @@ interface OrderRowProps {
 }
 
 function OrderRow({ order, onStatusChange, isUpdating }: OrderRowProps) {
+  const navigate = useNavigate()
   const [expanded, setExpanded] = useState(false)
   const config = STATUS_CONFIG[order.status] ?? { label: order.status, variant: 'secondary' as const }
   const hasItems = order.items && order.items.length > 0
@@ -462,7 +469,12 @@ function OrderRow({ order, onStatusChange, isUpdating }: OrderRowProps) {
       <tr className="hover:bg-white/3 transition-colors cursor-pointer" onClick={() => hasItems && setExpanded(!expanded)}>
         <td className="px-4 py-3">
           <div>
-            <p className="text-sm font-medium text-white font-mono">{order.orderNumber}</p>
+            <button
+              className="text-sm font-medium text-brand-400 hover:text-brand-300 hover:underline font-mono text-left"
+              onClick={(e) => { e.stopPropagation(); navigate(`/orders/${order.id}`) }}
+            >
+              {order.orderNumber}
+            </button>
             <p className="text-xs text-gray-500">{formatDate(order.createdAt)}</p>
           </div>
         </td>
@@ -474,7 +486,7 @@ function OrderRow({ order, onStatusChange, isUpdating }: OrderRowProps) {
         </td>
         <td className="px-4 py-3">
           <p className="text-sm text-white font-medium">
-            {order.total != null ? formatCurrency(order.total) : '—'}
+            {order.total != null ? safeCurrency(order.total) : '—'}
           </p>
           {hasItems && (
             <button
@@ -525,10 +537,10 @@ function OrderRow({ order, onStatusChange, isUpdating }: OrderRowProps) {
                   {order.items!.map((item, i) => (
                     <tr key={i}>
                       <td className="px-3 py-1.5 text-gray-400 font-mono">{item.sku || '—'}</td>
-                      <td className="px-3 py-1.5 text-gray-200">{item.description}</td>
+                      <td className="px-3 py-1.5 text-gray-200">{item.description || '—'}</td>
                       <td className="px-3 py-1.5 text-gray-300 text-right">{item.quantity}</td>
-                      <td className="px-3 py-1.5 text-gray-300 text-right">{formatCurrency(item.unitPrice)}</td>
-                      <td className="px-3 py-1.5 text-white font-medium text-right">{formatCurrency(item.total)}</td>
+                      <td className="px-3 py-1.5 text-gray-300 text-right">{safeCurrency(item.unitPrice)}</td>
+                      <td className="px-3 py-1.5 text-white font-medium text-right">{safeCurrency(item.total)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -536,7 +548,7 @@ function OrderRow({ order, onStatusChange, isUpdating }: OrderRowProps) {
                   <tr>
                     <td colSpan={4} className="px-3 py-2 text-right text-gray-400 font-semibold">Total</td>
                     <td className="px-3 py-2 text-right text-white font-bold">
-                      {formatCurrency(order.total ?? 0)}
+                      {safeCurrency(order.total ?? 0)}
                     </td>
                   </tr>
                 </tfoot>
