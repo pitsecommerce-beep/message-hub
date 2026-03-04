@@ -57,7 +57,11 @@ export const ContactSchema = z.object({
   phone: z.string().optional(),
   email: z.string().email().optional().or(z.literal('')),
   rfc: z.string().optional(),
+  razonSocial: z.string().optional(),
+  regimenFiscal: z.string().optional(),
   address: z.string().optional(),
+  codigoPostal: z.string().optional(),
+  ciudad: z.string().optional(),
   notes: z.string().optional(),
   funnelStage: FunnelStageSchema.optional(),
   funnelUpdatedAt: z.any().optional(),
@@ -201,6 +205,26 @@ export type KnowledgeBase = z.infer<typeof KnowledgeBaseSchema>
 
 export const IntegrationPlatformSchema = z.enum(['whatsapp', 'instagram', 'messenger'])
 export type IntegrationPlatform = z.infer<typeof IntegrationPlatformSchema>
+
+export const PaymentGatewayPlatformSchema = z.enum(['stripe', 'mercadopago'])
+export type PaymentGatewayPlatform = z.infer<typeof PaymentGatewayPlatformSchema>
+
+export const PaymentGatewayConfigSchema = z.object({
+  id: z.string(),
+  platform: PaymentGatewayPlatformSchema,
+  connected: z.boolean(),
+  // Stripe fields
+  publishableKey: z.string().optional(),
+  secretKey: z.string().optional(),
+  webhookSecret: z.string().optional(),
+  // MercadoPago fields
+  publicKey: z.string().optional(),
+  accessToken: z.string().optional(),
+  // Common
+  orgId: z.string(),
+  updatedAt: z.any().optional(),
+})
+export type PaymentGatewayConfig = z.infer<typeof PaymentGatewayConfigSchema>
 
 export const IntegrationMethodSchema = z.enum(['meta', 'evolution'])
 export type IntegrationMethod = z.infer<typeof IntegrationMethodSchema>

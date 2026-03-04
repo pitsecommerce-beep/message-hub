@@ -2,10 +2,11 @@ import { useState, useRef, useEffect } from 'react'
 import {
   MessageSquare, Plus, Bot, BotOff, Trash2, Send,
   Search, Phone, Mail, Building2, ChevronLeft,
-  Kanban, List, RefreshCw, User, Clock,
+  Kanban, List, RefreshCw, User, Clock, CreditCard, TestTube2,
 } from 'lucide-react'
 import { toast } from 'sonner'
-import { Timestamp } from 'firebase/firestore'
+import { Timestamp, serverTimestamp, addDoc, collection, updateDoc, doc } from 'firebase/firestore'
+import { db } from '@/lib/firebase'
 import { useAppStore } from '@/store/app.store'
 import {
   useConversations,
@@ -14,11 +15,25 @@ import {
   useDeleteConversation,
   useToggleConvAI,
   useCreateConversation,
+  useUpdateConvStage,
 } from '@/features/conversations/hooks/use-conversations'
 import { useContacts } from '@/features/contacts/hooks/use-contacts'
+import { useOrders, useUpdateOrderStatus } from '@/features/orders/hooks/use-orders'
+import { usePaymentGateways } from '@/features/config/hooks/use-config'
+import { useAIAgents } from '@/features/config/hooks/use-config'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Badge } from '@/components/ui/badge'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from '@/components/ui/dialog'
 import { cn, formatTimeAgo } from '@/lib/utils'
-import type { Conversation, Platform, Contact } from '@/types'
+import type { Conversation, Platform, Contact, PaymentGatewayPlatform, Order, AIAgent } from '@/types'
 import { FUNNEL_STAGES } from '@/types'
 import FunnelView from './FunnelView'
 import NewChatDialog from './NewChatDialog'
@@ -156,6 +171,274 @@ function ContactPanel({ contact, conv }: { contact: Contact | undefined; conv: C
   )
 }
 
+// ─── Payment Link Dialog ──────────────────────────────────────────────────────
+
+function PaymentLinkDialog({
+  open,
+  onOpenChange,
+  conv,
+  orders,
+  orgId,
+  userName,
+}: {
+  open: boolean
+  onOpenChange: (o: boolean) => void
+  conv: Conversation
+  orders: Order[]
+  orgId: string | undefined
+  userName: string
+}) {
+  const { data: gateways = [] } = usePaymentGateways(orgId)
+  const updateOrderStatus = useUpdateOrderStatus(orgId)
+  const updateStage = useUpdateConvStage(orgId)
+  const sendMessage = useSendMessage(orgId)
+
+  const [amount, setAmount] = useState('')
+  const [description, setDescription] = useState('')
+  const [gateway, setGateway] = useState<PaymentGatewayPlatform | null>(null)
+  const [sending, setSending] = useState(false)
+
+  // Auto-detect active order for this conversation
+  const activeOrder = orders.find(
+    (o) => o.conversationId === conv.id && (o.status === 'pendiente' || o.status === 'pago_pendiente'),
+  )
+
+  useEffect(() => {
+    if (open) {
+      setAmount(activeOrder?.total?.toString() ?? '')
+      setDescription(activeOrder ? `Pedido ${activeOrder.orderNumber}` : '')
+      // Auto-select first configured gateway
+      const stripe = gateways.find((g) => g.platform === 'stripe' && g.connected)
+      const mp = gateways.find((g) => g.platform === 'mercadopago' && g.connected)
+      setGateway(stripe ? 'stripe' : mp ? 'mercadopago' : null)
+      setSending(false)
+    }
+  }, [open]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function handleSend() {
+    if (!amount || !description || !gateway || !orgId) return
+    setSending(true)
+    try {
+      const gwName = gateway === 'stripe' ? 'Stripe' : 'MercadoPago'
+      const ref = `PAY-${Date.now().toString(36).toUpperCase()}`
+      const amountNum = parseFloat(amount)
+
+      // Save payment link doc
+      await addDoc(collection(db, 'organizations', orgId, 'paymentLinks'), {
+        convId: conv.id,
+        orderId: activeOrder?.id ?? null,
+        amount: amountNum,
+        description,
+        gateway,
+        status: 'pending',
+        trackingRef: ref,
+        orgId,
+        createdAt: serverTimestamp(),
+      })
+
+      // Send message in conversation
+      const linkText = `💳 *Liga de Pago*\nMonto: $${amountNum.toLocaleString('es-MX', { minimumFractionDigits: 2 })} MXN\nConcepto: ${description}\nPasarela: ${gwName}\nRef: ${ref}\n\n_El pago se procesa de forma segura vía ${gwName}._`
+      await sendMessage.mutateAsync({ convId: conv.id, text: linkText, senderName: userName, role: 'agent' })
+
+      // Update order status to pago_pendiente
+      if (activeOrder && activeOrder.status !== 'pago_pendiente') {
+        await updateOrderStatus.mutateAsync({ orderId: activeOrder.id, status: 'pago_pendiente' })
+      }
+
+      // Move funnel stage
+      const earlyStages = ['curioso', 'cotizando']
+      if (!conv.funnelStage || earlyStages.includes(conv.funnelStage)) {
+        await updateStage.mutateAsync({ convId: conv.id, stage: 'pago_pendiente' })
+      }
+
+      toast.success('Liga de pago enviada')
+      onOpenChange(false)
+    } catch (err) {
+      toast.error('Error al enviar liga de pago')
+    } finally {
+      setSending(false)
+    }
+  }
+
+  const stripeGw = gateways.find((g) => g.platform === 'stripe' && g.connected)
+  const mpGw = gateways.find((g) => g.platform === 'mercadopago' && g.connected)
+  const noGateways = !stripeGw && !mpGw
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>💳 Enviar Liga de Pago</DialogTitle>
+        </DialogHeader>
+
+        <div className="space-y-4">
+          <div className="rounded-lg bg-white/5 border border-white/10 px-3 py-2">
+            <p className="text-xs text-gray-500">Cliente</p>
+            <p className="text-sm font-medium text-white">{conv.contactName}</p>
+          </div>
+
+          {activeOrder && (
+            <div className="rounded-lg bg-purple-500/10 border border-purple-500/20 px-3 py-2">
+              <p className="text-xs text-purple-300">
+                Pedido activo: <span className="font-semibold">{activeOrder.orderNumber}</span>
+                {' — '}${(activeOrder.total ?? 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })} MXN
+              </p>
+            </div>
+          )}
+
+          <div className="space-y-1.5">
+            <Label>Monto (MXN) *</Label>
+            <Input type="number" placeholder="0.00" min="1" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} />
+          </div>
+
+          <div className="space-y-1.5">
+            <Label>Concepto *</Label>
+            <Input placeholder="Descripción del pago..." value={description} onChange={(e) => setDescription(e.target.value)} />
+          </div>
+
+          <div className="space-y-1.5">
+            <Label>Pasarela de pago *</Label>
+            <div className="grid grid-cols-2 gap-2">
+              {(['stripe', 'mercadopago'] as PaymentGatewayPlatform[]).map((gw) => {
+                const configured = gateways.some((g) => g.platform === gw && g.connected)
+                return (
+                  <button
+                    key={gw}
+                    type="button"
+                    disabled={!configured}
+                    onClick={() => setGateway(gw)}
+                    className={cn(
+                      'rounded-lg border p-3 text-center transition-all text-sm',
+                      gateway === gw
+                        ? 'border-brand-500 bg-brand-600/15 text-brand-300'
+                        : configured
+                          ? 'border-white/10 bg-white/5 text-gray-300 hover:border-white/20'
+                          : 'border-white/5 bg-white/2 text-gray-600 opacity-50 cursor-not-allowed',
+                    )}
+                  >
+                    <span className="text-lg">{gw === 'stripe' ? '💳' : '🏦'}</span>
+                    <p className="mt-1 font-medium">{gw === 'stripe' ? 'Stripe' : 'MercadoPago'}</p>
+                    {!configured && <p className="text-xs text-gray-600 mt-0.5">No configurado</p>}
+                  </button>
+                )
+              })}
+            </div>
+            {noGateways && (
+              <p className="text-xs text-yellow-400">Ninguna pasarela configurada. Configúralas en Integraciones.</p>
+            )}
+          </div>
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={sending}>Cancelar</Button>
+          <Button onClick={handleSend} loading={sending} disabled={!amount || !description || !gateway}>
+            Enviar Liga de Pago
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+// ─── Test Chat Agent Selector Dialog ──────────────────────────────────────────
+
+function TestChatDialog({
+  open,
+  onOpenChange,
+  agents,
+  orgId,
+  userName,
+  onCreated,
+}: {
+  open: boolean
+  onOpenChange: (o: boolean) => void
+  agents: AIAgent[]
+  orgId: string | undefined
+  userName: string
+  onCreated: (convId: string) => void
+}) {
+  const [creating, setCreating] = useState(false)
+
+  async function handleSelect(agent: AIAgent) {
+    if (!orgId || creating) return
+    setCreating(true)
+    try {
+      const platform: Platform = (agent.channels && agent.channels.length > 0) ? agent.channels[0] : 'whatsapp'
+      const convRef = await addDoc(collection(db, 'organizations', orgId, 'conversations'), {
+        contactId: '',
+        contactName: `Prueba — ${agent.name}`,
+        contactPhone: '',
+        platform,
+        createdAt: serverTimestamp(),
+        lastMessageAt: serverTimestamp(),
+        lastMessage: 'Conversación de prueba iniciada',
+        aiEnabled: true,
+        funnelStage: 'curioso',
+        isTestChat: true,
+        testAgentId: agent.id,
+      })
+
+      await addDoc(collection(db, 'organizations', orgId, 'conversations', convRef.id, 'messages'), {
+        text: `Conversación de prueba con "${agent.name}". Escribe como si fueras un cliente para probar las respuestas del agente.`,
+        senderName: 'Sistema',
+        role: 'ai',
+        timestamp: serverTimestamp(),
+      })
+
+      toast.success(`Chat de prueba con ${agent.name} creado`)
+      onOpenChange(false)
+      onCreated(convRef.id)
+    } catch (err) {
+      toast.error('Error al crear chat de prueba')
+    } finally {
+      setCreating(false)
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle>🤖 Iniciar Chat de Prueba</DialogTitle>
+        </DialogHeader>
+        <p className="text-sm text-gray-400">
+          Selecciona un agente para iniciar una conversación de prueba realista. Podrás chatear como cliente y ver las respuestas del agente.
+        </p>
+        <div className="grid gap-3 sm:grid-cols-2 mt-2">
+          {agents.length === 0 && (
+            <p className="text-sm text-gray-500 col-span-2 text-center py-6">No hay agentes configurados. Crea uno en Agentes IA.</p>
+          )}
+          {agents.map((agent) => (
+            <button
+              key={agent.id}
+              onClick={() => handleSelect(agent)}
+              disabled={creating}
+              className={cn(
+                'rounded-xl border border-white/10 bg-white/5 p-4 text-left transition-all hover:border-brand-500/40 hover:bg-brand-600/5',
+                !agent.active && 'opacity-50',
+              )}
+            >
+              <div className="flex items-center gap-2 mb-2">
+                <Bot size={16} className="text-purple-400" />
+                <span className="font-medium text-white text-sm">{agent.name}</span>
+                <Badge variant={agent.active ? 'success' : 'secondary'} className="ml-auto text-[10px]">
+                  {agent.active ? 'Activo' : 'Inactivo'}
+                </Badge>
+              </div>
+              <p className="text-xs text-gray-500">
+                {agent.provider === 'openai' ? 'OpenAI' : agent.provider === 'anthropic' ? 'Anthropic' : 'Custom'} · {agent.model}
+              </p>
+              <p className="text-xs text-gray-600 mt-0.5">
+                {(agent.knowledgeBases ?? []).length} base(s) de datos
+              </p>
+            </button>
+          ))}
+        </div>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
 // ─── Conversation Chat Panel ───────────────────────────────────────────────────
 
 function ConversationPanel({
@@ -163,11 +446,17 @@ function ConversationPanel({
   contact,
   onClose,
   userName,
+  orders,
+  orgId,
+  onOpenPaymentLink,
 }: {
   conv: Conversation
   contact: Contact | undefined
   onClose: () => void
   userName: string
+  orders: Order[]
+  orgId: string | undefined
+  onOpenPaymentLink?: () => void
 }) {
   const { messages, loading } = useMessages(conv.orgId, conv.id)
   const sendMessage = useSendMessage(conv.orgId)
@@ -289,6 +578,13 @@ function ConversationPanel({
         {/* Composer */}
         <div className="border-t border-white/8 p-3 shrink-0 bg-gray-950/40">
           <div className="flex items-end gap-2">
+            <button
+              onClick={() => onOpenPaymentLink?.()}
+              title="Enviar liga de pago"
+              className="p-2 rounded-lg text-gray-500 hover:text-brand-300 hover:bg-brand-600/10 transition-colors shrink-0"
+            >
+              <CreditCard size={16} />
+            </button>
             <textarea
               className="flex-1 resize-none rounded-xl border border-white/12 bg-white/5 px-3.5 py-2.5 text-sm text-gray-100 placeholder:text-gray-600 focus:outline-none focus:ring-2 focus:ring-brand-500/60 focus:border-brand-500/40 transition-all max-h-36 leading-relaxed"
               placeholder="Escribe un mensaje..."
@@ -378,7 +674,7 @@ function ConvItem({
 // ─── Conversation List Sidebar ─────────────────────────────────────────────────
 
 function ConversationList({
-  conversations, isLoading, selectedConvId, onSelect, onNew, onRefetch,
+  conversations, isLoading, selectedConvId, onSelect, onNew, onRefetch, onTestChat,
 }: {
   conversations: Conversation[]
   isLoading: boolean
@@ -386,6 +682,7 @@ function ConversationList({
   onSelect: (id: string) => void
   onNew: () => void
   onRefetch: () => void
+  onTestChat?: () => void
 }) {
   const [search, setSearch] = useState('')
   const [activeTab, setActiveTab] = useState<FilterTab>('all')
@@ -421,6 +718,13 @@ function ConversationList({
               className="p-1.5 rounded-lg text-gray-600 hover:text-gray-300 hover:bg-white/8 transition-colors"
             >
               <RefreshCw size={12} className={isLoading ? 'animate-spin' : ''} />
+            </button>
+            <button
+              onClick={onTestChat}
+              title="Chat de prueba con IA"
+              className="p-1.5 rounded-lg text-gray-600 hover:text-purple-300 hover:bg-purple-600/10 transition-colors"
+            >
+              <TestTube2 size={13} />
             </button>
             <Button size="sm" onClick={onNew}>
               <Plus size={13} /> Nuevo
@@ -516,11 +820,15 @@ export default function ConversationsPage() {
   const orgId = userData?.orgId ?? organization?.id
   const { data: conversations = [], isLoading, refetch } = useConversations(orgId)
   const { data: contacts = [] } = useContacts(orgId)
+  const { data: orders = [] } = useOrders(orgId)
+  const { data: agents = [] } = useAIAgents(orgId)
   const createConv = useCreateConversation(orgId)
 
   const [viewMode, setViewMode] = useState<ViewMode>('conversations')
   const [selectedConvId, setSelectedConvId] = useState<string | null>(null)
   const [newChatOpen, setNewChatOpen] = useState(false)
+  const [paymentLinkOpen, setPaymentLinkOpen] = useState(false)
+  const [testChatOpen, setTestChatOpen] = useState(false)
 
   const selectedConv = conversations.find((c) => c.id === selectedConvId) ?? null
   const selectedContact = selectedConv
@@ -575,6 +883,7 @@ export default function ConversationsPage() {
           }}
           onNew={() => setNewChatOpen(true)}
           onRefetch={() => refetch()}
+          onTestChat={() => setTestChatOpen(true)}
         />
       </div>
 
@@ -586,6 +895,9 @@ export default function ConversationsPage() {
             contact={selectedContact}
             onClose={() => setSelectedConvId(null)}
             userName={userData?.name ?? 'Agente'}
+            orders={orders}
+            orgId={orgId}
+            onOpenPaymentLink={() => setPaymentLinkOpen(true)}
           />
         ) : viewMode === 'funnel' ? (
           /* Full-page Funnel Kanban */
@@ -642,6 +954,30 @@ export default function ConversationsPage() {
           setNewChatOpen(false)
         }}
         isCreating={createConv.isPending}
+      />
+
+      {selectedConv && (
+        <PaymentLinkDialog
+          open={paymentLinkOpen}
+          onOpenChange={setPaymentLinkOpen}
+          conv={selectedConv}
+          orders={orders}
+          orgId={orgId}
+          userName={userData?.name ?? 'Agente'}
+        />
+      )}
+
+      <TestChatDialog
+        open={testChatOpen}
+        onOpenChange={setTestChatOpen}
+        agents={agents}
+        orgId={orgId}
+        userName={userData?.name ?? 'Agente'}
+        onCreated={(convId) => {
+          setSelectedConvId(convId)
+          setViewMode('conversations')
+          refetch()
+        }}
       />
     </div>
   )

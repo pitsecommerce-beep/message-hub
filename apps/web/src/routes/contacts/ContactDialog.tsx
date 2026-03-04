@@ -29,6 +29,10 @@ const schema = z.object({
   email: z.string().email('Correo inválido').optional().or(z.literal('')),
   rfc: z.string().optional(),
   address: z.string().optional(),
+  razonSocial: z.string().optional(),
+  regimenFiscal: z.string().optional(),
+  codigoPostal: z.string().optional(),
+  ciudad: z.string().optional(),
   notes: z.string().optional(),
   funnelStage: z.string().optional(),
 })
@@ -63,12 +67,17 @@ export default function ContactDialog({ open, onOpenChange, contact, onSave, isS
               email: contact.email ?? '',
               rfc: contact.rfc ?? '',
               address: contact.address ?? '',
+              razonSocial: contact.razonSocial ?? '',
+              regimenFiscal: contact.regimenFiscal ?? '',
+              codigoPostal: contact.codigoPostal ?? '',
+              ciudad: contact.ciudad ?? '',
               notes: contact.notes ?? '',
               funnelStage: contact.funnelStage ?? '__none__',
             }
           : {
               name: '', company: '', phone: '', email: '',
-              rfc: '', address: '', notes: '', funnelStage: '__none__',
+              rfc: '', address: '', razonSocial: '', regimenFiscal: '',
+              codigoPostal: '', ciudad: '', notes: '', funnelStage: '__none__',
             },
       )
     }
@@ -140,7 +149,29 @@ export default function ContactDialog({ open, onOpenChange, contact, onSave, isS
 
           <div className="space-y-1.5">
             <Label>Dirección</Label>
-            <Input placeholder="Calle 123, Ciudad, CP" {...register('address')} />
+            <Input placeholder="Calle 123, Colonia, Delegación" {...register('address')} />
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label>Ciudad</Label>
+              <Input placeholder="Ciudad de México" {...register('ciudad')} />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Código Postal</Label>
+              <Input placeholder="01000" {...register('codigoPostal')} />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label>Razón Social</Label>
+              <Input placeholder="Empresa S.A. de C.V." {...register('razonSocial')} />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Régimen Fiscal</Label>
+              <Input placeholder="601 - General de Ley" {...register('regimenFiscal')} />
+            </div>
           </div>
 
           <div className="space-y-1.5">

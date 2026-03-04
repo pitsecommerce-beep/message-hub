@@ -54,6 +54,10 @@ interface CreateContactInput {
   email?: string
   rfc?: string
   address?: string
+  razonSocial?: string
+  regimenFiscal?: string
+  codigoPostal?: string
+  ciudad?: string
   notes?: string
   funnelStage?: FunnelStage
 }
