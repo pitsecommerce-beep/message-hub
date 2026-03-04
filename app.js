@@ -1103,7 +1103,7 @@ function setOrderFilter(filter, btn) {
 }
 
 const ORDER_STATUS_LABELS = {
-    nuevo: 'Nuevo', confirmado: 'Confirmado', en_proceso: 'En proceso',
+    nuevo: 'Nuevo', pago_pendiente: 'Pendiente de Pago', confirmado: 'Confirmado', en_proceso: 'En proceso',
     entregado: 'Entregado', cancelado: 'Cancelado'
 };
 
@@ -1163,13 +1163,13 @@ function renderOrdersTable() {
         const btnConv = order.conversationId
             ? `<button class="btn-order-action" title="Abrir conversación" onclick="openConvFromOrder('${order.conversationId}')">💬</button>`
             : '';
-        const btnPay = status === 'nuevo'
+        const btnPay = (status === 'nuevo' || status === 'pago_pendiente')
             ? `<button class="btn-order-action btn-order-pay" title="Enviar liga de pago" onclick="sendPaymentLinkFromOrder('${order.id}')">💳</button>`
             : '';
 
         const statusSelect = `
             <select class="conv-stage-select order-status-select" onchange="updateOrderStatus('${order.id}', this.value)">
-                ${['nuevo','confirmado','en_proceso','entregado','cancelado'].map(s =>
+                ${['nuevo','pago_pendiente','confirmado','en_proceso','entregado','cancelado'].map(s =>
                     `<option value="${s}" ${s === status ? 'selected' : ''}>${ORDER_STATUS_LABELS[s]}</option>`
                 ).join('')}
             </select>`;
@@ -1346,13 +1346,14 @@ function renderContactsTable() {
         const stageClass = 'stage-badge stage-' + (contact.funnelStage || 'curioso');
         return `
             <tr>
-                <td><strong>${escapeHtml(contact.name)}</strong></td>
+                <td><strong><a href="#" class="contact-name-link" onclick="event.preventDefault(); openContactDetail('${contact.id}')">${escapeHtml(contact.name)}</a></strong></td>
                 <td>${escapeHtml(contact.company || '--')}</td>
                 <td>${escapeHtml(contact.phone || '--')}</td>
                 <td>${escapeHtml(contact.email || '--')}</td>
                 <td>${escapeHtml(contact.rfc || '--')}</td>
                 <td><span class="${stageClass}">${stageName}</span></td>
                 <td class="contacts-actions">
+                    <button class="btn-table-action" onclick="openContactDetail('${contact.id}')" title="Ver detalle">👤</button>
                     <button class="btn-table-action" onclick="openContactModal(contacts.find(c=>c.id==='${contact.id}'))" title="Editar">✏️</button>
                     <button class="btn-table-action btn-table-delete" onclick="deleteContact('${contact.id}')" title="Eliminar">🗑️</button>
                 </td>
@@ -1373,7 +1374,9 @@ function filterContacts(query) {
         (c.company && c.company.toLowerCase().includes(q)) ||
         (c.phone && c.phone.includes(q)) ||
         (c.email && c.email.toLowerCase().includes(q)) ||
-        (c.rfc && c.rfc.toLowerCase().includes(q))
+        (c.rfc && c.rfc.toLowerCase().includes(q)) ||
+        (c.razonSocial && c.razonSocial.toLowerCase().includes(q)) ||
+        (c.ciudad && c.ciudad.toLowerCase().includes(q))
     );
 
     if (filtered.length === 0) {
@@ -1386,13 +1389,14 @@ function filterContacts(query) {
         const stageClass = 'stage-badge stage-' + (contact.funnelStage || 'curioso');
         return `
             <tr>
-                <td><strong>${escapeHtml(contact.name)}</strong></td>
+                <td><strong><a href="#" class="contact-name-link" onclick="event.preventDefault(); openContactDetail('${contact.id}')">${escapeHtml(contact.name)}</a></strong></td>
                 <td>${escapeHtml(contact.company || '--')}</td>
                 <td>${escapeHtml(contact.phone || '--')}</td>
                 <td>${escapeHtml(contact.email || '--')}</td>
                 <td>${escapeHtml(contact.rfc || '--')}</td>
                 <td><span class="${stageClass}">${stageName}</span></td>
                 <td class="contacts-actions">
+                    <button class="btn-table-action" onclick="openContactDetail('${contact.id}')" title="Ver detalle">👤</button>
                     <button class="btn-table-action" onclick="openContactModal(contacts.find(c=>c.id==='${contact.id}'))" title="Editar">✏️</button>
                     <button class="btn-table-action btn-table-delete" onclick="deleteContact('${contact.id}')" title="Eliminar">🗑️</button>
                 </td>
@@ -1416,6 +1420,10 @@ function openContactModal(contact = null) {
         document.getElementById('contactAddress').value = contact.address || '';
         document.getElementById('contactStage').value = contact.funnelStage || 'curioso';
         document.getElementById('contactNotes').value = contact.notes || '';
+        document.getElementById('contactRazonSocial').value = contact.razonSocial || '';
+        document.getElementById('contactRegimenFiscal').value = contact.regimenFiscal || '';
+        document.getElementById('contactCodigoPostal').value = contact.codigoPostal || '';
+        document.getElementById('contactCiudad').value = contact.ciudad || '';
     } else {
         title.textContent = 'Agregar Contacto';
         document.getElementById('contactEditId').value = '';
@@ -1446,6 +1454,10 @@ async function saveContact() {
         address: document.getElementById('contactAddress').value.trim(),
         funnelStage: document.getElementById('contactStage').value,
         notes: document.getElementById('contactNotes').value.trim(),
+        razonSocial: document.getElementById('contactRazonSocial').value.trim(),
+        regimenFiscal: document.getElementById('contactRegimenFiscal').value.trim(),
+        codigoPostal: document.getElementById('contactCodigoPostal').value.trim(),
+        ciudad: document.getElementById('contactCiudad').value.trim(),
         updatedAt: window.firestore.serverTimestamp()
     };
 
@@ -1502,6 +1514,181 @@ async function deleteContact(contactId) {
     } catch (error) {
         console.error('Error al eliminar contacto:', error);
         showNotification('Error', 'No se pudo eliminar el contacto.', 'error');
+    }
+}
+
+// ========== DETALLE DE CONTACTO ==========
+
+function openContactDetail(contactId) {
+    const contact = contacts.find(c => c.id === contactId);
+    if (!contact) return;
+
+    const modal = document.getElementById('contactDetailModal');
+    const body = document.getElementById('contactDetailBody');
+
+    const stageName = getStageName(contact.funnelStage || 'curioso');
+    const stageClass = 'stage-badge stage-' + (contact.funnelStage || 'curioso');
+
+    // Find related conversations and orders
+    const contactConvs = conversations.filter(c => c.contactId === contactId);
+    const contactOrders = orders.filter(o => o.contactId === contactId);
+
+    const convsHtml = contactConvs.length > 0
+        ? contactConvs.map(c => `<div class="contact-detail-conv-item" onclick="closeContactDetail(); showPage('conversations'); setTimeout(() => openConversation('${c.id}'), 300)">
+            <span>${getPlatformIcon(c.platform)}</span>
+            <span>${escapeHtml(c.lastMessage || 'Sin mensajes')}</span>
+            <span class="contact-detail-conv-time">${c.lastMessageAt ? formatTimeAgo(c.lastMessageAt.toDate ? c.lastMessageAt.toDate() : new Date(c.lastMessageAt)) : ''}</span>
+        </div>`).join('')
+        : '<p class="contact-detail-empty-text">Sin conversaciones</p>';
+
+    const ordersHtml = contactOrders.length > 0
+        ? contactOrders.map(o => {
+            const statusLabel = ORDER_STATUS_LABELS[o.status] || o.status;
+            return `<div class="contact-detail-order-item">
+                <span class="contact-detail-order-num">${escapeHtml(o.orderNumber || o.id.slice(-6))}</span>
+                <span class="order-status ${o.status}">${statusLabel}</span>
+                <span>$${(o.total || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })}</span>
+            </div>`;
+        }).join('')
+        : '<p class="contact-detail-empty-text">Sin pedidos</p>';
+
+    const createdStr = contact.createdAt
+        ? (contact.createdAt.toDate ? contact.createdAt.toDate() : new Date(contact.createdAt)).toLocaleDateString('es-MX', { day: 'numeric', month: 'long', year: 'numeric' })
+        : '--';
+
+    body.innerHTML = `
+        <div class="contact-detail-header-section">
+            <div class="contact-detail-avatar">${escapeHtml((contact.name || '?')[0].toUpperCase())}</div>
+            <div class="contact-detail-main-info">
+                <h2 class="contact-detail-name">${escapeHtml(contact.name)}</h2>
+                <span class="${stageClass}">${stageName}</span>
+            </div>
+        </div>
+
+        <div class="contact-detail-grid">
+            <div class="contact-detail-section">
+                <h4 class="contact-detail-section-title">Informacion General</h4>
+                <div class="contact-detail-field">
+                    <label>Empresa</label>
+                    <input type="text" class="form-input" id="cdField_company" value="${escapeHtml(contact.company || '')}" placeholder="Sin empresa">
+                </div>
+                <div class="contact-detail-field">
+                    <label>Celular</label>
+                    <input type="tel" class="form-input" id="cdField_phone" value="${escapeHtml(contact.phone || '')}" placeholder="Sin celular">
+                </div>
+                <div class="contact-detail-field">
+                    <label>Correo Electronico</label>
+                    <input type="email" class="form-input" id="cdField_email" value="${escapeHtml(contact.email || '')}" placeholder="Sin correo">
+                </div>
+            </div>
+
+            <div class="contact-detail-section">
+                <h4 class="contact-detail-section-title">Datos Fiscales y Direccion</h4>
+                <div class="contact-detail-field">
+                    <label>RFC</label>
+                    <input type="text" class="form-input" id="cdField_rfc" value="${escapeHtml(contact.rfc || '')}" placeholder="XAXX010101000">
+                </div>
+                <div class="contact-detail-field">
+                    <label>Razon Social</label>
+                    <input type="text" class="form-input" id="cdField_razonSocial" value="${escapeHtml(contact.razonSocial || '')}" placeholder="Razon social para facturacion">
+                </div>
+                <div class="contact-detail-field">
+                    <label>Regimen Fiscal</label>
+                    <input type="text" class="form-input" id="cdField_regimenFiscal" value="${escapeHtml(contact.regimenFiscal || '')}" placeholder="Ej: 601 - General de Ley">
+                </div>
+                <div class="contact-detail-field">
+                    <label>Direccion</label>
+                    <textarea class="form-input form-textarea" id="cdField_address" rows="2" placeholder="Calle, Colonia, Ciudad, CP">${escapeHtml(contact.address || '')}</textarea>
+                </div>
+                <div class="contact-detail-field">
+                    <label>Codigo Postal</label>
+                    <input type="text" class="form-input" id="cdField_codigoPostal" value="${escapeHtml(contact.codigoPostal || '')}" placeholder="00000">
+                </div>
+                <div class="contact-detail-field">
+                    <label>Ciudad / Estado</label>
+                    <input type="text" class="form-input" id="cdField_ciudad" value="${escapeHtml(contact.ciudad || '')}" placeholder="Ciudad, Estado">
+                </div>
+            </div>
+
+            <div class="contact-detail-section">
+                <h4 class="contact-detail-section-title">Etapa del Funnel</h4>
+                <div class="contact-detail-field">
+                    <select class="form-input form-select" id="cdField_funnelStage">
+                        ${FUNNEL_STAGES.map(s => `<option value="${s.id}" ${contact.funnelStage === s.id ? 'selected' : ''}>${s.name}</option>`).join('')}
+                    </select>
+                </div>
+            </div>
+
+            <div class="contact-detail-section">
+                <h4 class="contact-detail-section-title">Notas</h4>
+                <div class="contact-detail-field">
+                    <textarea class="form-input form-textarea" id="cdField_notes" rows="3" placeholder="Notas sobre este contacto...">${escapeHtml(contact.notes || '')}</textarea>
+                </div>
+            </div>
+        </div>
+
+        <div class="contact-detail-related">
+            <div class="contact-detail-related-section">
+                <h4 class="contact-detail-section-title">Conversaciones (${contactConvs.length})</h4>
+                ${convsHtml}
+            </div>
+            <div class="contact-detail-related-section">
+                <h4 class="contact-detail-section-title">Pedidos (${contactOrders.length})</h4>
+                ${ordersHtml}
+            </div>
+        </div>
+
+        <div class="contact-detail-footer-info">
+            <span>Contacto creado: ${createdStr}</span>
+            <span>ID: ${contact.id}</span>
+        </div>
+    `;
+
+    document.getElementById('contactDetailSaveBtn').onclick = () => saveContactDetail(contactId);
+    modal.classList.remove('hidden');
+}
+
+function closeContactDetail() {
+    document.getElementById('contactDetailModal').classList.add('hidden');
+}
+
+async function saveContactDetail(contactId) {
+    const contact = contacts.find(c => c.id === contactId);
+    if (!contact || !currentOrganization) return;
+
+    const updateData = {
+        company: document.getElementById('cdField_company').value.trim(),
+        phone: document.getElementById('cdField_phone').value.trim(),
+        email: document.getElementById('cdField_email').value.trim(),
+        rfc: document.getElementById('cdField_rfc').value.trim().toUpperCase(),
+        razonSocial: document.getElementById('cdField_razonSocial').value.trim(),
+        regimenFiscal: document.getElementById('cdField_regimenFiscal').value.trim(),
+        address: document.getElementById('cdField_address').value.trim(),
+        codigoPostal: document.getElementById('cdField_codigoPostal').value.trim(),
+        ciudad: document.getElementById('cdField_ciudad').value.trim(),
+        funnelStage: document.getElementById('cdField_funnelStage').value,
+        notes: document.getElementById('cdField_notes').value.trim(),
+        updatedAt: window.firestore.serverTimestamp()
+    };
+
+    try {
+        await window.firestore.updateDoc(
+            window.firestore.doc(window.db, 'organizations', currentOrganization.id, 'contacts', contactId),
+            updateData
+        );
+
+        const idx = contacts.findIndex(c => c.id === contactId);
+        if (idx !== -1) {
+            contacts[idx] = { ...contacts[idx], ...updateData, updatedAt: new Date() };
+        }
+
+        renderContactsTable();
+        renderFunnel();
+        closeContactDetail();
+        showNotification('Contacto actualizado', `La informacion de ${contact.name} fue guardada correctamente.`, 'success');
+    } catch (error) {
+        console.error('Error guardando detalle del contacto:', error);
+        showNotification('Error', 'No se pudo guardar: ' + error.message, 'error');
     }
 }
 
@@ -2121,6 +2308,7 @@ function renderConversationsList() {
                     </div>
                 </div>
                 ${conv.unreadCount > 0 ? `<span class="conv-item-badge">${conv.unreadCount}</span>` : ''}
+                <button class="conv-item-delete" onclick="event.stopPropagation(); deleteConversation('${conv.id}')" title="Eliminar conversación">🗑️</button>
             </div>
         `;
     }).join('');
@@ -2488,6 +2676,24 @@ function openPaymentLinkModal() {
     const contactInfo = document.getElementById('paymentLinkContact');
     contactInfo.innerHTML = `<span>Cliente: <strong>${escapeHtml(currentConversation.contactName || 'Sin nombre')}</strong></span>`;
 
+    // Auto-detect active order for this conversation
+    const activeOrder = orders.find(o => o.conversationId === currentConversation.id && (o.status === 'nuevo' || o.status === 'pago_pendiente'));
+    const orderInfoEl = document.getElementById('paymentLinkOrderInfo');
+    if (activeOrder) {
+        const orderNum = activeOrder.orderNumber || ('#' + activeOrder.id.slice(-6).toUpperCase());
+        pendingPaymentOrderId = activeOrder.id;
+        if (orderInfoEl) {
+            orderInfoEl.innerHTML = `<span class="payment-order-badge">Pedido activo: <strong>${escapeHtml(orderNum)}</strong> — $${(activeOrder.total || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })} MXN</span>`;
+            orderInfoEl.classList.remove('hidden');
+        }
+    } else {
+        pendingPaymentOrderId = null;
+        if (orderInfoEl) {
+            orderInfoEl.innerHTML = '';
+            orderInfoEl.classList.add('hidden');
+        }
+    }
+
     // Mostrar hint sobre pasarelas no configuradas
     const hintEl = document.getElementById('paymentGatewayHint');
     if (!hasStripe && !hasMercadoPago) {
@@ -2502,12 +2708,19 @@ function openPaymentLinkModal() {
     }
 
     // Reset form
-    document.getElementById('paymentLinkAmount').value = '';
-    document.getElementById('paymentLinkDescription').value = '';
+    document.getElementById('paymentLinkAmount').value = activeOrder ? (activeOrder.total || '') : '';
+    document.getElementById('paymentLinkDescription').value = activeOrder ? `Pedido ${activeOrder.orderNumber || activeOrder.id.slice(-6)}` : '';
     document.getElementById('paymentLinkNotes').value = '';
     selectedPaymentGateway = null;
     document.querySelectorAll('input[name="paymentGateway"]').forEach(r => r.checked = false);
     document.querySelectorAll('#paymentLinkModal .platform-option-card').forEach(c => c.classList.remove('selected'));
+
+    // Auto-select the first configured gateway
+    if (hasStripe) {
+        selectPaymentGateway('stripe');
+    } else if (hasMercadoPago) {
+        selectPaymentGateway('mercadopago');
+    }
 
     document.getElementById('paymentLinkModal').classList.remove('hidden');
 }
@@ -2613,8 +2826,23 @@ async function sendPaymentLink() {
 
         // 4. Mover funnel a "Pago Pendiente" si está en etapa anterior
         const earlyStages = ['curioso', 'cotizando'];
-        if (currentConversation.funnelStage && earlyStages.includes(currentConversation.funnelStage)) {
+        if (!currentConversation.funnelStage || earlyStages.includes(currentConversation.funnelStage)) {
             await changeConvStage(currentConversation.id, 'pago_pendiente');
+        }
+
+        // 5. Si hay un pedido vinculado, cambiar su status a "pago_pendiente"
+        if (paymentData.orderId) {
+            try {
+                await window.firestore.updateDoc(
+                    window.firestore.doc(window.db, 'organizations', currentOrganization.id, 'orders', paymentData.orderId),
+                    { status: 'pago_pendiente', updatedAt: window.firestore.serverTimestamp() }
+                );
+                const linkedOrder = orders.find(o => o.id === paymentData.orderId);
+                if (linkedOrder) linkedOrder.status = 'pago_pendiente';
+                renderOrdersBadge();
+            } catch (orderErr) {
+                console.error('Error actualizando status del pedido:', orderErr);
+            }
         }
 
         // Actualizar local
@@ -2704,6 +2932,110 @@ function openNewChatModal() {
 function closeNewChatModal() {
     document.getElementById('newChatModal').classList.add('hidden');
     selectedChatPlatform = null;
+}
+
+// ========== TEST CHAT FROM CONVERSATIONS PAGE ==========
+
+function openTestChatFromConversations() {
+    if (!aiAgents || aiAgents.length === 0) {
+        showNotification('Sin agentes', 'No hay agentes de IA configurados. Ve a la sección de Agentes IA para crear uno.', 'warning');
+        return;
+    }
+
+    const modal = document.getElementById('testChatAgentModal');
+    const grid = document.getElementById('testChatAgentGrid');
+
+    grid.innerHTML = aiAgents.map(agent => {
+        const providerLabel = agent.provider === 'openai' ? 'OpenAI' : agent.provider === 'anthropic' ? 'Anthropic' : 'Custom';
+        const channels = (agent.channels || []).map(ch => getPlatformLabel(ch)).join(', ') || 'Sin canales';
+        const kbCount = (agent.knowledgeBases || []).length;
+        return `
+            <div class="test-chat-agent-card ${agent.active ? '' : 'test-chat-agent-inactive'}" onclick="startRealisticTestChat('${agent.id}')">
+                <div class="test-chat-agent-header">
+                    <span class="test-chat-agent-icon">🤖</span>
+                    <span class="test-chat-agent-name">${escapeHtml(agent.name)}</span>
+                    ${agent.active ? '<span class="test-chat-agent-active-badge">Activo</span>' : '<span class="test-chat-agent-inactive-badge">Inactivo</span>'}
+                </div>
+                <div class="test-chat-agent-meta">
+                    <span>${providerLabel} · ${escapeHtml(agent.model || '--')}</span>
+                </div>
+                <div class="test-chat-agent-meta">
+                    <span>Canales: ${escapeHtml(channels)}</span>
+                </div>
+                <div class="test-chat-agent-meta">
+                    <span>${kbCount} base(s) de datos</span>
+                </div>
+            </div>
+        `;
+    }).join('');
+
+    modal.classList.remove('hidden');
+}
+
+function closeTestChatAgentModal() {
+    document.getElementById('testChatAgentModal').classList.add('hidden');
+}
+
+async function startRealisticTestChat(agentId) {
+    const agent = aiAgents.find(a => a.id === agentId);
+    if (!agent) return;
+
+    closeTestChatAgentModal();
+
+    // Create a test conversation in Firestore to simulate a real chat
+    const userName = currentUserData?.name || currentUser.displayName || currentUser.email.split('@')[0];
+    const testContactName = 'Prueba - ' + agent.name;
+
+    try {
+        const convData = {
+            contactId: null,
+            contactName: testContactName,
+            contactPhone: '',
+            contactEmail: '',
+            platform: (agent.channels && agent.channels.length > 0) ? agent.channels[0] : 'manual',
+            status: 'open',
+            funnelStage: 'curioso',
+            createdBy: currentUser.uid,
+            createdAt: window.firestore.serverTimestamp(),
+            lastMessage: 'Conversación de prueba iniciada',
+            lastMessageAt: window.firestore.serverTimestamp(),
+            lastMessageBy: currentUser.uid,
+            unreadCount: 0,
+            assignedTo: currentUser.uid,
+            aiEnabled: true,
+            isTestChat: true,
+            testAgentId: agentId
+        };
+
+        const convRef = await window.firestore.addDoc(
+            window.firestore.collection(window.db, 'organizations', currentOrganization.id, 'conversations'),
+            convData
+        );
+
+        // Add system message
+        await window.firestore.addDoc(
+            window.firestore.collection(window.db, 'organizations', currentOrganization.id, 'conversations', convRef.id, 'messages'),
+            {
+                text: `Conversación de prueba con el agente "${agent.name}". Escribe como si fueras un cliente para probar las respuestas del agente. La IA está habilitada para esta conversación.`,
+                sender: 'agent',
+                senderName: 'Sistema',
+                senderUid: currentUser.uid,
+                platform: convData.platform,
+                timestamp: window.firestore.serverTimestamp(),
+                status: 'sent',
+                type: 'system'
+            }
+        );
+
+        const newConv = { id: convRef.id, ...convData, lastMessageAt: new Date(), createdAt: new Date() };
+        conversations.unshift(newConv);
+        renderConversationsList();
+        await openConversation(convRef.id);
+        addAppNotification('Chat de prueba iniciado', `Conversación de prueba con ${agent.name} creada. Escribe como cliente para probar.`, 'success');
+    } catch (error) {
+        console.error('Error creando chat de prueba:', error);
+        showNotification('Error', 'No se pudo crear el chat de prueba: ' + error.message, 'error');
+    }
 }
 
 function selectPlatform(platform) {
