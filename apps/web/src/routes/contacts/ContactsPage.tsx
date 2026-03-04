@@ -71,7 +71,12 @@ export default function ContactsPage() {
         ),
         cell: (info) => (
           <div>
-            <p className="text-sm font-medium text-white">{info.getValue()}</p>
+            <button
+              className="text-sm font-medium text-white hover:text-brand-300 hover:underline transition-colors text-left"
+              onClick={() => handleEdit(info.row.original)}
+            >
+              {info.getValue()}
+            </button>
             {info.row.original.company && (
               <p className="text-xs text-gray-500">{info.row.original.company}</p>
             )}

@@ -12,7 +12,7 @@ import {
 } from 'firebase/firestore'
 import { toast } from 'sonner'
 import { db } from '@/lib/firebase'
-import type { AIAgent, IntegrationConfig, TeamMember } from '@/types'
+import type { AIAgent, IntegrationConfig, TeamMember, PaymentGatewayConfig } from '@/types'
 
 // ─── Team ──────────────────────────────────────────────────────────────────────
 
@@ -160,6 +160,60 @@ export function useDeleteIntegration(orgId: string | undefined) {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['integrations', orgId] })
       toast.success('Integración eliminada')
+    },
+    onError: (err: Error) => toast.error(err.message),
+  })
+}
+
+// ─── Payment Gateway Configs ──────────────────────────────────────────────────
+
+export function usePaymentGateways(orgId: string | undefined) {
+  return useQuery({
+    queryKey: ['payment-gateways', orgId],
+    queryFn: async (): Promise<PaymentGatewayConfig[]> => {
+      if (!orgId) return []
+      const snap = await getDocs(
+        collection(db, 'organizations', orgId, 'paymentGateways'),
+      )
+      return snap.docs.map((d) => ({ id: d.id, ...d.data() } as PaymentGatewayConfig))
+    },
+    enabled: !!orgId,
+  })
+}
+
+interface SavePaymentGatewayInput extends Omit<PaymentGatewayConfig, 'id'> {
+  id?: string
+}
+
+export function useSavePaymentGateway(orgId: string | undefined) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ id, ...data }: SavePaymentGatewayInput) => {
+      if (!orgId) throw new Error('No orgId')
+      if (id) {
+        await updateDoc(doc(db, 'organizations', orgId, 'paymentGateways', id), { ...data, updatedAt: serverTimestamp() })
+      } else {
+        await addDoc(collection(db, 'organizations', orgId, 'paymentGateways'), { ...data, updatedAt: serverTimestamp() })
+      }
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['payment-gateways', orgId] })
+      toast.success('Pasarela de pago guardada')
+    },
+    onError: (err: Error) => toast.error(err.message),
+  })
+}
+
+export function useDeletePaymentGateway(orgId: string | undefined) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (id: string) => {
+      if (!orgId) throw new Error('No orgId')
+      await deleteDoc(doc(db, 'organizations', orgId, 'paymentGateways', id))
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['payment-gateways', orgId] })
+      toast.success('Pasarela eliminada')
     },
     onError: (err: Error) => toast.error(err.message),
   })

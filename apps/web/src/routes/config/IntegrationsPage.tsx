@@ -27,6 +27,9 @@ import {
   useIntegrations,
   useSaveIntegration,
   useDeleteIntegration,
+  usePaymentGateways,
+  useSavePaymentGateway,
+  useDeletePaymentGateway,
 } from '@/features/config/hooks/use-config'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -40,7 +43,7 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog'
 import { createEvolutionClient } from '@/lib/evolution-api'
-import type { IntegrationPlatform, IntegrationConfig, IntegrationMethod } from '@/types'
+import type { IntegrationPlatform, IntegrationConfig, IntegrationMethod, PaymentGatewayPlatform, PaymentGatewayConfig } from '@/types'
 
 // ─── Constants ─────────────────────────────────────────────────────────────────
 
@@ -765,6 +768,221 @@ async function tryLogoutEvolution(config: IntegrationConfig) {
   }
 }
 
+// ─── Payment Gateway Schemas ──────────────────────────────────────────────────
+
+const stripeSchema = z.object({
+  publishableKey: z.string().min(1, 'Requerido'),
+  secretKey: z.string().min(1, 'Requerido'),
+  webhookSecret: z.string().optional(),
+})
+type StripeForm = z.infer<typeof stripeSchema>
+
+const mercadoPagoSchema = z.object({
+  publicKey: z.string().min(1, 'Requerido'),
+  accessToken: z.string().min(1, 'Requerido'),
+})
+type MercadoPagoForm = z.infer<typeof mercadoPagoSchema>
+
+const PAYMENT_GATEWAY_INFO: Record<PaymentGatewayPlatform, { name: string; icon: string; bgColor: string; description: string }> = {
+  stripe: {
+    name: 'Stripe',
+    icon: '💳',
+    bgColor: 'bg-indigo-600/15',
+    description: 'Acepta pagos internacionales con tarjeta. Genera ligas de pago desde el chat.',
+  },
+  mercadopago: {
+    name: 'MercadoPago',
+    icon: '🏦',
+    bgColor: 'bg-sky-600/15',
+    description: 'Pagos en México y LATAM: transferencias, OXXO, tarjetas y más.',
+  },
+}
+
+// ─── PaymentGatewayCard ───────────────────────────────────────────────────────
+
+function PaymentGatewayCard({
+  platform,
+  config,
+  onConfigure,
+  onDisconnect,
+}: {
+  platform: PaymentGatewayPlatform
+  config: PaymentGatewayConfig | undefined
+  onConfigure: () => void
+  onDisconnect: () => void
+}) {
+  const info = PAYMENT_GATEWAY_INFO[platform]
+  const isConnected = config?.connected ?? false
+
+  return (
+    <div className="rounded-xl border border-white/10 bg-white/5 p-5 space-y-4 hover:border-white/20 transition-colors">
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <div className={`h-10 w-10 rounded-xl flex items-center justify-center text-xl ${info.bgColor}`}>
+            {info.icon}
+          </div>
+          <div>
+            <p className="font-medium text-white">{info.name}</p>
+            <p className="text-xs text-gray-500 mt-0.5 max-w-[220px]">{info.description}</p>
+          </div>
+        </div>
+        <Badge variant={isConnected ? 'success' : 'secondary'}>
+          {isConnected ? <><CheckCircle size={10} /> Conectado</> : <><AlertCircle size={10} /> Sin conectar</>}
+        </Badge>
+      </div>
+
+      {isConnected && (
+        <div className="rounded-lg bg-white/5 px-3 py-2">
+          <p className="text-xs text-gray-500">{platform === 'stripe' ? 'Publishable Key' : 'Public Key'}</p>
+          <p className="text-sm text-gray-300 font-mono truncate">
+            {platform === 'stripe' ? config?.publishableKey : config?.publicKey}
+          </p>
+        </div>
+      )}
+
+      <div className="flex gap-2">
+        <Button variant={isConnected ? 'outline' : 'default'} size="sm" className="flex-1" onClick={onConfigure}>
+          {isConnected ? 'Reconfigurar' : 'Configurar'}
+        </Button>
+        {isConnected && (
+          <Button
+            variant="outline"
+            size="sm"
+            className="text-red-400 border-red-500/30 hover:bg-red-500/10"
+            onClick={onDisconnect}
+          >
+            Desconectar
+          </Button>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ─── PaymentGatewayConfigDialog ───────────────────────────────────────────────
+
+function PaymentGatewayConfigDialog({
+  open,
+  onOpenChange,
+  platform,
+  existing,
+  orgId,
+}: {
+  open: boolean
+  onOpenChange: (o: boolean) => void
+  platform: PaymentGatewayPlatform | null
+  existing: PaymentGatewayConfig | undefined
+  orgId: string | undefined
+}) {
+  const saveGateway = useSavePaymentGateway(orgId)
+
+  const stripeForm = useForm<StripeForm>({
+    resolver: zodResolver(stripeSchema),
+    defaultValues: { publishableKey: existing?.publishableKey ?? '', secretKey: '', webhookSecret: '' },
+  })
+
+  const mpForm = useForm<MercadoPagoForm>({
+    resolver: zodResolver(mercadoPagoSchema),
+    defaultValues: { publicKey: existing?.publicKey ?? '', accessToken: '' },
+  })
+
+  useEffect(() => {
+    if (open && platform === 'stripe') {
+      stripeForm.reset({ publishableKey: existing?.publishableKey ?? '', secretKey: '', webhookSecret: existing?.webhookSecret ?? '' })
+    }
+    if (open && platform === 'mercadopago') {
+      mpForm.reset({ publicKey: existing?.publicKey ?? '', accessToken: '' })
+    }
+  }, [open, platform]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  if (!platform) return null
+  const info = PAYMENT_GATEWAY_INFO[platform]
+
+  async function onSubmitStripe(data: StripeForm) {
+    if (!orgId || !platform) return
+    await saveGateway.mutateAsync({
+      id: existing?.id,
+      platform: 'stripe',
+      connected: true,
+      publishableKey: data.publishableKey,
+      secretKey: data.secretKey,
+      webhookSecret: data.webhookSecret,
+      orgId,
+    })
+    onOpenChange(false)
+  }
+
+  async function onSubmitMP(data: MercadoPagoForm) {
+    if (!orgId || !platform) return
+    await saveGateway.mutateAsync({
+      id: existing?.id,
+      platform: 'mercadopago',
+      connected: true,
+      publicKey: data.publicKey,
+      accessToken: data.accessToken,
+      orgId,
+    })
+    onOpenChange(false)
+  }
+
+  const isSubmitting = saveGateway.isPending
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => { if (!isSubmitting) onOpenChange(o) }}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>{info.icon} Configurar {info.name}</DialogTitle>
+        </DialogHeader>
+
+        {platform === 'stripe' ? (
+          <form onSubmit={stripeForm.handleSubmit(onSubmitStripe)} className="space-y-4">
+            <div className="space-y-1.5">
+              <Label>Publishable Key</Label>
+              <Input placeholder="pk_live_..." {...stripeForm.register('publishableKey')} />
+              {stripeForm.formState.errors.publishableKey && <p className="text-xs text-red-400">{stripeForm.formState.errors.publishableKey.message}</p>}
+              <p className="text-xs text-gray-500">Dashboard → Developers → API Keys</p>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Secret Key</Label>
+              <Input type="password" placeholder="sk_live_..." {...stripeForm.register('secretKey')} />
+              {stripeForm.formState.errors.secretKey && <p className="text-xs text-red-400">{stripeForm.formState.errors.secretKey.message}</p>}
+              <p className="text-xs text-gray-500">Se almacenará de forma segura</p>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Webhook Secret (opcional)</Label>
+              <Input type="password" placeholder="whsec_..." {...stripeForm.register('webhookSecret')} />
+              <p className="text-xs text-gray-500">Para verificar webhooks de Stripe</p>
+            </div>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={isSubmitting}>Cancelar</Button>
+              <Button type="submit" loading={isSubmitting}>Guardar</Button>
+            </DialogFooter>
+          </form>
+        ) : (
+          <form onSubmit={mpForm.handleSubmit(onSubmitMP)} className="space-y-4">
+            <div className="space-y-1.5">
+              <Label>Public Key</Label>
+              <Input placeholder="APP_USR-..." {...mpForm.register('publicKey')} />
+              {mpForm.formState.errors.publicKey && <p className="text-xs text-red-400">{mpForm.formState.errors.publicKey.message}</p>}
+              <p className="text-xs text-gray-500">Mercado Pago → Tu negocio → Credenciales</p>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Access Token</Label>
+              <Input type="password" placeholder="APP_USR-..." {...mpForm.register('accessToken')} />
+              {mpForm.formState.errors.accessToken && <p className="text-xs text-red-400">{mpForm.formState.errors.accessToken.message}</p>}
+              <p className="text-xs text-gray-500">Se almacenará de forma segura</p>
+            </div>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={isSubmitting}>Cancelar</Button>
+              <Button type="submit" loading={isSubmitting}>Guardar</Button>
+            </DialogFooter>
+          </form>
+        )}
+      </DialogContent>
+    </Dialog>
+  )
+}
+
 // ─── IntegrationsPage ─────────────────────────────────────────────────────────
 
 export default function IntegrationsPage() {
@@ -773,16 +991,28 @@ export default function IntegrationsPage() {
   const { data: integrations = [] } = useIntegrations(orgId)
   const deleteIntegration = useDeleteIntegration(orgId)
 
+  // Payment gateways
+  const { data: paymentGateways = [] } = usePaymentGateways(orgId)
+  const deleteGateway = useDeletePaymentGateway(orgId)
+  const [gatewayPlatform, setGatewayPlatform] = useState<PaymentGatewayPlatform | null>(null)
+
   const [metaPlatform, setMetaPlatform] = useState<IntegrationPlatform | null>(null)
   const [evolutionOpen, setEvolutionOpen] = useState(false)
 
   const platforms: IntegrationPlatform[] = ['whatsapp', 'instagram', 'messenger']
+  const paymentPlatforms: PaymentGatewayPlatform[] = ['stripe', 'mercadopago']
 
   async function handleDisconnect(config: IntegrationConfig, platform: IntegrationPlatform) {
     const name = INTEGRATION_INFO[platform].name
     if (!confirm(`¿Desconectar ${name}? Esta acción no se puede deshacer.`)) return
     await tryLogoutEvolution(config)
     deleteIntegration.mutate(config.id)
+  }
+
+  function handleDisconnectGateway(config: PaymentGatewayConfig) {
+    const name = PAYMENT_GATEWAY_INFO[config.platform].name
+    if (!confirm(`¿Desconectar ${name}?`)) return
+    deleteGateway.mutate(config.id)
   }
 
   const whatsappConfig = integrations.find((i) => i.platform === 'whatsapp')
@@ -853,6 +1083,29 @@ export default function IntegrationsPage() {
         </div>
       )}
 
+      {/* ── Payment Gateways Section ──────────────────────────────────── */}
+      <div className="pt-4">
+        <h3 className="text-sm font-semibold text-white mb-1">Pasarelas de Pago</h3>
+        <p className="text-xs text-gray-500">
+          Configura tus pasarelas para generar ligas de pago desde el chat
+        </p>
+      </div>
+
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        {paymentPlatforms.map((platform) => {
+          const config = paymentGateways.find((g) => g.platform === platform)
+          return (
+            <PaymentGatewayCard
+              key={platform}
+              platform={platform}
+              config={config}
+              onConfigure={() => setGatewayPlatform(platform)}
+              onDisconnect={() => { if (config) handleDisconnectGateway(config) }}
+            />
+          )
+        })}
+      </div>
+
       {/* Meta config dialog */}
       <MetaConfigDialog
         open={metaPlatform !== null}
@@ -867,6 +1120,15 @@ export default function IntegrationsPage() {
         open={evolutionOpen}
         onOpenChange={setEvolutionOpen}
         existing={whatsappConfig?.method === 'evolution' ? whatsappConfig : undefined}
+        orgId={orgId}
+      />
+
+      {/* Payment gateway config dialog */}
+      <PaymentGatewayConfigDialog
+        open={gatewayPlatform !== null}
+        onOpenChange={(o) => { if (!o) setGatewayPlatform(null) }}
+        platform={gatewayPlatform}
+        existing={gatewayPlatform ? paymentGateways.find((g) => g.platform === gatewayPlatform) : undefined}
         orgId={orgId}
       />
     </div>
