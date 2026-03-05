@@ -63,6 +63,7 @@ export const ContactSchema = z.object({
   codigoPostal: z.string().optional(),
   ciudad: z.string().optional(),
   notes: z.string().optional(),
+  discountPercent: z.number().optional(),
   funnelStage: FunnelStageSchema.optional(),
   funnelUpdatedAt: z.any().optional(),
   orgId: z.string(),

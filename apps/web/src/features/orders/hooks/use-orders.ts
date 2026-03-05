@@ -61,14 +61,17 @@ export function useOrders(orgId: string | undefined) {
 export function useCreateOrder(orgId: string | undefined) {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: async (input: CreateOrderInput) => {
+    mutationFn: async (input: CreateOrderInput): Promise<string> => {
       if (!orgId) throw new Error('No orgId')
       const orderNumber = generateOrderNumber()
       await addDoc(collection(db, 'organizations', orgId, 'orders'), {
         ...stripUndefined(input),
         orderNumber,
+        orgId,
         createdAt: serverTimestamp(),
+        createdBy: 'manual',
       })
+      return orderNumber
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['orders', orgId] })

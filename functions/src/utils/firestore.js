@@ -805,7 +805,22 @@ async function createOrder(orgId, convId, orderData) {
             contactId = contactDoc.id;
             contactName = cData.name || contactName;
             contactCompany = cData.company || null;
+
+            // ── Apply contact discount ──────────────────────────────────────
+            // Formula: remove 16% IVA → apply discount → re-add 16% IVA
+            const discountPercent = Number(cData.discountPercent) || 0;
+            if (discountPercent > 0) {
+                for (const item of items) {
+                    const base = item.unitPrice / 1.16;
+                    const discountedBase = base * (1 - discountPercent / 100);
+                    item.unitPrice = Math.round(discountedBase * 1.16 * 100) / 100;
+                    item.total = Math.round(item.quantity * item.unitPrice * 100) / 100;
+                }
+            }
         }
+
+        // Recalculate total after potential discount
+        const finalTotal = items.reduce((sum, i) => sum + i.total, 0);
 
         if (!contactDoc) {
             return {
@@ -825,7 +840,7 @@ async function createOrder(orgId, convId, orderData) {
                 conversationId:  convId,
                 platform:        conv.platform    || 'manual',
                 items,
-                total,
+                total: finalTotal,
                 shippingAddress,
                 workshopName,
                 requiresInvoice,
@@ -837,7 +852,7 @@ async function createOrder(orgId, convId, orderData) {
                 createdBy: 'ai'
             });
 
-        return { success: true, orderNumber, total };
+        return { success: true, orderNumber, total: finalTotal };
     } catch (err) {
         console.error('[createOrder] Error:', err);
         return { success: false, message: err.message };

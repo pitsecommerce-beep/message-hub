@@ -22,6 +22,9 @@ const { mercadopagoWebhook } = require('./src/webhooks/mercadopago');
 // Trigger Firestore: auto-responder de IA
 const { autoResponder } = require('./src/ai/autoResponder');
 
+// Trigger Firestore: envío de confirmación de pedido por WhatsApp
+const { orderConfirmationSender } = require('./src/triggers/orderConfirmation');
+
 module.exports = {
     whatsappWebhook,
     instagramWebhook,
@@ -29,4 +32,5 @@ module.exports = {
     whatsappEvolutionWebhook,
     mercadopagoWebhook,
     autoResponder,
+    orderConfirmationSender,
 };

@@ -34,6 +34,7 @@ const schema = z.object({
   codigoPostal: z.string().optional(),
   ciudad: z.string().optional(),
   notes: z.string().optional(),
+  discountPercent: z.preprocess((v) => (v === '' || v === undefined || v === null ? undefined : Number(v)), z.number().min(0).max(100).optional()),
   funnelStage: z.string().optional(),
 })
 
@@ -72,12 +73,13 @@ export default function ContactDialog({ open, onOpenChange, contact, onSave, isS
               codigoPostal: contact.codigoPostal ?? '',
               ciudad: contact.ciudad ?? '',
               notes: contact.notes ?? '',
+              discountPercent: contact.discountPercent ?? undefined,
               funnelStage: contact.funnelStage ?? '__none__',
             }
           : {
               name: '', company: '', phone: '', email: '',
               rfc: '', address: '', razonSocial: '', regimenFiscal: '',
-              codigoPostal: '', ciudad: '', notes: '', funnelStage: '__none__',
+              codigoPostal: '', ciudad: '', notes: '', discountPercent: undefined, funnelStage: '__none__',
             },
       )
     }
@@ -120,10 +122,15 @@ export default function ContactDialog({ open, onOpenChange, contact, onSave, isS
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-3 gap-3">
             <div className="space-y-1.5">
               <Label>RFC</Label>
               <Input placeholder="XAXX010101000" {...register('rfc')} />
+            </div>
+            <div className="space-y-1.5">
+              <Label>% Descuento</Label>
+              <Input type="number" min="0" max="100" step="0.5" placeholder="0" {...register('discountPercent')} />
+              {errors.discountPercent && <p className="text-xs text-red-400">Debe ser entre 0 y 100</p>}
             </div>
             <div className="space-y-1.5">
               <Label>Etapa en el Funnel</Label>

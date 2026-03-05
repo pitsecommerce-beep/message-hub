@@ -59,6 +59,7 @@ interface CreateContactInput {
   codigoPostal?: string
   ciudad?: string
   notes?: string
+  discountPercent?: number
   funnelStage?: FunnelStage
 }
 

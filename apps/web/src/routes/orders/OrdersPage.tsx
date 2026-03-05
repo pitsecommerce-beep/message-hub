@@ -1,14 +1,16 @@
-import { useState, useMemo, useCallback } from 'react'
+import { useState, useMemo } from 'react'
 import { useForm, Controller } from 'react-hook-form'
 import { useNavigate } from 'react-router-dom'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { ShoppingBag, Search, RefreshCw, Plus, Trash2, SearchIcon } from 'lucide-react'
-import { Timestamp } from 'firebase/firestore'
+import { Timestamp, collection, query, where, getDocs, addDoc, updateDoc, doc, serverTimestamp } from 'firebase/firestore'
 import { useAppStore } from '@/store/app.store'
 import { useOrders, useUpdateOrderStatus, useCreateOrder } from '@/features/orders/hooks/use-orders'
 import { useContacts } from '@/features/contacts/hooks/use-contacts'
+import { useConversations } from '@/features/conversations/hooks/use-conversations'
 import { useKnowledgeBases, useKBRows } from '@/features/knowledge-base/hooks/use-knowledge-base'
+import { db } from '@/lib/firebase'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
@@ -29,7 +31,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { formatCurrency } from '@/lib/utils'
-import type { Order, OrderStatus, OrderItem } from '@/types'
+import type { Order, OrderStatus, OrderItem, Contact } from '@/types'
 
 const STATUS_CONFIG: Record<OrderStatus, { label: string; variant: 'info' | 'warning' | 'success' | 'destructive' | 'secondary' }> = {
   pendiente: { label: 'Pendiente', variant: 'warning' },
@@ -109,6 +111,19 @@ function parsePrice(value: unknown): number {
   return isNaN(n) ? 0 : n
 }
 
+/**
+ * Aplica descuento de contacto al precio de venta (que incluye 16% IVA):
+ * 1. Quitar IVA: precio / 1.16
+ * 2. Aplicar descuento: base * (1 - descuento/100)
+ * 3. Volver a agregar IVA: resultado * 1.16
+ */
+function applyDiscount(priceWithTax: number, discountPercent: number): number {
+  if (!discountPercent || discountPercent <= 0) return priceWithTax
+  const base = priceWithTax / 1.16
+  const discounted = base * (1 - discountPercent / 100)
+  return Math.round(discounted * 1.16 * 100) / 100
+}
+
 // ─── Order creation dialog ─────────────────────────────────────────────────────
 
 interface LineItem {
@@ -135,6 +150,7 @@ function CreateOrderDialog({
   orgId: string | undefined
 }) {
   const { data: contacts = [] } = useContacts(orgId)
+  const { data: conversations = [] } = useConversations(orgId)
   const { data: knowledgeBases = [] } = useKnowledgeBases(orgId)
   const createOrder = useCreateOrder(orgId)
 
@@ -170,9 +186,10 @@ function CreateOrderDialog({
   }, [skuSearch, kbRows, skuCol, descCol, priceCol])
 
   function addFromKB(product: KBProduct) {
+    const finalPrice = applyDiscount(product.unitPrice, contactDiscount)
     setLineItems((prev) => [
       ...prev,
-      { sku: product.sku, description: product.description, quantity: 1, unitPrice: product.unitPrice },
+      { sku: product.sku, description: product.description, quantity: 1, unitPrice: finalPrice },
     ])
     setSkuSearch('')
     setShowResults(false)
@@ -197,11 +214,16 @@ function CreateOrderDialog({
     register,
     handleSubmit,
     reset,
+    watch,
     formState: { errors },
   } = useForm<OrderForm>({
     resolver: zodResolver(orderSchema),
     defaultValues: { status: 'pendiente' },
   })
+
+  const watchedContactId = watch('contactId')
+  const selectedContact = contacts.find((c) => c.id === watchedContactId)
+  const contactDiscount = selectedContact?.discountPercent ?? 0
 
   function handleClose() {
     if (createOrder.isPending) return
@@ -218,14 +240,14 @@ function CreateOrderDialog({
     if (!contact) return
 
     const items: OrderItem[] = lineItems.map((li) => ({
-      sku: li.sku || undefined,
+      sku: li.sku || '',
       description: li.description,
       quantity: li.quantity,
       unitPrice: li.unitPrice,
-      total: li.quantity * li.unitPrice,
+      total: Math.round(li.quantity * li.unitPrice * 100) / 100,
     }))
 
-    await createOrder.mutateAsync({
+    const orderNumber = await createOrder.mutateAsync({
       contactId: contact.id,
       contactName: contact.name,
       status: data.status as OrderStatus,
@@ -233,6 +255,39 @@ function CreateOrderDialog({
       total: orderTotal,
       notes: data.notes?.trim() || undefined,
     })
+
+    // Send order confirmation message via WhatsApp if contact has a conversation
+    if (orgId && orderNumber) {
+      try {
+        const conv = conversations.find((c) => c.contactId === contact.id)
+        if (conv) {
+          const itemLines = items.map((it) =>
+            `  - ${it.description}${it.sku ? ` (${it.sku})` : ''} x${it.quantity} = ${formatCurrency(it.total)}`
+          ).join('\n')
+          const discountNote = contactDiscount > 0 ? `\nDescuento aplicado: ${contactDiscount}%` : ''
+          const confirmText = `Hola ${contact.name}, tu pedido ha sido creado exitosamente.\n\nPedido: ${orderNumber}\n\nArtículos:\n${itemLines}\n\nTotal: ${formatCurrency(orderTotal)}${discountNote}\n\nGracias por tu compra.`
+
+          await addDoc(
+            collection(db, 'organizations', orgId, 'conversations', conv.id, 'messages'),
+            {
+              text: confirmText,
+              senderName: 'Sistema',
+              role: 'agent',
+              direction: 'outgoing',
+              timestamp: serverTimestamp(),
+              generatedBy: 'order_confirmation',
+            }
+          )
+          await updateDoc(doc(db, 'organizations', orgId, 'conversations', conv.id), {
+            lastMessage: confirmText.substring(0, 200),
+            lastMessageAt: serverTimestamp(),
+          })
+        }
+      } catch (err) {
+        console.warn('[OrderConfirmation] Error sending confirmation:', err)
+      }
+    }
+
     handleClose()
   }
 
@@ -266,6 +321,9 @@ function CreateOrderDialog({
                 )}
               />
               {errors.contactId && <p className="text-xs text-red-400">{errors.contactId.message}</p>}
+              {contactDiscount > 0 && (
+                <p className="text-xs text-green-400">Descuento del contacto: {contactDiscount}%</p>
+              )}
             </div>
             <div className="space-y-1.5">
               <Label>Estado *</Label>
@@ -332,7 +390,14 @@ function CreateOrderDialog({
                       <span className="text-gray-200 truncate">{p.description}</span>
                     </div>
                     {p.unitPrice > 0 && (
-                      <span className="text-green-400 font-medium shrink-0">{formatCurrency(p.unitPrice)}</span>
+                      <span className="shrink-0 flex items-center gap-1.5">
+                        {contactDiscount > 0 && (
+                          <span className="text-gray-500 line-through text-[10px]">{formatCurrency(p.unitPrice)}</span>
+                        )}
+                        <span className="text-green-400 font-medium">
+                          {formatCurrency(contactDiscount > 0 ? applyDiscount(p.unitPrice, contactDiscount) : p.unitPrice)}
+                        </span>
+                      </span>
                     )}
                   </button>
                 ))}
