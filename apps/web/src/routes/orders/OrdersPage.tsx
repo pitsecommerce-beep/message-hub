@@ -101,6 +101,14 @@ function detectPriceColumn(cols: string[]): string | null {
   return null
 }
 
+function parsePrice(value: unknown): number {
+  if (typeof value === 'number') return isNaN(value) ? 0 : value
+  if (!value) return 0
+  const cleaned = String(value).replace(/[$€£,\s]/g, '').trim()
+  const n = Number(cleaned)
+  return isNaN(n) ? 0 : n
+}
+
 // ─── Order creation dialog ─────────────────────────────────────────────────────
 
 interface LineItem {
@@ -156,7 +164,7 @@ function CreateOrderDialog({
       .map((row): KBProduct => ({
         sku: String(skuCol ? (row[skuCol] ?? '') : ''),
         description: String(descCol ? (row[descCol] ?? '') : Object.values(row).slice(0, 3).join(' - ')),
-        unitPrice: priceCol ? Number(row[priceCol]) || 0 : 0,
+        unitPrice: priceCol ? parsePrice(row[priceCol]) : 0,
         raw: row,
       }))
   }, [skuSearch, kbRows, skuCol, descCol, priceCol])
