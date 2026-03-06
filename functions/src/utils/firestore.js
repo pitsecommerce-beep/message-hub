@@ -19,7 +19,7 @@ const db = getFirestore();
  * Usa una collectionGroup query sobre la subcolección "integrations".
  *
  * Requiere un índice de grupo de colección en Firestore para el campo
- * buscado (phoneNumberId o pageId). Ver DEPLOY.md para crearlos.
+ * buscado (phoneNumberId o pageId). Ver docs/DEPLOY.md para crearlos.
  *
  * @param {string} fieldName  - Campo a buscar, p.ej. 'phoneNumberId' o 'pageId'
  * @param {string} fieldValue - Valor a buscar
