@@ -11,16 +11,16 @@
     "runtime": "nodejs18"
   },
   "hosting": {
-    "public": ".",
+    "public": "apps/web/dist",
     "ignore": [
       "firebase.json",
-      "firestore.rules",
-      "functions/**",
-      "GUIA-INTEGRACION-META.md",
-      "DEPLOY.md",
-      "README.md",
-      ".git/**",
-      "node_modules/**"
+      "**/node_modules/**"
+    ],
+    "rewrites": [
+      {
+        "source": "**",
+        "destination": "/index.html"
+      }
     ]
   }
 }

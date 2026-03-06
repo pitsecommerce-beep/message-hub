@@ -1103,7 +1103,7 @@ function setOrderFilter(filter, btn) {
 }
 
 const ORDER_STATUS_LABELS = {
-    nuevo: 'Nuevo', confirmado: 'Confirmado', en_proceso: 'En proceso',
+    nuevo: 'Nuevo', pago_pendiente: 'Pendiente de Pago', confirmado: 'Confirmado', en_proceso: 'En proceso',
     entregado: 'Entregado', cancelado: 'Cancelado'
 };
 
@@ -1163,13 +1163,13 @@ function renderOrdersTable() {
         const btnConv = order.conversationId
             ? `<button class="btn-order-action" title="Abrir conversación" onclick="openConvFromOrder('${order.conversationId}')">💬</button>`
             : '';
-        const btnPay = status === 'nuevo'
+        const btnPay = (status === 'nuevo' || status === 'pago_pendiente')
             ? `<button class="btn-order-action btn-order-pay" title="Enviar liga de pago" onclick="sendPaymentLinkFromOrder('${order.id}')">💳</button>`
             : '';
 
         const statusSelect = `
             <select class="conv-stage-select order-status-select" onchange="updateOrderStatus('${order.id}', this.value)">
-                ${['nuevo','confirmado','en_proceso','entregado','cancelado'].map(s =>
+                ${['nuevo','pago_pendiente','confirmado','en_proceso','entregado','cancelado'].map(s =>
                     `<option value="${s}" ${s === status ? 'selected' : ''}>${ORDER_STATUS_LABELS[s]}</option>`
                 ).join('')}
             </select>`;
@@ -1346,13 +1346,14 @@ function renderContactsTable() {
         const stageClass = 'stage-badge stage-' + (contact.funnelStage || 'curioso');
         return `
             <tr>
-                <td><strong>${escapeHtml(contact.name)}</strong></td>
+                <td><strong><a href="#" class="contact-name-link" onclick="event.preventDefault(); openContactDetail('${contact.id}')">${escapeHtml(contact.name)}</a></strong></td>
                 <td>${escapeHtml(contact.company || '--')}</td>
                 <td>${escapeHtml(contact.phone || '--')}</td>
                 <td>${escapeHtml(contact.email || '--')}</td>
                 <td>${escapeHtml(contact.rfc || '--')}</td>
                 <td><span class="${stageClass}">${stageName}</span></td>
                 <td class="contacts-actions">
+                    <button class="btn-table-action" onclick="openContactDetail('${contact.id}')" title="Ver detalle">👤</button>
                     <button class="btn-table-action" onclick="openContactModal(contacts.find(c=>c.id==='${contact.id}'))" title="Editar">✏️</button>
                     <button class="btn-table-action btn-table-delete" onclick="deleteContact('${contact.id}')" title="Eliminar">🗑️</button>
                 </td>
@@ -1373,7 +1374,9 @@ function filterContacts(query) {
         (c.company && c.company.toLowerCase().includes(q)) ||
         (c.phone && c.phone.includes(q)) ||
         (c.email && c.email.toLowerCase().includes(q)) ||
-        (c.rfc && c.rfc.toLowerCase().includes(q))
+        (c.rfc && c.rfc.toLowerCase().includes(q)) ||
+        (c.razonSocial && c.razonSocial.toLowerCase().includes(q)) ||
+        (c.ciudad && c.ciudad.toLowerCase().includes(q))
     );
 
     if (filtered.length === 0) {
@@ -1386,13 +1389,14 @@ function filterContacts(query) {
         const stageClass = 'stage-badge stage-' + (contact.funnelStage || 'curioso');
         return `
             <tr>
-                <td><strong>${escapeHtml(contact.name)}</strong></td>
+                <td><strong><a href="#" class="contact-name-link" onclick="event.preventDefault(); openContactDetail('${contact.id}')">${escapeHtml(contact.name)}</a></strong></td>
                 <td>${escapeHtml(contact.company || '--')}</td>
                 <td>${escapeHtml(contact.phone || '--')}</td>
                 <td>${escapeHtml(contact.email || '--')}</td>
                 <td>${escapeHtml(contact.rfc || '--')}</td>
                 <td><span class="${stageClass}">${stageName}</span></td>
                 <td class="contacts-actions">
+                    <button class="btn-table-action" onclick="openContactDetail('${contact.id}')" title="Ver detalle">👤</button>
                     <button class="btn-table-action" onclick="openContactModal(contacts.find(c=>c.id==='${contact.id}'))" title="Editar">✏️</button>
                     <button class="btn-table-action btn-table-delete" onclick="deleteContact('${contact.id}')" title="Eliminar">🗑️</button>
                 </td>
@@ -1416,6 +1420,10 @@ function openContactModal(contact = null) {
         document.getElementById('contactAddress').value = contact.address || '';
         document.getElementById('contactStage').value = contact.funnelStage || 'curioso';
         document.getElementById('contactNotes').value = contact.notes || '';
+        document.getElementById('contactRazonSocial').value = contact.razonSocial || '';
+        document.getElementById('contactRegimenFiscal').value = contact.regimenFiscal || '';
+        document.getElementById('contactCodigoPostal').value = contact.codigoPostal || '';
+        document.getElementById('contactCiudad').value = contact.ciudad || '';
     } else {
         title.textContent = 'Agregar Contacto';
         document.getElementById('contactEditId').value = '';
@@ -1446,6 +1454,10 @@ async function saveContact() {
         address: document.getElementById('contactAddress').value.trim(),
         funnelStage: document.getElementById('contactStage').value,
         notes: document.getElementById('contactNotes').value.trim(),
+        razonSocial: document.getElementById('contactRazonSocial').value.trim(),
+        regimenFiscal: document.getElementById('contactRegimenFiscal').value.trim(),
+        codigoPostal: document.getElementById('contactCodigoPostal').value.trim(),
+        ciudad: document.getElementById('contactCiudad').value.trim(),
         updatedAt: window.firestore.serverTimestamp()
     };
 
@@ -1502,6 +1514,181 @@ async function deleteContact(contactId) {
     } catch (error) {
         console.error('Error al eliminar contacto:', error);
         showNotification('Error', 'No se pudo eliminar el contacto.', 'error');
+    }
+}
+
+// ========== DETALLE DE CONTACTO ==========
+
+function openContactDetail(contactId) {
+    const contact = contacts.find(c => c.id === contactId);
+    if (!contact) return;
+
+    const modal = document.getElementById('contactDetailModal');
+    const body = document.getElementById('contactDetailBody');
+
+    const stageName = getStageName(contact.funnelStage || 'curioso');
+    const stageClass = 'stage-badge stage-' + (contact.funnelStage || 'curioso');
+
+    // Find related conversations and orders
+    const contactConvs = conversations.filter(c => c.contactId === contactId);
+    const contactOrders = orders.filter(o => o.contactId === contactId);
+
+    const convsHtml = contactConvs.length > 0
+        ? contactConvs.map(c => `<div class="contact-detail-conv-item" onclick="closeContactDetail(); showPage('conversations'); setTimeout(() => openConversation('${c.id}'), 300)">
+            <span>${getPlatformIcon(c.platform)}</span>
+            <span>${escapeHtml(c.lastMessage || 'Sin mensajes')}</span>
+            <span class="contact-detail-conv-time">${c.lastMessageAt ? formatTimeAgo(c.lastMessageAt.toDate ? c.lastMessageAt.toDate() : new Date(c.lastMessageAt)) : ''}</span>
+        </div>`).join('')
+        : '<p class="contact-detail-empty-text">Sin conversaciones</p>';
+
+    const ordersHtml = contactOrders.length > 0
+        ? contactOrders.map(o => {
+            const statusLabel = ORDER_STATUS_LABELS[o.status] || o.status;
+            return `<div class="contact-detail-order-item">
+                <span class="contact-detail-order-num">${escapeHtml(o.orderNumber || o.id.slice(-6))}</span>
+                <span class="order-status ${o.status}">${statusLabel}</span>
+                <span>$${(o.total || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })}</span>
+            </div>`;
+        }).join('')
+        : '<p class="contact-detail-empty-text">Sin pedidos</p>';
+
+    const createdStr = contact.createdAt
+        ? (contact.createdAt.toDate ? contact.createdAt.toDate() : new Date(contact.createdAt)).toLocaleDateString('es-MX', { day: 'numeric', month: 'long', year: 'numeric' })
+        : '--';
+
+    body.innerHTML = `
+        <div class="contact-detail-header-section">
+            <div class="contact-detail-avatar">${escapeHtml((contact.name || '?')[0].toUpperCase())}</div>
+            <div class="contact-detail-main-info">
+                <h2 class="contact-detail-name">${escapeHtml(contact.name)}</h2>
+                <span class="${stageClass}">${stageName}</span>
+            </div>
+        </div>
+
+        <div class="contact-detail-grid">
+            <div class="contact-detail-section">
+                <h4 class="contact-detail-section-title">Informacion General</h4>
+                <div class="contact-detail-field">
+                    <label>Empresa</label>
+                    <input type="text" class="form-input" id="cdField_company" value="${escapeHtml(contact.company || '')}" placeholder="Sin empresa">
+                </div>
+                <div class="contact-detail-field">
+                    <label>Celular</label>
+                    <input type="tel" class="form-input" id="cdField_phone" value="${escapeHtml(contact.phone || '')}" placeholder="Sin celular">
+                </div>
+                <div class="contact-detail-field">
+                    <label>Correo Electronico</label>
+                    <input type="email" class="form-input" id="cdField_email" value="${escapeHtml(contact.email || '')}" placeholder="Sin correo">
+                </div>
+            </div>
+
+            <div class="contact-detail-section">
+                <h4 class="contact-detail-section-title">Datos Fiscales y Direccion</h4>
+                <div class="contact-detail-field">
+                    <label>RFC</label>
+                    <input type="text" class="form-input" id="cdField_rfc" value="${escapeHtml(contact.rfc || '')}" placeholder="XAXX010101000">
+                </div>
+                <div class="contact-detail-field">
+                    <label>Razon Social</label>
+                    <input type="text" class="form-input" id="cdField_razonSocial" value="${escapeHtml(contact.razonSocial || '')}" placeholder="Razon social para facturacion">
+                </div>
+                <div class="contact-detail-field">
+                    <label>Regimen Fiscal</label>
+                    <input type="text" class="form-input" id="cdField_regimenFiscal" value="${escapeHtml(contact.regimenFiscal || '')}" placeholder="Ej: 601 - General de Ley">
+                </div>
+                <div class="contact-detail-field">
+                    <label>Direccion</label>
+                    <textarea class="form-input form-textarea" id="cdField_address" rows="2" placeholder="Calle, Colonia, Ciudad, CP">${escapeHtml(contact.address || '')}</textarea>
+                </div>
+                <div class="contact-detail-field">
+                    <label>Codigo Postal</label>
+                    <input type="text" class="form-input" id="cdField_codigoPostal" value="${escapeHtml(contact.codigoPostal || '')}" placeholder="00000">
+                </div>
+                <div class="contact-detail-field">
+                    <label>Ciudad / Estado</label>
+                    <input type="text" class="form-input" id="cdField_ciudad" value="${escapeHtml(contact.ciudad || '')}" placeholder="Ciudad, Estado">
+                </div>
+            </div>
+
+            <div class="contact-detail-section">
+                <h4 class="contact-detail-section-title">Etapa del Funnel</h4>
+                <div class="contact-detail-field">
+                    <select class="form-input form-select" id="cdField_funnelStage">
+                        ${FUNNEL_STAGES.map(s => `<option value="${s.id}" ${contact.funnelStage === s.id ? 'selected' : ''}>${s.name}</option>`).join('')}
+                    </select>
+                </div>
+            </div>
+
+            <div class="contact-detail-section">
+                <h4 class="contact-detail-section-title">Notas</h4>
+                <div class="contact-detail-field">
+                    <textarea class="form-input form-textarea" id="cdField_notes" rows="3" placeholder="Notas sobre este contacto...">${escapeHtml(contact.notes || '')}</textarea>
+                </div>
+            </div>
+        </div>
+
+        <div class="contact-detail-related">
+            <div class="contact-detail-related-section">
+                <h4 class="contact-detail-section-title">Conversaciones (${contactConvs.length})</h4>
+                ${convsHtml}
+            </div>
+            <div class="contact-detail-related-section">
+                <h4 class="contact-detail-section-title">Pedidos (${contactOrders.length})</h4>
+                ${ordersHtml}
+            </div>
+        </div>
+
+        <div class="contact-detail-footer-info">
+            <span>Contacto creado: ${createdStr}</span>
+            <span>ID: ${contact.id}</span>
+        </div>
+    `;
+
+    document.getElementById('contactDetailSaveBtn').onclick = () => saveContactDetail(contactId);
+    modal.classList.remove('hidden');
+}
+
+function closeContactDetail() {
+    document.getElementById('contactDetailModal').classList.add('hidden');
+}
+
+async function saveContactDetail(contactId) {
+    const contact = contacts.find(c => c.id === contactId);
+    if (!contact || !currentOrganization) return;
+
+    const updateData = {
+        company: document.getElementById('cdField_company').value.trim(),
+        phone: document.getElementById('cdField_phone').value.trim(),
+        email: document.getElementById('cdField_email').value.trim(),
+        rfc: document.getElementById('cdField_rfc').value.trim().toUpperCase(),
+        razonSocial: document.getElementById('cdField_razonSocial').value.trim(),
+        regimenFiscal: document.getElementById('cdField_regimenFiscal').value.trim(),
+        address: document.getElementById('cdField_address').value.trim(),
+        codigoPostal: document.getElementById('cdField_codigoPostal').value.trim(),
+        ciudad: document.getElementById('cdField_ciudad').value.trim(),
+        funnelStage: document.getElementById('cdField_funnelStage').value,
+        notes: document.getElementById('cdField_notes').value.trim(),
+        updatedAt: window.firestore.serverTimestamp()
+    };
+
+    try {
+        await window.firestore.updateDoc(
+            window.firestore.doc(window.db, 'organizations', currentOrganization.id, 'contacts', contactId),
+            updateData
+        );
+
+        const idx = contacts.findIndex(c => c.id === contactId);
+        if (idx !== -1) {
+            contacts[idx] = { ...contacts[idx], ...updateData, updatedAt: new Date() };
+        }
+
+        renderContactsTable();
+        renderFunnel();
+        closeContactDetail();
+        showNotification('Contacto actualizado', `La informacion de ${contact.name} fue guardada correctamente.`, 'success');
+    } catch (error) {
+        console.error('Error guardando detalle del contacto:', error);
+        showNotification('Error', 'No se pudo guardar: ' + error.message, 'error');
     }
 }
 
@@ -2121,6 +2308,7 @@ function renderConversationsList() {
                     </div>
                 </div>
                 ${conv.unreadCount > 0 ? `<span class="conv-item-badge">${conv.unreadCount}</span>` : ''}
+                <button class="conv-item-delete" onclick="event.stopPropagation(); deleteConversation('${conv.id}')" title="Eliminar conversación">🗑️</button>
             </div>
         `;
     }).join('');
@@ -2488,6 +2676,24 @@ function openPaymentLinkModal() {
     const contactInfo = document.getElementById('paymentLinkContact');
     contactInfo.innerHTML = `<span>Cliente: <strong>${escapeHtml(currentConversation.contactName || 'Sin nombre')}</strong></span>`;
 
+    // Auto-detect active order for this conversation
+    const activeOrder = orders.find(o => o.conversationId === currentConversation.id && (o.status === 'nuevo' || o.status === 'pago_pendiente'));
+    const orderInfoEl = document.getElementById('paymentLinkOrderInfo');
+    if (activeOrder) {
+        const orderNum = activeOrder.orderNumber || ('#' + activeOrder.id.slice(-6).toUpperCase());
+        pendingPaymentOrderId = activeOrder.id;
+        if (orderInfoEl) {
+            orderInfoEl.innerHTML = `<span class="payment-order-badge">Pedido activo: <strong>${escapeHtml(orderNum)}</strong> — $${(activeOrder.total || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })} MXN</span>`;
+            orderInfoEl.classList.remove('hidden');
+        }
+    } else {
+        pendingPaymentOrderId = null;
+        if (orderInfoEl) {
+            orderInfoEl.innerHTML = '';
+            orderInfoEl.classList.add('hidden');
+        }
+    }
+
     // Mostrar hint sobre pasarelas no configuradas
     const hintEl = document.getElementById('paymentGatewayHint');
     if (!hasStripe && !hasMercadoPago) {
@@ -2502,12 +2708,19 @@ function openPaymentLinkModal() {
     }
 
     // Reset form
-    document.getElementById('paymentLinkAmount').value = '';
-    document.getElementById('paymentLinkDescription').value = '';
+    document.getElementById('paymentLinkAmount').value = activeOrder ? (activeOrder.total || '') : '';
+    document.getElementById('paymentLinkDescription').value = activeOrder ? `Pedido ${activeOrder.orderNumber || activeOrder.id.slice(-6)}` : '';
     document.getElementById('paymentLinkNotes').value = '';
     selectedPaymentGateway = null;
     document.querySelectorAll('input[name="paymentGateway"]').forEach(r => r.checked = false);
     document.querySelectorAll('#paymentLinkModal .platform-option-card').forEach(c => c.classList.remove('selected'));
+
+    // Auto-select the first configured gateway
+    if (hasStripe) {
+        selectPaymentGateway('stripe');
+    } else if (hasMercadoPago) {
+        selectPaymentGateway('mercadopago');
+    }
 
     document.getElementById('paymentLinkModal').classList.remove('hidden');
 }
@@ -2613,8 +2826,23 @@ async function sendPaymentLink() {
 
         // 4. Mover funnel a "Pago Pendiente" si está en etapa anterior
         const earlyStages = ['curioso', 'cotizando'];
-        if (currentConversation.funnelStage && earlyStages.includes(currentConversation.funnelStage)) {
+        if (!currentConversation.funnelStage || earlyStages.includes(currentConversation.funnelStage)) {
             await changeConvStage(currentConversation.id, 'pago_pendiente');
+        }
+
+        // 5. Si hay un pedido vinculado, cambiar su status a "pago_pendiente"
+        if (paymentData.orderId) {
+            try {
+                await window.firestore.updateDoc(
+                    window.firestore.doc(window.db, 'organizations', currentOrganization.id, 'orders', paymentData.orderId),
+                    { status: 'pago_pendiente', updatedAt: window.firestore.serverTimestamp() }
+                );
+                const linkedOrder = orders.find(o => o.id === paymentData.orderId);
+                if (linkedOrder) linkedOrder.status = 'pago_pendiente';
+                renderOrdersBadge();
+            } catch (orderErr) {
+                console.error('Error actualizando status del pedido:', orderErr);
+            }
         }
 
         // Actualizar local
@@ -2704,6 +2932,110 @@ function openNewChatModal() {
 function closeNewChatModal() {
     document.getElementById('newChatModal').classList.add('hidden');
     selectedChatPlatform = null;
+}
+
+// ========== TEST CHAT FROM CONVERSATIONS PAGE ==========
+
+function openTestChatFromConversations() {
+    if (!aiAgents || aiAgents.length === 0) {
+        showNotification('Sin agentes', 'No hay agentes de IA configurados. Ve a la sección de Agentes IA para crear uno.', 'warning');
+        return;
+    }
+
+    const modal = document.getElementById('testChatAgentModal');
+    const grid = document.getElementById('testChatAgentGrid');
+
+    grid.innerHTML = aiAgents.map(agent => {
+        const providerLabel = agent.provider === 'openai' ? 'OpenAI' : agent.provider === 'anthropic' ? 'Anthropic' : 'Custom';
+        const channels = (agent.channels || []).map(ch => getPlatformLabel(ch)).join(', ') || 'Sin canales';
+        const kbCount = (agent.knowledgeBases || []).length;
+        return `
+            <div class="test-chat-agent-card ${agent.active ? '' : 'test-chat-agent-inactive'}" onclick="startRealisticTestChat('${agent.id}')">
+                <div class="test-chat-agent-header">
+                    <span class="test-chat-agent-icon">🤖</span>
+                    <span class="test-chat-agent-name">${escapeHtml(agent.name)}</span>
+                    ${agent.active ? '<span class="test-chat-agent-active-badge">Activo</span>' : '<span class="test-chat-agent-inactive-badge">Inactivo</span>'}
+                </div>
+                <div class="test-chat-agent-meta">
+                    <span>${providerLabel} · ${escapeHtml(agent.model || '--')}</span>
+                </div>
+                <div class="test-chat-agent-meta">
+                    <span>Canales: ${escapeHtml(channels)}</span>
+                </div>
+                <div class="test-chat-agent-meta">
+                    <span>${kbCount} base(s) de datos</span>
+                </div>
+            </div>
+        `;
+    }).join('');
+
+    modal.classList.remove('hidden');
+}
+
+function closeTestChatAgentModal() {
+    document.getElementById('testChatAgentModal').classList.add('hidden');
+}
+
+async function startRealisticTestChat(agentId) {
+    const agent = aiAgents.find(a => a.id === agentId);
+    if (!agent) return;
+
+    closeTestChatAgentModal();
+
+    // Create a test conversation in Firestore to simulate a real chat
+    const userName = currentUserData?.name || currentUser.displayName || currentUser.email.split('@')[0];
+    const testContactName = 'Prueba - ' + agent.name;
+
+    try {
+        const convData = {
+            contactId: null,
+            contactName: testContactName,
+            contactPhone: '',
+            contactEmail: '',
+            platform: (agent.channels && agent.channels.length > 0) ? agent.channels[0] : 'manual',
+            status: 'open',
+            funnelStage: 'curioso',
+            createdBy: currentUser.uid,
+            createdAt: window.firestore.serverTimestamp(),
+            lastMessage: 'Conversación de prueba iniciada',
+            lastMessageAt: window.firestore.serverTimestamp(),
+            lastMessageBy: currentUser.uid,
+            unreadCount: 0,
+            assignedTo: currentUser.uid,
+            aiEnabled: true,
+            isTestChat: true,
+            testAgentId: agentId
+        };
+
+        const convRef = await window.firestore.addDoc(
+            window.firestore.collection(window.db, 'organizations', currentOrganization.id, 'conversations'),
+            convData
+        );
+
+        // Add system message
+        await window.firestore.addDoc(
+            window.firestore.collection(window.db, 'organizations', currentOrganization.id, 'conversations', convRef.id, 'messages'),
+            {
+                text: `Conversación de prueba con el agente "${agent.name}". Escribe como si fueras un cliente para probar las respuestas del agente. La IA está habilitada para esta conversación.`,
+                sender: 'agent',
+                senderName: 'Sistema',
+                senderUid: currentUser.uid,
+                platform: convData.platform,
+                timestamp: window.firestore.serverTimestamp(),
+                status: 'sent',
+                type: 'system'
+            }
+        );
+
+        const newConv = { id: convRef.id, ...convData, lastMessageAt: new Date(), createdAt: new Date() };
+        conversations.unshift(newConv);
+        renderConversationsList();
+        await openConversation(convRef.id);
+        addAppNotification('Chat de prueba iniciado', `Conversación de prueba con ${agent.name} creada. Escribe como cliente para probar.`, 'success');
+    } catch (error) {
+        console.error('Error creando chat de prueba:', error);
+        showNotification('Error', 'No se pudo crear el chat de prueba: ' + error.message, 'error');
+    }
 }
 
 function selectPlatform(platform) {
@@ -3432,7 +3764,11 @@ async function sendTestMessage() {
         } else if (errMsg.includes('insufficient_quota') || errMsg.includes('billing')) {
             errMsg = 'Sin crédito disponible en la cuenta del proveedor de IA. Recarga tu saldo.';
         } else if (errMsg.includes('Failed to fetch') || errMsg.includes('NetworkError')) {
-            errMsg = 'Error de conexión. Verifica tu internet o que la API Key y endpoint sean correctos.';
+            if (aiTestAgent?.provider === 'custom') {
+                errMsg = 'Error de conexión con el endpoint personalizado. Verifica que la URL sea correcta y que el servidor tenga CORS habilitado para este dominio (Access-Control-Allow-Origin).';
+            } else {
+                errMsg = 'Error de conexión. Verifica tu internet o que la API Key sea correcta.';
+            }
         }
         appendTestMessage('assistant', `Error: ${errMsg}`);
     } finally {
@@ -3442,9 +3778,108 @@ async function sendTestMessage() {
     }
 }
 
+// ── Limpieza de respuestas del modelo (quita XML, narración interna) ────────
+function cleanAIResponse(text) {
+    if (!text) return text;
+    let cleaned = text;
+
+    // Bloques XML de function-calls
+    cleaned = cleaned.replace(/<function_calls>[\s\S]*?<\/function_calls>/gi, '');
+    cleaned = cleaned.replace(/<invoke[\s\S]*?<\/invoke>/gi, '');
+    cleaned = cleaned.replace(/<invoke[\s\S]*?<\/antml:invoke>/gi, '');
+    cleaned = cleaned.replace(/<parameter[\s\S]*?<\/parameter>/gi, '');
+    cleaned = cleaned.replace(/<\/?(function_calls|invoke|parameter|antml:invoke)[^>]*>/gi, '');
+
+    // Bloques markdown de código con tool calls
+    cleaned = cleaned.replace(/```[a-z]*\n?[\s\S]*?```/g, (match) => {
+        if (/invoke|function_call|query_database|save_contact|create_order|<parameter/i.test(match)) return '';
+        return match;
+    });
+
+    // Narrativa de consultas internas
+    const narrativePatterns = [
+        /[Dd]éjame\s+(consultar|verificar|revisar|buscar|checar)\w*\s*[^.!?\n]*[.…]{0,3}\s*/g,
+        /[Vv]oy\s+a\s+(consultar|verificar|revisar|buscar|checar)\w*\s*[^.!?\n]*[.…]{0,3}\s*/g,
+        /[Pp]ermíteme\s+(consultar|verificar|revisar|buscar|checar)\w*\s*[^.!?\n]*[.…]{0,3}\s*/g,
+        /[Cc]onsultando\s+(en\s+)?(el\s+)?(sistema|inventario|base\s+de\s+datos)[^.!?\n]*[.…]{0,3}\s*/g,
+        /[Bb]uscando\s+(en\s+)?(el\s+)?(sistema|inventario|base\s+de\s+datos|catálogo)[^.!?\n]*[.…*]{0,5}\s*/g,
+        /[Ll]isto,?\s*déjame\s+revisar\s+[^.!?\n]*[.…]{0,3}\s*/g,
+        /[Uu]n\s+momento\s+(mientras|que)\s+(consulto|verifico|reviso|busco)[^.!?\n]*[.…]{0,3}\s*/g,
+        /🔍[^.!?\n]*[.…*]{0,5}\s*/g,
+    ];
+    for (const pattern of narrativePatterns) {
+        cleaned = cleaned.replace(pattern, '');
+    }
+
+    cleaned = cleaned.replace(/\n{3,}/g, '\n\n').trim();
+    return cleaned;
+}
+
+// ── Parseo de tool calls XML incrustados en texto ───────────────────────────
+function parseTextToolCallsFromResponse(text) {
+    if (!text) return [];
+    const calls = [];
+    const invokeRegex = /<invoke\s+name="([^"]+)">([\s\S]*?)<\/invoke>/gi;
+    let match;
+    while ((match = invokeRegex.exec(text)) !== null) {
+        const name = match[1];
+        const body = match[2];
+        const params = {};
+        const paramRegex = /<parameter\s+name="([^"]+)">([\s\S]*?)<\/parameter>/gi;
+        let pm;
+        while ((pm = paramRegex.exec(body)) !== null) {
+            let val = pm[2].trim();
+            if (/^\d+(\.\d+)?$/.test(val)) val = Number(val);
+            params[pm[1]] = val;
+        }
+        calls.push({ name, params });
+    }
+    return calls;
+}
+
+// ── Ejecutar tool calls recuperados del texto (browser-side) ────────────────
+async function executeRecoveredToolCalls(calls, agent) {
+    const results = [];
+    for (const call of calls) {
+        let content;
+        try {
+            if (call.name === 'query_database') {
+                const kbId = call.params.knowledgeBaseId
+                    || (agent.knowledgeBases?.length ? agent.knowledgeBases[0] : null);
+                if (kbId) {
+                    content = await queryKnowledgeBase(
+                        kbId,
+                        call.params.searchQuery || '',
+                        call.params,
+                        call.params.limit || 25
+                    );
+                } else {
+                    content = 'No hay base de datos configurada.';
+                }
+            } else if (call.name === 'save_contact') {
+                const r = await saveContactFromAI(call.params);
+                content = r.success
+                    ? `Contacto ${r.action}: ${r.name}`
+                    : `Error: ${r.message}`;
+            } else if (call.name === 'create_order') {
+                const r = await createOrderFromAI(call.params);
+                content = r.success
+                    ? `Pedido ${r.orderNumber}. Total: $${(r.total || 0).toFixed(2)}`
+                    : `Error: ${r.message}`;
+            } else {
+                continue;
+            }
+        } catch (err) {
+            console.error(`Error ejecutando ${call.name} recuperado:`, err);
+            content = `Error al ejecutar ${call.name}.`;
+        }
+        results.push({ name: call.name, content });
+    }
+    return results.length > 0 ? results : null;
+}
+
 // Call AI provider API (OpenAI / Anthropic / Custom)
 async function callAIProvider(agent, messages) {
-    // Extraer el último mensaje del usuario para filtrar filas relevantes de la KB
     const lastUserMsg = [...messages].reverse().find(m => m.role === 'user');
     const userMessage = lastUserMsg?.content || '';
     const systemPrompt = await buildAISystemPromptWithData(agent, userMessage);
@@ -3462,202 +3897,139 @@ async function callOpenAI(agent, systemPrompt, messages, tools) {
         ? agent.endpoint
         : 'https://api.openai.com/v1/chat/completions';
 
-    const apiMessages = [
+    const history = [
         { role: 'system', content: systemPrompt },
         ...messages
     ];
 
-    const body = {
-        model: agent.model,
-        messages: apiMessages,
-        max_tokens: 1024,
-        temperature: 0.7
-    };
+    const MAX_ROUNDS = 5;
 
-    if (tools.length > 0) {
-        body.tools = tools;
-    }
+    for (let round = 0; round < MAX_ROUNDS; round++) {
+        const body = {
+            model: agent.model,
+            messages: history,
+            max_tokens: 2048,
+            temperature: 0.7
+        };
+        if (tools.length > 0) body.tools = tools;
 
-    const res = await fetch(endpoint, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${agent.apiKey}`
-        },
-        body: JSON.stringify(body)
-    });
-
-    if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err.error?.message || `Error ${res.status}: ${res.statusText}`);
-    }
-
-    const data = await res.json();
-    const choice = data.choices?.[0];
-
-    // Handle function calling (tool use)
-    if (choice?.finish_reason === 'tool_calls' || choice?.message?.tool_calls) {
-        const toolCalls = choice.message.tool_calls;
-        const toolResults = [];
-
-        for (const tc of toolCalls) {
-            if (tc.function.name === 'query_database') {
-                const args = JSON.parse(tc.function.arguments);
-                const results = await queryKnowledgeBase(
-                    args.knowledgeBaseId,
-                    args.searchQuery || '',
-                    args.filters || {},
-                    args.limit || 10
-                );
-                toolResults.push({
-                    role: 'tool',
-                    tool_call_id: tc.id,
-                    content: JSON.stringify(results)
-                });
-            } else if (tc.function.name === 'save_contact') {
-                const args = JSON.parse(tc.function.arguments);
-                const result = await saveContactFromAI(args);
-                toolResults.push({
-                    role: 'tool',
-                    tool_call_id: tc.id,
-                    content: result.success
-                        ? `Contacto ${result.action === 'created' ? 'creado' : 'actualizado'} correctamente: ${result.name}`
-                        : `Error al guardar contacto: ${result.message}`
-                });
-            } else if (tc.function.name === 'create_order') {
-                const args = JSON.parse(tc.function.arguments);
-                const result = await createOrderFromAI(args);
-                toolResults.push({
-                    role: 'tool',
-                    tool_call_id: tc.id,
-                    content: result.success
-                        ? `Pedido creado correctamente. Número: ${result.orderNumber}. Total: $${result.total.toLocaleString('es-MX', { minimumFractionDigits: 2 })}.`
-                        : `Error al crear pedido: ${result.message}`
-                });
-            }
-        }
-
-        // Second call with tool results
-        const followUpMessages = [
-            { role: 'system', content: systemPrompt },
-            ...messages,
-            choice.message,
-            ...toolResults
-        ];
-
-        const res2 = await fetch(endpoint, {
+        const res = await fetch(endpoint, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
                 'Authorization': `Bearer ${agent.apiKey}`
             },
-            body: JSON.stringify({
-                model: agent.model,
-                messages: followUpMessages,
-                max_tokens: 1024,
-                temperature: 0.7
-            })
+            body: JSON.stringify(body)
         });
 
-        if (!res2.ok) {
-            const err2 = await res2.json().catch(() => ({}));
-            throw new Error(err2.error?.message || `Error ${res2.status}`);
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err.error?.message || `Error ${res.status}: ${res.statusText}`);
         }
 
-        const data2 = await res2.json();
-        return data2.choices?.[0]?.message?.content || 'Sin respuesta del modelo.';
+        const data = await res.json();
+        const choice = data.choices?.[0];
+
+        // ── Ruta nativa: tool calls via API ─────────────────────────────
+        if (choice?.finish_reason === 'tool_calls' || choice?.message?.tool_calls?.length) {
+            const toolCalls = choice.message.tool_calls;
+            const toolResults = [];
+
+            for (const tc of toolCalls) {
+                const args = JSON.parse(tc.function.arguments);
+                let content;
+
+                if (tc.function.name === 'query_database') {
+                    const kbId = args.knowledgeBaseId
+                        || (agent.knowledgeBases?.length ? agent.knowledgeBases[0] : null);
+                    content = kbId
+                        ? await queryKnowledgeBase(kbId, args.searchQuery || '', args, args.limit || 25)
+                        : 'No hay base de datos configurada.';
+                } else if (tc.function.name === 'save_contact') {
+                    const r = await saveContactFromAI(args);
+                    content = r.success
+                        ? `Contacto ${r.action === 'created' ? 'creado' : 'actualizado'}: ${r.name}`
+                        : `Error: ${r.message}`;
+                } else if (tc.function.name === 'create_order') {
+                    const r = await createOrderFromAI(args);
+                    content = r.success
+                        ? `Pedido creado. Número: ${r.orderNumber}. Total: $${(r.total || 0).toFixed(2)}.`
+                        : `Error: ${r.message}`;
+                } else {
+                    content = 'Herramienta no reconocida.';
+                }
+
+                toolResults.push({ role: 'tool', tool_call_id: tc.id, content });
+            }
+
+            history.push(choice.message);
+            history.push(...toolResults);
+            continue;
+        }
+
+        // ── Respuesta final (texto) ─────────────────────────────────────
+        const rawText = choice?.message?.content || '';
+
+        // ── Recuperación: tool calls XML en texto ───────────────────────
+        if (round < MAX_ROUNDS - 1) {
+            const textCalls = parseTextToolCallsFromResponse(rawText);
+            if (textCalls.length > 0) {
+                const recovered = await executeRecoveredToolCalls(textCalls, agent);
+                if (recovered) {
+                    const resultsText = recovered
+                        .map(r => `[Resultado de ${r.name}]:\n${r.content}`)
+                        .join('\n\n');
+
+                    history.push({
+                        role: 'assistant',
+                        content: cleanAIResponse(rawText) || 'Consulté el inventario.',
+                    });
+                    history.push({
+                        role: 'user',
+                        content: '[SISTEMA] Los resultados de la consulta al inventario son:\n\n'
+                            + resultsText + '\n\n'
+                            + 'Responde al cliente directamente con esta información. '
+                            + 'Presenta producto, precio, disponibilidad y tiempo de entrega. '
+                            + 'NO narres que hiciste una consulta. NO incluyas XML ni etiquetas. '
+                            + 'IMPORTANTE: Después de presentar la cotización, DEBES pedir los datos del cliente (nombre, celular, empresa, email, dirección, RFC) y llamar save_contact, y luego crear el pedido con create_order. Ambos son OBLIGATORIOS.',
+                    });
+                    continue;
+                }
+            }
+        }
+
+        return cleanAIResponse(rawText) || 'Sin respuesta del modelo.';
     }
 
-    return choice?.message?.content || 'Sin respuesta del modelo.';
+    return 'Sin respuesta del modelo.';
 }
 
 async function callAnthropic(agent, systemPrompt, messages, tools) {
-    const anthropicMessages = messages.map(m => ({
+    const anthropicHistory = messages.map(m => ({
         role: m.role === 'assistant' ? 'assistant' : 'user',
         content: m.content
     }));
 
-    const body = {
-        model: agent.model,
-        max_tokens: 1024,
-        system: systemPrompt,
-        messages: anthropicMessages
-    };
-
-    // Convert OpenAI tools format to Anthropic format
-    if (tools.length > 0) {
-        body.tools = tools.map(t => ({
+    const anthropicTools = tools.length > 0
+        ? tools.map(t => ({
             name: t.function.name,
             description: t.function.description,
             input_schema: t.function.parameters
-        }));
-    }
+        }))
+        : [];
 
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'x-api-key': agent.apiKey,
-            'anthropic-version': '2023-06-01',
-            'anthropic-dangerous-direct-browser-access': 'true'
-        },
-        body: JSON.stringify(body)
-    });
+    const MAX_ROUNDS = 5;
 
-    if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err.error?.message || `Error ${res.status}: ${res.statusText}`);
-    }
+    for (let round = 0; round < MAX_ROUNDS; round++) {
+        const body = {
+            model: agent.model,
+            max_tokens: 2048,
+            system: systemPrompt,
+            messages: anthropicHistory,
+            ...(anthropicTools.length > 0 ? { tools: anthropicTools } : {}),
+        };
 
-    const data = await res.json();
-
-    // Handle tool use
-    const toolUseBlocks = (data.content || []).filter(b => b.type === 'tool_use');
-    if (toolUseBlocks.length > 0) {
-        const toolResultContents = [];
-
-        for (const tb of toolUseBlocks) {
-            if (tb.name === 'query_database') {
-                const results = await queryKnowledgeBase(
-                    tb.input.knowledgeBaseId,
-                    tb.input.searchQuery || '',
-                    tb.input.filters || {},
-                    tb.input.limit || 10
-                );
-                toolResultContents.push({
-                    type: 'tool_result',
-                    tool_use_id: tb.id,
-                    content: JSON.stringify(results)
-                });
-            } else if (tb.name === 'save_contact') {
-                const result = await saveContactFromAI(tb.input);
-                toolResultContents.push({
-                    type: 'tool_result',
-                    tool_use_id: tb.id,
-                    content: result.success
-                        ? `Contacto ${result.action === 'created' ? 'creado' : 'actualizado'} correctamente: ${result.name}`
-                        : `Error al guardar contacto: ${result.message}`
-                });
-            } else if (tb.name === 'create_order') {
-                const result = await createOrderFromAI(tb.input);
-                toolResultContents.push({
-                    type: 'tool_result',
-                    tool_use_id: tb.id,
-                    content: result.success
-                        ? `Pedido creado correctamente. Número: ${result.orderNumber}. Total: $${result.total.toLocaleString('es-MX', { minimumFractionDigits: 2 })}.`
-                        : `Error al crear pedido: ${result.message}`
-                });
-            }
-        }
-
-        // Second call with tool results
-        const followUpMessages = [
-            ...anthropicMessages,
-            { role: 'assistant', content: data.content },
-            { role: 'user', content: toolResultContents }
-        ];
-
-        const res2 = await fetch('https://api.anthropic.com/v1/messages', {
+        const res = await fetch('https://api.anthropic.com/v1/messages', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -3665,27 +4037,88 @@ async function callAnthropic(agent, systemPrompt, messages, tools) {
                 'anthropic-version': '2023-06-01',
                 'anthropic-dangerous-direct-browser-access': 'true'
             },
-            body: JSON.stringify({
-                model: agent.model,
-                max_tokens: 1024,
-                system: systemPrompt,
-                messages: followUpMessages,
-                tools: body.tools
-            })
+            body: JSON.stringify(body)
         });
 
-        if (!res2.ok) {
-            const err2 = await res2.json().catch(() => ({}));
-            throw new Error(err2.error?.message || `Error ${res2.status}`);
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err.error?.message || `Error ${res.status}: ${res.statusText}`);
         }
 
-        const data2 = await res2.json();
-        const textBlocks = (data2.content || []).filter(b => b.type === 'text');
-        return textBlocks.map(b => b.text).join('\n') || 'Sin respuesta del modelo.';
+        const data = await res.json();
+        const toolUseBlocks = (data.content || []).filter(b => b.type === 'tool_use');
+
+        // ── Ruta nativa: tool_use via API ───────────────────────────────
+        if (toolUseBlocks.length > 0) {
+            const toolResultContents = [];
+
+            for (const tb of toolUseBlocks) {
+                let content;
+
+                if (tb.name === 'query_database') {
+                    const kbId = tb.input.knowledgeBaseId
+                        || (agent.knowledgeBases?.length ? agent.knowledgeBases[0] : null);
+                    content = kbId
+                        ? await queryKnowledgeBase(kbId, tb.input.searchQuery || '', tb.input, tb.input.limit || 25)
+                        : 'No hay base de datos configurada.';
+                } else if (tb.name === 'save_contact') {
+                    const r = await saveContactFromAI(tb.input);
+                    content = r.success
+                        ? `Contacto ${r.action === 'created' ? 'creado' : 'actualizado'}: ${r.name}`
+                        : `Error: ${r.message}`;
+                } else if (tb.name === 'create_order') {
+                    const r = await createOrderFromAI(tb.input);
+                    content = r.success
+                        ? `Pedido creado. Número: ${r.orderNumber}. Total: $${(r.total || 0).toFixed(2)}.`
+                        : `Error: ${r.message}`;
+                } else {
+                    content = 'Herramienta no reconocida.';
+                }
+
+                toolResultContents.push({ type: 'tool_result', tool_use_id: tb.id, content });
+            }
+
+            anthropicHistory.push({ role: 'assistant', content: data.content });
+            anthropicHistory.push({ role: 'user', content: toolResultContents });
+            continue;
+        }
+
+        // ── Respuesta final (texto) ─────────────────────────────────────
+        const textBlock = (data.content || []).find(b => b.type === 'text');
+        const rawText = textBlock?.text || '';
+
+        // ── Recuperación: tool calls XML en texto ───────────────────────
+        if (round < MAX_ROUNDS - 1) {
+            const textCalls = parseTextToolCallsFromResponse(rawText);
+            if (textCalls.length > 0) {
+                const recovered = await executeRecoveredToolCalls(textCalls, agent);
+                if (recovered) {
+                    const resultsText = recovered
+                        .map(r => `[Resultado de ${r.name}]:\n${r.content}`)
+                        .join('\n\n');
+
+                    anthropicHistory.push({
+                        role: 'assistant',
+                        content: cleanAIResponse(rawText) || 'Consulté el inventario.',
+                    });
+                    anthropicHistory.push({
+                        role: 'user',
+                        content: '[SISTEMA] Los resultados de la consulta al inventario son:\n\n'
+                            + resultsText + '\n\n'
+                            + 'Responde al cliente directamente con esta información. '
+                            + 'Presenta producto, precio, disponibilidad y tiempo de entrega. '
+                            + 'NO narres que hiciste una consulta. NO incluyas XML ni etiquetas. '
+                            + 'IMPORTANTE: Después de presentar la cotización, DEBES pedir los datos del cliente (nombre, celular, empresa, email, dirección, RFC) y llamar save_contact, y luego crear el pedido con create_order. Ambos son OBLIGATORIOS.',
+                    });
+                    continue;
+                }
+            }
+        }
+
+        return cleanAIResponse(rawText) || 'Sin respuesta del modelo.';
     }
 
-    const textBlocks = (data.content || []).filter(b => b.type === 'text');
-    return textBlocks.map(b => b.text).join('\n') || 'Sin respuesta del modelo.';
+    return 'Sin respuesta del modelo.';
 }
 
 // ========== BASES DE DATOS / KNOWLEDGE BASES ==========
@@ -4210,9 +4643,11 @@ const AUTOPARTE_EXPANSIONS = {
     'derecho':       ['r', 'der', 'dcho', 'dere'],
     'derecha':       ['r', 'der', 'dcha', 'dere'],
     'right':         ['r', 'der'],
+    'copiloto':      ['r', 'der', 'dcho', 'dere'],
     'izquierdo':     ['l', 'izq', 'izqdo'],
     'izquierda':     ['l', 'izq', 'izqda'],
     'left':          ['l', 'izq'],
+    'piloto':        ['l', 'izq', 'izqdo'],
     // Posición en el vehículo
     'delantero':     ['del', 'front', 'frt', 'delan'],
     'delantera':     ['del', 'front', 'frt', 'delan'],
@@ -4395,79 +4830,41 @@ function scoreRow(row, terms, years) {
 // userMessage: último mensaje del usuario para filtrar filas relevantes (máx 30)
 async function buildAISystemPromptWithData(agent, userMessage) {
     let prompt = agent.systemPrompt || '';
-    // Always remind AI to call save_contact before create_order
-    prompt += '\n\nREGLAS OBLIGATORIAS DE HERRAMIENTAS:\n'
-           + '1. CONTACTO: Si el cliente dice su nombre o empresa en CUALQUIER mensaje → llama a save_contact DE INMEDIATO, sin esperar.\n'
-           + '2. CONTACTO: Si llevas 2+ mensajes sin saber el nombre del cliente → pregúntaselo ("¿Con quién tengo el gusto?" o similar).\n'
-           + '3. PEDIDO: SIEMPRE llama primero a save_contact y después a create_order. Nunca al revés.\n'
-           + '4. save_contact se puede llamar varias veces para ir actualizando datos del cliente.';
 
-    const agentKBs = (agent.knowledgeBases || [])
-        .map(kbId => knowledgeBases.find(kb => kb.id === kbId))
-        .filter(Boolean);
+    prompt += '\n\n---\nREGLAS OBLIGATORIAS:\n';
+    prompt += '- Responde directo. No narres proceso interno ("déjame buscar...", "consultando...").\n';
+    prompt += '- Sin XML/JSON/código/nombres de herramientas en respuestas al cliente.\n';
+    prompt += '- No inventes precios, existencias ni números de pedido.\n';
+    prompt += '- DEBES LLAMAR las herramientas para ejecutar acciones. NUNCA simules que ya lo hiciste. Si no llamaste save_contact, el contacto NO se guardó. Si no llamaste create_order, el pedido NO se creó.\n';
+    prompt += '- PROHIBIDO terminar la conversación sin haber llamado save_contact Y create_order. Ambas son OBLIGATORIAS en cada cotización.\n\n';
 
-    if (agentKBs.length === 0) return prompt;
-
-    const { terms, years } = expandSearchTerms(userMessage || '');
-
-    prompt += '\n\n=== DATOS DE REFERENCIA ===\n';
-    prompt += 'A continuación tienes los datos reales de tus bases de datos. SIEMPRE usa estos datos para responder preguntas sobre productos, precios, disponibilidad, etc.\n';
-    prompt += 'NUNCA inventes datos. Si el cliente pregunta algo que no está en estos datos, dile que no tienes esa información disponible.\n\n';
-
-    for (const kb of agentKBs) {
-        prompt += `--- ${kb.name.toUpperCase()} ---\n`;
-        if (kb.description) prompt += `(${kb.description})\n`;
-        prompt += `Columnas: ${(kb.columns || []).join(' | ')}\n\n`;
-
-        try {
-            const rows = await getKBRows(kb.id);
-
-            if (rows.length === 0) {
-                prompt += '(Sin datos cargados en esta base)\n\n';
-                continue;
-            }
-
-            const columns = kb.columns || Object.keys(rows[0]).filter(k => k !== 'id');
-
-            const PROMPT_MAX_ROWS = 15; // balance: contexto amplio sin exceso de tokens
-            let rowsToInclude;
-            if (detectedParte) {
-                // Filtrados por Firestore → mostrar todos (ya son ≤30)
-                rowsToInclude = rows;
-            } else if (terms.size > 0 || years.length > 0) {
-                // Ordenar por relevancia (sin filtrar por score > 0, para no descartar
-                // filas útiles cuando el scoring no hace match perfecto)
-                rowsToInclude = rows
-                    .map(row => ({ row, score: scoreRow(row, terms, years) }))
-                    .sort((a, b) => b.score - a.score)
-                    .slice(0, PROMPT_MAX_ROWS)
-                    .map(({ row }) => row);
-            } else {
-                rowsToInclude = rows.slice(0, PROMPT_MAX_ROWS);
-            }
-
-            const totalInfo = detectedParte ? '' : ` (de ${rows.length} totales)`;
-            prompt += `Mostrando ${rowsToInclude.length}${totalInfo} registros relevantes:\n\n`;
-
-            rowsToInclude.forEach((row, i) => {
-                const parts = columns.map(col => `${col}: ${row[col] ?? ''}`);
-                prompt += `${i + 1}. ${parts.join(' | ')}\n`;
-            });
-
-            prompt += '\n';
-        } catch (err) {
-            console.error(`Error cargando datos de KB ${kb.id}:`, err);
-            prompt += '(Error al cargar datos)\n\n';
-        }
+    prompt += 'FLUJO OBLIGATORIO (DEBES completar TODOS los pasos, sin excepción):\n';
+    const agentKbIds = agent.knowledgeBases || [];
+    if (agentKbIds.length > 0) {
+        prompt += '1. BUSCAR → Llama query_database con marca, modelo, parte, anio, lado. Nunca digas "no tenemos" sin buscar primero.\n';
     }
+    prompt += '2. CONTACTO → OBLIGATORIO: Después de cotizar, pide AL CLIENTE TODOS estos datos uno por uno para guardar su contacto:\n';
+    prompt += '   - Nombre completo (obligatorio)\n';
+    prompt += '   - Número de celular (obligatorio)\n';
+    prompt += '   - Empresa o taller\n';
+    prompt += '   - Correo electrónico\n';
+    prompt += '   - Dirección de envío\n';
+    prompt += '   - RFC (si requiere factura)\n';
+    prompt += '   Una vez que tengas al menos nombre y celular, LLAMA save_contact INMEDIATAMENTE con todos los datos recopilados. NO sigas sin llamar a save_contact.\n';
+    prompt += '3. PEDIDO → OBLIGATORIO: Inmediatamente después de save_contact, LLAMA create_order con los productos cotizados, sus cantidades y precios. NO esperes confirmación adicional — el hecho de que el cliente pidió cotización y dio sus datos ES la confirmación. Comparte al cliente el número de pedido que DEVUELVA la herramienta.\n';
+    prompt += '- Orden estricto: save_contact SIEMPRE ANTES de create_order. Ambos son OBLIGATORIOS.\n';
+    prompt += '- Si el cliente ya dio nombre y celular en la conversación, NO los vuelvas a pedir — usa los que ya tienes y llama save_contact de inmediato.\n';
+    prompt += '- NUNCA termines la conversación solo con la cotización. SIEMPRE debes guardar contacto y crear pedido.\n\n';
 
-    prompt += '=== FIN DE DATOS ===\n\n';
-    prompt += 'INSTRUCCIONES IMPORTANTES:\n';
-    prompt += '- Responde SIEMPRE basándote en los datos anteriores.\n';
-    prompt += '- Si te preguntan precios, busca el producto en los datos y da el precio exacto.\n';
-    prompt += '- Si un producto no está en los datos mostrados, usa la herramienta query_database con el filtro "parte" correcto para buscar más registros antes de decir que no está disponible.\n';
-    prompt += '- Puedes mencionar productos similares que sí estén en los datos.\n';
-    prompt += '- SIEMPRE llama primero a save_contact (con el nombre completo y empresa del cliente) ANTES de llamar a create_order. Esto asegura que el pedido quede asociado al cliente correcto.\n';
+    if (agentKbIds.length > 0) {
+        for (const kbId of agentKbIds) {
+            const kb = knowledgeBases.find(k => k.id === kbId);
+            if (kb) {
+                prompt += `Base "${kb.name}": columnas: ${(kb.columns || []).join(', ')}.\n`;
+            }
+        }
+        prompt += 'Usa query_database para buscar productos en estas bases.\n';
+    }
 
     return prompt;
 }
@@ -4482,19 +4879,19 @@ function buildAIToolDefinitions(agent) {
         type: 'function',
         function: {
             name: 'save_contact',
-            description: 'Registra o actualiza los datos del cliente en el CRM. LLÁMALA INMEDIATAMENTE cuando el cliente mencione su nombre, empresa, taller o cualquier dato personal — no esperes a que haga un pedido. Si llevas varios mensajes sin saber el nombre del cliente, pregúntaselo y en cuanto lo dé, llama a esta función.',
+            description: 'OBLIGATORIO en cada cotización. Guarda o actualiza contacto en CRM. DEBES pedir: nombre completo, celular, empresa/taller, email, dirección y RFC. Mínimo nombre + celular. DEBES llamar esta función ANTES de create_order. Si no la llamas, el contacto NO se guarda.',
             parameters: {
                 type: 'object',
                 properties: {
-                    name:    { type: 'string', description: 'Nombre completo del cliente o responsable' },
-                    company: { type: 'string', description: 'Nombre del taller, empresa o negocio' },
-                    phone:   { type: 'string', description: 'Número de teléfono' },
+                    name:    { type: 'string', description: 'Nombre completo' },
+                    company: { type: 'string', description: 'Empresa o taller' },
+                    phone:   { type: 'string', description: 'Número de celular (OBLIGATORIO para deduplicación)' },
                     email:   { type: 'string', description: 'Correo electrónico' },
-                    address: { type: 'string', description: 'Dirección completa' },
-                    rfc:     { type: 'string', description: 'RFC para facturación fiscal' },
-                    notes:   { type: 'string', description: 'Notas adicionales relevantes' },
+                    address: { type: 'string', description: 'Dirección' },
+                    rfc:     { type: 'string', description: 'RFC' },
+                    notes:   { type: 'string', description: 'Notas' },
                 },
-                required: ['name'],
+                required: ['name', 'phone'],
             },
         },
     });
@@ -4504,7 +4901,7 @@ function buildAIToolDefinitions(agent) {
         type: 'function',
         function: {
             name: 'create_order',
-            description: 'Crea un nuevo pedido cuando el cliente confirma los productos que desea comprar. Úsala SIEMPRE que el cliente confirme su pedido indicando productos y/o cantidades. Si tienes el precio del producto, inclúyelo.',
+            description: 'OBLIGATORIO en cada cotización. Crea el pedido con los productos cotizados. REQUISITO: save_contact DEBE haberse llamado antes. DEBES llamar esta función después de guardar el contacto — NO esperes confirmación extra del cliente. La herramienta devuelve el número de pedido — compártelo al cliente.',
             parameters: {
                 type: 'object',
                 properties: {
@@ -4531,25 +4928,32 @@ function buildAIToolDefinitions(agent) {
     });
 
     // --- Herramienta 3: consultar base de datos (solo si hay KBs) ---
-    const agentKBs = (agent.knowledgeBases || [])
+    // Usar los IDs raw del agente como fuente de verdad para el enum.
+    // No depender de que el metadata esté cargado en el array global knowledgeBases:
+    // si no está cargado, la herramienta se omite incorrectamente y el modelo
+    // genera pseudo-XML en lugar de un tool_use real.
+    const agentKbIds = agent.knowledgeBases || [];
+    const agentKBsMeta = agentKbIds
         .map(kbId => knowledgeBases.find(kb => kb.id === kbId))
         .filter(Boolean);
 
-    if (agentKBs.length > 0) {
+    if (agentKbIds.length > 0) {
+        const basesInfo = agentKBsMeta.length > 0
+            ? agentKBsMeta.map(kb => `"${kb.name}" (${(kb.columns || []).join(', ')})`).join('; ')
+            : agentKbIds.join(', ');
         tools.push({
             type: 'function',
             function: {
                 name: 'query_database',
-                description: 'Consulta la base de datos de productos cuando necesitas buscar precios, SKUs, disponibilidad o características específicas. '
-                    + 'Úsala siempre que el cliente pregunte por un producto concreto y los datos del prompt no sean suficientes. '
-                    + 'Bases disponibles: ' + agentKBs.map(kb => `"${kb.name}" (${(kb.columns || []).join(', ')})`).join('; '),
+                description: 'Consulta la base de datos de productos. DEBES llamar a esta función SIEMPRE que el cliente pregunte por una pieza o producto específico. Los datos del system prompt son solo una muestra parcial del inventario — si no ves el producto ahí, NO asumas que no existe: búscalo aquí primero. Úsala también para obtener precios exactos, SKUs y disponibilidad. '
+                    + 'Bases disponibles: ' + basesInfo,
                 parameters: {
                     type: 'object',
                     properties: {
                         knowledgeBaseId: {
                             type: 'string',
                             description: 'ID de la base de datos a consultar',
-                            enum: agentKBs.map(kb => kb.id),
+                            enum: agentKbIds,
                         },
                         searchQuery: {
                             type: 'string',
@@ -4622,44 +5026,60 @@ async function saveContactFromAI(contactData) {
     }
 }
 
-// Ejecuta una consulta a la base de datos (usa caché interna)
-async function queryKnowledgeBase(kbId, searchQuery, filters, limit = 10) {
-    if (!currentOrganization) return [];
+// Ejecuta una consulta a la base de datos (usa caché interna).
+// Devuelve texto formateado listo para la IA — nunca JSON crudo ni precio_compra.
+async function queryKnowledgeBase(kbId, searchQuery, filters, limit = 25) {
+    if (!currentOrganization) return 'Error: no hay organización activa.';
 
     // No hacer consulta a Firebase si no hay búsqueda ni filtros definidos
     const hasQuery = searchQuery && searchQuery.trim().length > 0;
     const hasFilters = filters && typeof filters === 'object' && Object.keys(filters).length > 0;
-    if (!hasQuery && !hasFilters) return [];
+    if (!hasQuery && !hasFilters) return 'No se especificó ningún criterio de búsqueda.';
 
     try {
-        let results = await getKBRows(kbId);
+        let rows = await getKBRows(kbId);
 
-        // Scoring semántico: ordenar por relevancia sin descartar score=0.
-        // Así la IA siempre recibe resultados, priorizados del más al menos relevante.
+        if (rows.length === 0) return 'No se encontraron productos en la base de datos.';
+
+        // Scoring semántico: retornar sólo filas relevantes (score > 0).
+        // Si ninguna puntúa, devolver todas ordenadas como fallback.
         if (searchQuery) {
             const { terms: qTerms, years: qYears } = expandSearchTerms(searchQuery);
             if (qTerms.size > 0 || qYears.length > 0) {
-                results = results
+                const scored = rows
                     .map(row => ({ row, score: scoreRow(row, qTerms, qYears) }))
-                    .sort((a, b) => b.score - a.score)
-                    .map(({ row }) => row);
+                    .sort((a, b) => b.score - a.score);
+                const matched = scored.filter(({ score }) => score > 0);
+                rows = matched.length > 0
+                    ? matched.map(({ row }) => row)
+                    : scored.map(({ row }) => row);
             }
         }
 
         // Aplicar filtros de columna adicionales
-        if (filters && typeof filters === 'object') {
+        if (hasFilters) {
             Object.entries(filters).forEach(([key, value]) => {
-                results = results.filter(row => {
+                rows = rows.filter(row => {
                     const rowVal = String(row[key] || '').toLowerCase();
                     return rowVal.includes(String(value).toLowerCase());
                 });
             });
         }
 
-        return results.slice(0, Math.min(limit, 50));
+        const total = rows.length;
+        rows = rows.slice(0, Math.min(limit, 50));
+
+        // Formatear como texto legible, excluyendo precio_compra (confidencial)
+        const columns = Object.keys(rows[0] || {}).filter(k => k !== 'id' && k !== 'precio_compra');
+        const formatted = rows.map((row, i) => {
+            return `${i + 1}. ${columns.map(col => `${col}: ${row[col] ?? ''}`).join(' | ')}`;
+        }).join('\n');
+
+        const totalInfo = total > rows.length ? ` (top ${rows.length} de ${total})` : ` (${rows.length})`;
+        return `Resultados${totalInfo}:\n${formatted}`;
     } catch (error) {
         console.error('Error consultando base de datos:', error);
-        return [];
+        return 'Error al consultar la base de datos.';
     }
 }
 

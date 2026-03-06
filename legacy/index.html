@@ -229,6 +229,20 @@
         </div>
     </div>
 
+    <!-- Modal de Selección de Agente para Test Chat -->
+    <div class="modal-overlay hidden" id="testChatAgentModal">
+        <div class="modal-box">
+            <div class="modal-header">
+                <h3 class="modal-title">Iniciar Chat de Prueba</h3>
+                <button class="modal-close" onclick="closeTestChatAgentModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p class="test-chat-modal-desc">Selecciona un agente de IA para iniciar una conversación de prueba realista. Podrás chatear como si fueras un cliente y ver las respuestas del agente.</p>
+                <div class="test-chat-agent-grid" id="testChatAgentGrid"></div>
+            </div>
+        </div>
+    </div>
+
     <!-- Modal de Liga de Pago -->
     <div class="modal-overlay hidden" id="paymentLinkModal">
         <div class="modal-box">
@@ -238,6 +252,7 @@
             </div>
             <div class="modal-body">
                 <div class="payment-link-contact" id="paymentLinkContact"></div>
+                <div class="payment-link-order-info hidden" id="paymentLinkOrderInfo"></div>
                 <div class="form-group">
                     <label class="form-label">Monto (MXN) *</label>
                     <input type="number" class="form-input" id="paymentLinkAmount" placeholder="0.00" min="1" step="0.01" required>
@@ -463,6 +478,22 @@
         </div>
     </div>
 
+    <!-- Modal de Detalle de Contacto -->
+    <div class="modal-overlay hidden" id="contactDetailModal">
+        <div class="modal-box modal-xl">
+            <div class="modal-header">
+                <h3 class="modal-title">Detalle del Contacto</h3>
+                <button class="modal-close" onclick="closeContactDetail()">&times;</button>
+            </div>
+            <div class="modal-body contact-detail-body" id="contactDetailBody">
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary" onclick="closeContactDetail()">Cerrar</button>
+                <button class="btn-primary" style="max-width:220px" id="contactDetailSaveBtn">Guardar Cambios</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Modal de Agregar/Editar Contacto -->
     <div class="modal-overlay hidden" id="contactModal">
         <div class="modal-box modal-lg">
@@ -499,8 +530,28 @@
                             <input type="text" class="form-input" id="contactRFC" placeholder="XAXX010101000">
                         </div>
                         <div class="form-group">
-                            <label class="form-label">Dirección</label>
+                            <label class="form-label">Razon Social</label>
+                            <input type="text" class="form-input" id="contactRazonSocial" placeholder="Razon social para facturacion">
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label class="form-label">Regimen Fiscal</label>
+                            <input type="text" class="form-input" id="contactRegimenFiscal" placeholder="Ej: 601 - General de Ley">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Direccion</label>
                             <input type="text" class="form-input" id="contactAddress" placeholder="Calle, Colonia, Ciudad, CP">
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label class="form-label">Codigo Postal</label>
+                            <input type="text" class="form-input" id="contactCodigoPostal" placeholder="00000">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Ciudad / Estado</label>
+                            <input type="text" class="form-input" id="contactCiudad" placeholder="Ciudad, Estado">
                         </div>
                     </div>
                     <div class="form-group">
@@ -888,6 +939,7 @@
                                 <div class="conv-list-header">
                                     <div class="conv-list-header-top">
                                         <input type="text" class="conv-search" placeholder="Buscar conversación..." oninput="filterConversations(this.value)">
+                                        <button class="btn-new-chat btn-test-chat" onclick="openTestChatFromConversations()" title="Probar Agente IA">🤖</button>
                                         <button class="btn-new-chat" onclick="openNewChatModal()" title="Nuevo Chat">+</button>
                                     </div>
                                     <div class="conv-filters">
